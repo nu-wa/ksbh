@@ -1,0 +1,21 @@
+[package]
+name = "robots-txt"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+async-trait = { workspace = true }
+bytes = { workspace = true }
+http = { workspace = true }
+ksbh-core = { path = "../../ksbh-core/" }
+ksbh-modules-sdk = { path = "../../ksbh-modules-sdk/" }
+ksbh-types = { workspace = true }
+pingora = { workspace = true }
+scc = { workspace = true }
+serde = { workspace = true }
+smol_str = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true }

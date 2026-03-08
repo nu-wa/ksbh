@@ -1,0 +1,23 @@
+[package]
+name = "ksbh-config-providers-kubernetes"
+version = "0.1.0"
+edition = "2024"
+description = "Kubernetes config provider for KSBH"
+
+[dependencies]
+ksbh-core = { path = "../../ksbh-core" }
+ksbh-types = { workspace = true }
+kube = { workspace = true }
+k8s-openapi = { workspace = true }
+tokio = { workspace = true }
+async-trait = { workspace = true }
+tracing = { workspace = true }
+futures = "0.3"
+hashbrown = { workspace = true }
+scc = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+pingora = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true }

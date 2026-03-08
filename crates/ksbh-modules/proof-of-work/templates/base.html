@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Security Check</title>
+  <style>
+    body { margin: 0; height: 100vh; display: flex; flex-direction: column; justify-content: center; align-items: center; background-color: #0d0d0d; color: #e0e0e0; font-family: 'Segoe UI', system-ui, sans-serif; }
+    .container { width: 420px; text-align: center; padding: 40px; border: 1px solid #222; border-radius: 12px; background: #141414; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
+    #status { margin-bottom: 20px; font-size: 1.2rem; font-weight: 500; min-height: 1.5em; }
+    #loading-bar { width: 100%; height: 10px; background-color: #222; border-radius: 5px; overflow: hidden; margin-bottom: 12px; border: 1px solid #333; }
+    #loading-progress { width: 0%; height: 100%; background-color: #00ff41; transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1); box-shadow: 0 0 15px rgba(0, 255, 65, 0.3); }
+    .stats { font-size: 0.85rem; color: #777; display: flex; justify-content: space-between; margin-top: 10px; font-family: monospace; }
+    .highlight { color: #00ff41; font-weight: bold; }
+  </style>
+</head>
+<body>
+
+  <div class="container">
+    <div id="status">Starting Security Challenge...</div>
+    
+    <div id="loading-bar">
+      <div id="loading-progress"></div>
+    </div>
+
+    <div class="stats">
+      <span id="zero-count">0 / {{ difficulty }} zeroes found</span>
+      <span id="hash-rate">0 H/s</span>
+    </div>
+  </div>
+
+  <form id="powForm" method="POST" action="{{ url }}">
+    <input type="hidden" name="challenge" value="{{ challenge }}">
+    <input type="hidden" name="nonce" id="nonce" value="0">
+    <input type="hidden" name="redirect_to" value="{{ redirect_to }}">
+  </form>
+
+  <script>
+    const progressBar = document.getElementById("loading-progress");
+    const statusText = document.getElementById("status");
+    const zeroText = document.getElementById("zero-count");
+    const rateText = document.getElementById("hash-rate");
+
+    // Template tags injected by backend
+    const config = {
+      challenge: "{{ challenge }}",
+      difficulty: parseInt("{{ difficulty }}") || 4
+    };
+
+    const workerCode = `
+      self.onmessage = async function(e) {
+        const { challenge, difficulty } = e.data;
+        const encoder = new TextEncoder();
+        let maxZeroes = 0;
+        let nonce = 0;
+        let lastReport = performance.now();
+        let hashesSinceReport = 0;
+
+        try {
+          while (true) {
+            const data = encoder.encode(challenge + nonce);
+            // Uses SubtleCrypto (Hardware Accelerated)
+            const hashBuffer = await crypto.subtle.digest("SHA-256", data);
+            const hashArray = new Uint8Array(hashBuffer);
+            
+            // Efficient zero counting
+            let currentZeroes = 0;
+            for (let i = 0; i < hashArray.length; i++) {
+              const byte = hashArray[i];
+              if (byte === 0) {
+                currentZeroes += 2;
+              } else if (byte < 16) {
+                currentZeroes += 1;
+                break;
+              } else {
+                break;
+              }
+            }
+
+            hashesSinceReport++;
+
+            const now = performance.now();
+            if (currentZeroes > maxZeroes || now - lastReport > 800) {
+              if (currentZeroes > maxZeroes) maxZeroes = currentZeroes;
+              const hps = Math.floor((hashesSinceReport / (now - lastReport)) * 1000);
+              
+              self.postMessage({
+                type: 'progress',
+                zeroes: Math.min(maxZeroes, difficulty), 
+                hps: hps
+              });
+
+              lastReport = now;
+              hashesSinceReport = 0;
+            }
+
+            if (currentZeroes >= difficulty) {
+              self.postMessage({ type: 'done', nonce, zeroes: currentZeroes });
+              break;
+            }
+            nonce++;
+          }
+        } catch (err) {
+          self.postMessage({ type: 'error', message: err.message });
+        }
+      };
+    `;
+
+    
+
+    const blob = new Blob([workerCode], { type: "application/javascript" });
+    const worker = new Worker(URL.createObjectURL(blob));
+
+    worker.onmessage = function(e) {
+      const { type, zeroes, hps, nonce, message } = e.data;
+
+      if (type === 'progress') {
+        const progressPercent = Math.min((zeroes / config.difficulty) * 100, 100);
+        progressBar.style.width = progressPercent + "%";
+        zeroText.innerHTML = zeroes + " / " + config.difficulty + " zeroes found";
+        if (hps) rateText.innerText = hps.toLocaleString() + " H/s";
+        statusText.innerText = "Crunching Hashes...";
+      } 
+      
+      else if (type === 'done') {
+        progressBar.style.width = "100%";
+        zeroText.innerHTML = config.difficulty + " / " + config.difficulty + " zeroes found";
+        statusText.innerHTML = '<span class="highlight">**' + config.difficulty + '**</span> zeroes found!';
+        document.getElementById("nonce").value = nonce;
+        
+        setTimeout(() => {
+          document.getElementById("powForm").submit();
+        }, 600);
+      }
+
+      else if (type === 'error') {
+        statusText.style.color = "#ff4444";
+        statusText.innerText = "Hardware acceleration error. Please refresh.";
+      }
+    };
+
+    worker.postMessage(config);
+  </script>
+</body>
+</html>
+

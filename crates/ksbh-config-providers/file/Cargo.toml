@@ -1,0 +1,20 @@
+[package]
+name = "ksbh-config-providers-file"
+version = "0.1.0"
+edition = "2024"
+description = "File-based config provider for KSBH"
+
+[dependencies]
+ksbh-core = { path = "../../ksbh-core" }
+ksbh-types = { workspace = true }
+serde = { workspace = true }
+serde_yaml = "0.9"
+notify = { version = "6", features = ["macos_kqueue"] }
+tokio = { workspace = true }
+async-trait = { workspace = true }
+tracing = { workspace = true }
+hashbrown = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3"
+tokio = { workspace = true }

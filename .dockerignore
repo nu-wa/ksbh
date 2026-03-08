@@ -1,0 +1,10 @@
+crates/target/
+extra_mount/
+.git
+!crates/target/x86_64-unknown-linux-musl/release/ksbh
+!crates/target/x86_64-unknown-linux-musl/release/*.so
+!crates/target/x86_64-unknown-linux-gnu/profiling/ksbh
+!crates/target/x86_64-unknown-linux-gnu/profiling/*.so
+!crates/target/x86_64-unknown-linux-gnu/release/ksbh
+!crates/target/x86_64-unknown-linux-gnu/release/*.so
+!crates/target/wasm32-wasip1/release/*.wasm

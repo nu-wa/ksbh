@@ -1,0 +1,180 @@
+#[repr(C)]
+pub struct RequestInfo {
+    pub uri: super::ModuleBuffer,
+    pub host: super::ModuleBuffer,
+    pub method: super::ModuleBuffer,
+    pub path: super::ModuleBuffer,
+    pub query_params: QueryParams,
+    pub scheme: super::ModuleBuffer,
+    pub port: u16,
+}
+
+unsafe impl Send for RequestInfo {}
+unsafe impl Sync for RequestInfo {}
+
+#[repr(C)]
+pub struct QueryParams {
+    pub params: *const super::ModuleKvSlice,
+    pub len: usize,
+}
+
+unsafe impl Send for QueryParams {}
+unsafe impl Sync for QueryParams {}
+
+impl QueryParams {
+    pub fn new(params: &[super::ModuleKvSlice]) -> Self {
+        Self {
+            params: params.as_ptr(),
+            len: params.len(),
+        }
+    }
+
+    pub fn as_slice(&self) -> &[super::ModuleKvSlice] {
+        unsafe { ::std::slice::from_raw_parts(self.params, self.len) }
+    }
+}
+
+#[repr(C)]
+pub struct IpAddress {
+    pub data: *const u8,
+    pub len: usize,
+    pub is_ipv6: bool,
+}
+
+impl IpAddress {
+    pub fn new_v4(ptr: *const u8, len: usize) -> Self {
+        Self {
+            data: ptr,
+            len,
+            is_ipv6: false,
+        }
+    }
+
+    pub fn new_v6(ptr: *const u8, len: usize) -> Self {
+        Self {
+            data: ptr,
+            len,
+            is_ipv6: true,
+        }
+    }
+
+    pub fn as_bytes(&self) -> &[u8] {
+        unsafe { ::std::slice::from_raw_parts(self.data, self.len) }
+    }
+}
+
+#[repr(C)]
+pub struct PublicConfig {
+    pub http_port: u16,
+    pub https_port: u16,
+}
+
+impl RequestInfo {
+    pub fn new(
+        request_info: &ksbh_types::requests::http_request::HttpRequestView,
+        query_params_data: &[super::ModuleKvSlice],
+    ) -> Self {
+        Self {
+            uri: super::ModuleBuffer::from_ref(&request_info.uri),
+            host: super::ModuleBuffer::from_ref(request_info.host),
+            method: super::ModuleBuffer::from_ref(request_info.method.0),
+            path: super::ModuleBuffer::from_ref(request_info.query.path),
+            query_params: QueryParams::new(query_params_data),
+            scheme: super::ModuleBuffer::from_ref(request_info.scheme.0.as_str()),
+            port: request_info.port,
+        }
+    }
+
+    pub fn get_uri(&self) -> Option<&str> {
+        self.uri.as_str()
+    }
+
+    pub fn get_scheme(&self) -> Option<&str> {
+        self.scheme.as_str()
+    }
+
+    pub fn get_host(&self) -> Option<&str> {
+        self.host.as_str()
+    }
+
+    pub fn get_method(&self) -> Option<&str> {
+        self.method.as_str()
+    }
+
+    pub fn get_path(&self) -> Option<&str> {
+        self.path.as_str()
+    }
+
+    pub fn get_query_params(&self) -> &[super::ModuleKvSlice] {
+        self.query_params.as_slice()
+    }
+
+    pub fn get_query_param(&self, key: &str) -> Option<&str> {
+        let key_bytes = key.as_bytes();
+
+        for entry in self.query_params.as_slice() {
+            let k = unsafe { ::std::slice::from_raw_parts(entry.key, entry.key_len) };
+
+            if k == key_bytes {
+                let v = unsafe { ::std::slice::from_raw_parts(entry.value, entry.value_len) };
+                return ::std::str::from_utf8(v).ok();
+            }
+        }
+
+        None
+    }
+
+    pub fn get_port(&self) -> u16 {
+        self.port
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_query_params_new() {
+        let params: Vec<super::super::ModuleKvSlice> = vec![];
+        let query = QueryParams::new(&params);
+        assert_eq!(query.len, 0);
+        assert!(query.as_slice().is_empty());
+    }
+
+    #[test]
+    fn test_query_params_with_values() {
+        let key = b"key";
+        let value = b"value";
+        let kv = super::super::ModuleKvSlice {
+            key: key.as_ptr(),
+            key_len: key.len(),
+            value: value.as_ptr(),
+            value_len: value.len(),
+        };
+        let query = QueryParams::new(&[kv]);
+        assert_eq!(query.len, 1);
+    }
+
+    #[test]
+    fn test_ip_address_new_v4() {
+        let data = b"192.168.1.1";
+        let ip = IpAddress::new_v4(data.as_ptr(), data.len());
+        assert!(!ip.is_ipv6);
+        assert_eq!(ip.len, data.len());
+    }
+
+    #[test]
+    fn test_ip_address_new_v6() {
+        let data = b"::1";
+        let ip = IpAddress::new_v6(data.as_ptr(), data.len());
+        assert!(ip.is_ipv6);
+        assert_eq!(ip.len, data.len());
+    }
+
+    #[test]
+    fn test_ip_address_as_bytes() {
+        let data = b"127.0.0.1";
+        let ip = IpAddress::new_v4(data.as_ptr(), data.len());
+        assert_eq!(ip.as_bytes(), data);
+    }
+}

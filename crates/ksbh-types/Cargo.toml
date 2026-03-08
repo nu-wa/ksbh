@@ -1,0 +1,32 @@
+[package]
+name = "ksbh-types"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+name = "ksbh_types"
+path = "src/lib.rs"
+
+[dependencies]
+async-trait = { workspace = true }
+bytes = { workspace = true }
+http = { workspace = true }
+pingora = { workspace = true }
+rkyv = { workspace = true }
+rmp-serde = { workspace = true }
+serde = { workspace = true }
+smol_str = { workspace = true }
+uuid = { workspace = true }
+arc-swap = { workspace = true }
+
+[dependencies.pingora-http]
+workspace = true
+
+[features]
+default = []
+test-util = []
+
+[dev-dependencies]
+proptest = { workspace = true }
+serde_json = { workspace = true }

@@ -1,0 +1,29 @@
+[package]
+name = "proof-of-work"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+askama = { workspace = true }
+async-trait = { workspace = true }
+blake3 = { workspace = true }
+bytes = { workspace = true }
+chrono = { workspace = true }
+hashbrown = { workspace = true }
+hex = { workspace = true }
+http = { workspace = true }
+ksbh-core = { path = "../../ksbh-core/" }
+ksbh-modules-sdk = { path = "../../ksbh-modules-sdk/" }
+ksbh-types = { workspace = true }
+pingora = { workspace = true }
+scc = { workspace = true }
+serde = { workspace = true }
+sha2 = { workspace = true }
+smol_str = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+urlencoding = "2.1.3"
+uuid = { workspace = true }

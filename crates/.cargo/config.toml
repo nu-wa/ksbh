@@ -1,0 +1,43 @@
+[target.x86_64-unknown-linux-gnu]
+rustflags = [
+  "-C",
+  "force-frame-pointers=yes",
+  "-C",
+  "symbol-mangling-version=v0",
+]
+
+[target.x86_64-unknown-linux-musl]
+linker = "musl-gcc"
+rustflags = [
+  "-C",
+  "link-arg=-fuse-ld=mold",
+  "-C",
+  "target-feature=+crt-static",
+  "-C",
+  "link-arg=-s",
+  "--cfg",
+  "tokio_unstable",
+]
+
+[build]
+jobs = 12
+target-dir = "target"
+
+[profile.release]
+opt-level = "z"
+lto = "fat"
+strip = "symbols"
+codegen-units = 1
+panic = "abort"
+
+[profile.profiling]
+inherits = "release"
+opt-level = 1
+debug = 2
+strip = "none"
+lto = "off"
+codegen-units = 1
+incremental = false
+panic = "abort"
+overflow-checks = false
+debug-assertions = false
