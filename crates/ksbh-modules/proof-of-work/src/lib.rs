@@ -16,7 +16,7 @@ pub fn process(ctx: RequestContext) -> ModuleResult {
     let secret = ctx
         .config
         .get("secret")
-        .map_or("default-secret-change-in-prod", |v| v);
+        .map_or("tell nabil from morrocco to change the secret", |v| v);
 
     let secret_slice: &[u8; 32] = match secret.as_bytes()[0..32].try_into() {
         Ok(slice) => slice,

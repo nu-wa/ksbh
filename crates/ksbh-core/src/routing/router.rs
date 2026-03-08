@@ -54,16 +54,17 @@ impl Router {
 
     fn find_route(
         &self,
-        request: &ksbh_types::prelude::HttpRequest,
+        request: &ksbh_types::requests::http_request::HttpRequestView,
     ) -> Option<super::request_match::RequestMatch> {
-        let path = if request.query.path.len() > 1 && request.query.path.as_str().ends_with('/') {
-            request.query.path.as_str().trim_end_matches('/')
+        let path = if request.query.path.len() > 1 && request.query.path.ends_with('/') {
+            request.query.path.trim_end_matches('/')
         } else {
-            request.query.path.as_str()
+            request.query.path
         };
+        let key = ksbh_types::KsbhStr::new(request.host);
 
         self.hosts
-            .read_sync(&request.host, |_, host| {
+            .read_sync(&key, |_, host| {
                 for entry in &host.entries {
                     if let Some(backend) = entry.paths.find(path) {
                         return Some(super::RequestMatch {
@@ -355,7 +356,7 @@ impl Router {
 impl RouterReader {
     pub fn find_route(
         &self,
-        http_request: &ksbh_types::prelude::HttpRequest,
+        http_request: &ksbh_types::requests::http_request::HttpRequestView,
     ) -> Option<super::request_match::RequestMatch> {
         self.router.find_route(http_request)
     }
@@ -396,7 +397,7 @@ impl RouterWriter {
 
     pub fn find_route(
         &self,
-        http_request: &ksbh_types::prelude::HttpRequest,
+        http_request: &ksbh_types::requests::http_request::HttpRequestView,
     ) -> Option<super::request_match::RequestMatch> {
         self.router.find_route(http_request)
     }

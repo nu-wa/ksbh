@@ -91,9 +91,7 @@ impl Storage {
         Self { redis_provider }
     }
 
-    pub async fn get_redis(
-        &self,
-    ) -> Result<Box<dyn redis::ConnectionLike + Send>, redis::RedisError> {
+    pub fn get_redis(&self) -> Result<Box<dyn redis::ConnectionLike + Send>, redis::RedisError> {
         self.redis_provider.get_connection()
     }
 }

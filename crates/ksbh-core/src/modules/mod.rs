@@ -4,29 +4,6 @@ pub mod registry;
 pub type ModuleConfigurationValues =
     ::std::sync::Arc<hashbrown::HashMap<ksbh_types::KsbhStr, ksbh_types::KsbhStr>>;
 
-#[async_trait::async_trait]
-pub trait Module: Send + Sync + ::std::fmt::Debug {
-    async fn proxy_request_filter(
-        &self,
-        mod_config: &ModuleConfigurationValues,
-        session: &mut dyn ksbh_types::prelude::ProxyProviderSession,
-        request_information: &mut crate::proxy::EarlyRequestInformation,
-        storage: &::std::sync::Arc<crate::storage::Storage>,
-    ) -> Result<bool, Box<dyn ModuleError>>;
-
-    fn get_type(&self) -> ModuleConfigurationType;
-}
-
-#[async_trait::async_trait]
-pub trait ModuleError: Send + Sync + ::std::fmt::Debug {
-    async fn early_to_pingora(&self) -> (http::status::StatusCode, bytes::Bytes);
-
-    async fn to_pingora(
-        &self,
-        pingora_session: &mut pingora::proxy::Session,
-    ) -> pingora::Result<bool>;
-}
-
 #[derive(
     Debug,
     Clone,

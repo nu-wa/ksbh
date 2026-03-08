@@ -55,10 +55,6 @@ mod tests {
                 started: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
             }
         }
-
-        fn was_started(&self) -> bool {
-            self.started.load(std::sync::atomic::Ordering::SeqCst)
-        }
     }
 
     #[async_trait::async_trait]

@@ -96,6 +96,7 @@ impl ModuleHost {
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn call_module<'req>(
         &self,
         module_type: &crate::modules::ModuleConfigurationType,
@@ -104,6 +105,7 @@ impl ModuleHost {
         request_view: &'req ksbh_types::requests::http_request::HttpRequestView<'req>,
         body: Option<&[u8]>,
         module_name: &'req str,
+        session_id: uuid::Uuid,
     ) -> Result<(), ModuleHostError> {
         let module = match self.modules.get_sync(module_type) {
             Some(m) => m,
@@ -149,7 +151,7 @@ impl ModuleHost {
         let request_info =
             super::module_request_info::RequestInfo::new(request_view, &query_params);
 
-        let session_id = request_view.req_uuid.into_bytes();
+        let session_id_bytes = session_id.into_bytes();
 
         let client_ip = crate::utils::get_client_ip_from_session(session)
             .map(|ip| ip.to_string())
@@ -176,8 +178,8 @@ impl ModuleHost {
             headers: &headers,
             req_info: &request_info,
             body: body.unwrap_or(&[]),
-            log_fn: super::host_functions::host_log_callback,
-            session_id,
+            log_fn: super::host_functions::host_fn_log,
+            session_id: session_id_bytes,
             session_get_fn: super::host_functions::host_session_get,
             session_set_fn: super::host_functions::host_session_set,
             session_set_with_ttl_fn: super::host_functions::host_session_set_with_ttl,
@@ -250,6 +252,7 @@ impl ModuleHost {
             module.free_response(module_response);
         }
 
+        // TODO: handle error
         let _ = session.write_response(response).await;
 
         Ok(())

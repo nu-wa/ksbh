@@ -41,6 +41,10 @@ impl<'a> ksbh_types::prelude::ProxyProviderSession for PingoraSessionWrapper<'a>
         self.session.req_header_mut().set_uri(uri);
     }
 
+    fn response_sent(&self) -> bool {
+        self.session.body_bytes_sent() > 0 || self.response_written().is_some()
+    }
+
     async fn write_response(
         &mut self,
         response: http::Response<bytes::Bytes>,

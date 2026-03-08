@@ -27,7 +27,6 @@ impl Logger {
         self.log(3, msg);
     }
 
-    #[doc(hidden)]
     pub fn log_with_format(&self, level: u8, args: ::std::fmt::Arguments<'_>) {
         let msg = ::std::format!("{}", args);
         self.log(level, &msg);

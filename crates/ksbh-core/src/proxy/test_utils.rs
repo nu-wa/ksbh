@@ -112,7 +112,6 @@ pub enum ModuleConfig {
     PoW(PoWConfig),
     HttpToHttps,
     RobotsTxt,
-    Custom(Box<dyn crate::modules::Module>),
 }
 
 pub struct OIDCConfig {

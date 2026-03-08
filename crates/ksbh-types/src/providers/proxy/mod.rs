@@ -83,6 +83,8 @@ pub trait ProxyProviderSession: Send + Sync {
 
     fn response_written(&self) -> Option<http::Response<bytes::Bytes>>;
 
+    fn response_sent(&self) -> bool;
+
     fn client_addr(&self) -> Option<::std::net::IpAddr>;
 
     async fn write_response(

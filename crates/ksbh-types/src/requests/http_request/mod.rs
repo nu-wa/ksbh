@@ -17,6 +17,7 @@ pub struct HttpRequest {
     pub method: crate::prelude::HttpMethod,
 }
 
+#[derive(Debug)]
 pub struct HttpRequestView<'a> {
     pub uri: String,
     pub base_url: String,

@@ -50,14 +50,17 @@ pub static JWT_ENC_DEC_KEY: ::std::sync::LazyLock<jsonwebtoken::DecodingKey> =
 
 fn main() -> anyhow::Result<()> {
     let (non_blocking, _guard) = tracing_appender::non_blocking(::std::io::stdout());
+    tracing_log::LogTracer::init().ok();
     tracing_subscriber::registry()
         .with(
             tracing_subscriber::fmt::layer()
                 .with_writer(non_blocking)
+                .with_target(true) // prints the host crate/module target
                 .compact(),
         )
         .with(tracing_subscriber::EnvFilter::from_env("DEBUG_LEVEL"))
-        .init();
+        .try_init()
+        .ok();
 
     tracing::info!("Starting ksbh...");
 

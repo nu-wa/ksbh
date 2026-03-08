@@ -37,6 +37,7 @@ macro_rules! register_module {
         pub unsafe extern "C" fn get_module_type() -> ksbh_core::modules::abi::ModuleType {
             $type.to_ffi()
         }
+
         #[unsafe(no_mangle)]
         pub unsafe extern "C" fn request_filter(
             ctx: *const ksbh_core::modules::abi::ModuleContext<'_>,
@@ -48,16 +49,6 @@ macro_rules! register_module {
             match $func(ctx) {
                 $crate::ModuleResult::Pass => std::ptr::null(),
                 $crate::ModuleResult::Stop(resp) => $crate::ffi::alloc_response(resp),
-            }
-        }
-        #[unsafe(no_mangle)]
-        pub unsafe extern "C" fn free_response(
-            resp: *const ksbh_core::modules::abi::ModuleResponse,
-        ) {
-            if !resp.is_null() {
-                unsafe {
-                    let _ = Box::from_raw(resp as *mut ksbh_core::modules::abi::ModuleResponse);
-                }
             }
         }
     };

@@ -53,6 +53,7 @@ impl pingora::listeners::TlsAccept for DynamicTLS {
             );
             return;
         }
+
         if let Err(e) = pingora::tls::ext::ssl_use_private_key(ssl, private_key) {
             tracing::error!(
                 "There was an error setting certificate for {}, '{}'",
@@ -61,6 +62,7 @@ impl pingora::listeners::TlsAccept for DynamicTLS {
             );
             return;
         }
+
         for intermediate in cert_chain.iter().skip(1) {
             if let Err(e) = ssl.add_chain_cert(intermediate.clone()) {
                 tracing::error!(

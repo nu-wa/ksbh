@@ -206,6 +206,10 @@ impl ProxyProviderSession for MockProxyProviderSession {
         self.response_written.clone()
     }
 
+    fn response_sent(&self) -> bool {
+        self.response_written.is_some()
+    }
+
     fn client_addr(&self) -> Option<::std::net::IpAddr> {
         self.client_addr
     }

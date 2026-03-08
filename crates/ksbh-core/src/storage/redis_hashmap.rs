@@ -89,7 +89,7 @@ where
         self.container.remove_sync(&key);
 
         if let Some(redis) = self.redis_connection.clone()
-            && let Ok(mut conn) = redis.get_redis().await
+            && let Ok(mut conn) = redis.get_redis()
         {
             let key_bytes = rmp_serde::to_vec(&key).ok()?;
             let raw_data: Option<Vec<u8>> = redis::cmd("GET")
@@ -169,23 +169,20 @@ where
 
     pub fn get_redis_sync(&self, key: &K) -> Option<V> {
         let redis = self.redis_connection.as_ref()?;
-        let rt = tokio::runtime::Handle::current();
 
-        rt.block_on(async {
-            let mut conn = redis.get_redis().await.ok()?;
-            let key_bytes = rmp_serde::to_vec(key).ok()?;
-            let raw_data: Option<Vec<u8>> = redis::cmd("GET")
-                .arg(&key_bytes)
-                .query::<Option<Vec<u8>>>(&mut *conn)
-                .ok()
-                .flatten();
+        let mut conn = redis.get_redis().ok()?;
+        let key_bytes = rmp_serde::to_vec(key).ok()?;
+        let raw_data: Option<Vec<u8>> = redis::cmd("GET")
+            .arg(&key_bytes)
+            .query::<Option<Vec<u8>>>(&mut *conn)
+            .ok()
+            .flatten();
 
-            if let Some(bytes) = raw_data {
-                rmp_serde::from_slice::<V>(&bytes).ok()
-            } else {
-                None
-            }
-        })
+        if let Some(bytes) = raw_data {
+            rmp_serde::from_slice::<V>(&bytes).ok()
+        } else {
+            None
+        }
     }
 
     pub fn set_redis_sync(&self, key: K, value: V) -> bool {
@@ -193,29 +190,26 @@ where
             Some(r) => r,
             None => return false,
         };
-        let rt = tokio::runtime::Handle::current();
         let redis_ttl = self.redis_ttl.as_secs();
 
-        rt.block_on(async {
-            let mut conn = match redis.get_redis().await {
-                Ok(c) => c,
-                Err(_) => return false,
-            };
-            let key_bytes = match rmp_serde::to_vec(&key) {
-                Ok(k) => k,
-                Err(_) => return false,
-            };
-            let encoded = match rmp_serde::to_vec(&value) {
-                Ok(v) => v,
-                Err(_) => return false,
-            };
-            redis::cmd("SETEX")
-                .arg(&key_bytes)
-                .arg(redis_ttl)
-                .arg(&encoded)
-                .query::<()>(&mut *conn)
-                .is_ok()
-        })
+        let mut conn = match redis.get_redis() {
+            Ok(c) => c,
+            Err(_) => return false,
+        };
+        let key_bytes = match rmp_serde::to_vec(&key) {
+            Ok(k) => k,
+            Err(_) => return false,
+        };
+        let encoded = match rmp_serde::to_vec(&value) {
+            Ok(v) => v,
+            Err(_) => return false,
+        };
+        redis::cmd("SETEX")
+            .arg(&key_bytes)
+            .arg(redis_ttl)
+            .arg(&encoded)
+            .query::<()>(&mut *conn)
+            .is_ok()
     }
 
     pub fn set_redis_sync_with_ttl(&self, key: K, value: V, ttl_secs: u64) -> bool {
@@ -223,28 +217,25 @@ where
             Some(r) => r,
             None => return false,
         };
-        let rt = tokio::runtime::Handle::current();
 
-        rt.block_on(async {
-            let mut conn = match redis.get_redis().await {
-                Ok(c) => c,
-                Err(_) => return false,
-            };
-            let key_bytes = match rmp_serde::to_vec(&key) {
-                Ok(k) => k,
-                Err(_) => return false,
-            };
-            let encoded = match rmp_serde::to_vec(&value) {
-                Ok(v) => v,
-                Err(_) => return false,
-            };
-            redis::cmd("SETEX")
-                .arg(&key_bytes)
-                .arg(ttl_secs)
-                .arg(&encoded)
-                .query::<()>(&mut *conn)
-                .is_ok()
-        })
+        let mut conn = match redis.get_redis() {
+            Ok(c) => c,
+            Err(_) => return false,
+        };
+        let key_bytes = match rmp_serde::to_vec(&key) {
+            Ok(k) => k,
+            Err(_) => return false,
+        };
+        let encoded = match rmp_serde::to_vec(&value) {
+            Ok(v) => v,
+            Err(_) => return false,
+        };
+        redis::cmd("SETEX")
+            .arg(&key_bytes)
+            .arg(ttl_secs)
+            .arg(&encoded)
+            .query::<()>(&mut *conn)
+            .is_ok()
     }
 
     pub fn remove_redis_sync(&self, key: &K) -> bool {
@@ -252,23 +243,20 @@ where
             Some(r) => r,
             None => return false,
         };
-        let rt = tokio::runtime::Handle::current();
 
-        rt.block_on(async {
-            let mut conn = match redis.get_redis().await {
-                Ok(c) => c,
-                Err(_) => return false,
-            };
-            let key_bytes = match rmp_serde::to_vec(key) {
-                Ok(k) => k,
-                Err(_) => return false,
-            };
-            redis::cmd("DEL")
-                .arg(&key_bytes)
-                .query::<i32>(&mut *conn)
-                .map(|n| n > 0)
-                .unwrap_or(false)
-        })
+        let mut conn = match redis.get_redis() {
+            Ok(c) => c,
+            Err(_) => return false,
+        };
+        let key_bytes = match rmp_serde::to_vec(key) {
+            Ok(k) => k,
+            Err(_) => return false,
+        };
+        redis::cmd("DEL")
+            .arg(&key_bytes)
+            .query::<i32>(&mut *conn)
+            .map(|n| n > 0)
+            .unwrap_or(false)
     }
 
     pub async fn watch(&self, interval: tokio::time::Duration) -> tokio::task::JoinHandle<()> {
@@ -283,7 +271,7 @@ where
                 interval_timer.tick().await;
 
                 if let Some(redis) = redis_conn.clone()
-                    && let Ok(mut conn) = redis.get_redis().await
+                    && let Ok(mut conn) = redis.get_redis()
                 {
                     let now = tokio::time::Instant::now();
                     let mut to_store = Vec::new();

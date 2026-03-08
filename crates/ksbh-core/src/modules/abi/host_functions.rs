@@ -29,7 +29,7 @@ pub fn set_module_metrics(metrics: MetricsStore) {
     let _ = MODULE_METRICS.set(metrics);
 }
 
-unsafe extern "C" fn host_fn_log(
+pub unsafe extern "C" fn host_fn_log(
     level: u8,
     target: *const u8,
     target_len: usize,
@@ -51,25 +51,17 @@ unsafe extern "C" fn host_fn_log(
             ""
         };
 
+        let formatted = format!("[module: {}] {}", target_str, message_str);
+
         match level {
-            0 => log::error!(target: target_str, "{}", message_str),
-            1 => log::warn!(target: target_str, "{}", message_str),
-            2 => log::info!(target: target_str, "{}", message_str),
-            3 => log::debug!(target: target_str, "{}", message_str),
-            _ => log::trace!(target: target_str, "{}", message_str),
+            0 => tracing::error!("{}", formatted),
+            1 => tracing::warn!("{}", formatted),
+            2 => tracing::info!("{}", formatted),
+            3 => tracing::debug!("{}", formatted),
+            _ => tracing::trace!("{}", formatted),
         }
     }
     0
-}
-
-pub unsafe extern "C" fn host_log_callback(
-    level: u8,
-    target: *const u8,
-    target_len: usize,
-    message: *const u8,
-    message_len: usize,
-) -> u8 {
-    unsafe { host_fn_log(level, target, target_len, message, message_len) }
 }
 
 pub unsafe extern "C" fn host_session_get(

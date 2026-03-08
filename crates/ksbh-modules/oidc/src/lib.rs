@@ -1,4 +1,4 @@
-use ksbh_modules_sdk::{log_debug, log_error, ModuleResult, RequestContext};
+use ksbh_modules_sdk::{ModuleResult, RequestContext, log_debug, log_error};
 
 const DEFAULT_SESSION_TTL_SECS: u64 = 3600;
 const FLOW_STATE_TTL_SECS: u64 = 300;
@@ -101,10 +101,6 @@ fn get_or_cache_metadata(
     }
 
     if let Some(entry) = cache.get_sync(issuer_url) {
-        tracing::warn!(
-            "OIDC: discovery failed for {}, serving stale cached metadata",
-            issuer_url
-        );
         return Ok(entry.0.clone());
     }
 
@@ -348,10 +344,6 @@ fn write_error(status: http::StatusCode, message: &str) -> ModuleResult {
 pub fn process(ctx: RequestContext) -> ModuleResult {
     let logger = ctx.logger;
 
-    log_debug!(logger, "===== request_filter START =====");
-    let path = ctx.request.path.as_str();
-    log_debug!(logger, "path = {}", path);
-
     let issuer_url = match ctx.config.get("issuer_url") {
         Some(v) => v.as_str(),
         None => {
@@ -468,10 +460,10 @@ pub fn process(ctx: RequestContext) -> ModuleResult {
         module_path.trim_start_matches('/')
     );
 
-    if oidc_expired && enable_refresh
+    if oidc_expired
+        && enable_refresh
         && let Some(ref refresh_token) = session_data.refresh_token
     {
-        log_debug!(logger, "attempting token refresh");
         match try_refresh_token(&config, &redirect_url, refresh_token) {
             Ok(new_refresh_token) => {
                 session_data.refresh_token = new_refresh_token;
@@ -497,14 +489,12 @@ pub fn process(ctx: RequestContext) -> ModuleResult {
                 return ModuleResult::Stop(response);
             }
             Err(_) => {
-                log_debug!(logger, "token refresh failed, falling back to full auth");
                 session_data.refresh_token = None;
             }
         }
     }
 
     if !path.starts_with(&module_path) || oidc_expired {
-        log_debug!(logger, "initiating authorization flow");
         let uri = ctx.request.uri.as_str();
         match get_authorization_code(
             &config,
@@ -556,7 +546,6 @@ pub fn process(ctx: RequestContext) -> ModuleResult {
     }
 
     if now > flow.time + FIVE_MINUTES {
-        log_debug!(logger, "state expired, re-initiating flow");
         let original_uri = flow.redirect_to.clone();
         match get_authorization_code(
             &config,
@@ -598,7 +587,6 @@ pub fn process(ctx: RequestContext) -> ModuleResult {
     let cookie_header = match cookie.to_cookie_header() {
         Ok(h) => h,
         Err(ref e) => {
-            log_error!(logger, "Cookie header failed: {}", e);
             return write_error(
                 http::StatusCode::INTERNAL_SERVER_ERROR,
                 "Cookie encoding error",

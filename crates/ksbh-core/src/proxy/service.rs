@@ -55,14 +55,10 @@ impl ksbh_types::prelude::ProxyProvider for ProxyService {
 
     async fn early_request_filter(
         &self,
-        session: &mut dyn ksbh_types::prelude::ProxyProviderSession,
-        ctx: &mut Self::ProxyContext,
+        _session: &mut dyn ksbh_types::prelude::ProxyProviderSession,
+        _ctx: &mut Self::ProxyContext,
     ) -> ksbh_types::prelude::ProxyProviderResult {
-        let proxy_decision = self._early_request_filter(session, ctx).await?;
-
-        ctx.proxy_decision = Some(proxy_decision.clone());
-
-        Ok(proxy_decision)
+        Ok(ksbh_types::prelude::ProxyDecision::ContinueProcessing)
     }
 
     async fn request_filter(
@@ -70,15 +66,7 @@ impl ksbh_types::prelude::ProxyProvider for ProxyService {
         session: &mut dyn ksbh_types::prelude::ProxyProviderSession,
         ctx: &mut Self::ProxyContext,
     ) -> ksbh_types::prelude::ProxyProviderResult {
-        if ctx.proxy_decision.is_some() {
-            return Ok(ksbh_types::prelude::ProxyDecision::ContinueProcessing);
-        }
-
-        let proxy_decision = self._request_filter(session, ctx).await?;
-
-        ctx.proxy_decision = Some(proxy_decision.clone());
-
-        Ok(proxy_decision)
+        Ok(self._request_filter(session, ctx).await?)
     }
 
     async fn upstream_peer(
@@ -89,113 +77,90 @@ impl ksbh_types::prelude::ProxyProvider for ProxyService {
     {
         use std::str::FromStr;
 
-        if let Some(proxy_decision) = &ctx.proxy_decision
-            && *proxy_decision != ksbh_types::prelude::ProxyDecision::ContinueProcessing
+        // Return to internal error page
+        if let Some(ksbh_types::prelude::ProxyDecision::StopProcessing(
+            decision_code,
+            _decision_msg,
+        )) = &ctx.proxy_decision
         {
-            match proxy_decision {
-                ksbh_types::prelude::ProxyDecision::ModuleReplied => {
-                    tracing::debug!("ModuleReplied: response already sent, not calling upstream");
-                    return Ok(ksbh_types::providers::proxy::UpstreamPeer {
-                        address: self.config.listen_address_internal.to_string(),
-                    });
+            let uri = ::std::format!("http://internal.ksbh.rs/{}", decision_code.as_str());
+
+            session.set_request_uri(
+                http::Uri::from_str(uri.as_str())
+                    .map_err(ksbh_types::prelude::ProxyProviderError::from)?,
+            );
+
+            return Ok(ksbh_types::providers::proxy::UpstreamPeer {
+                address: self.config.listen_address_internal.to_string(),
+            });
+        }
+
+        if let Some(valid_request_information) = &ctx.valid_request_information {
+            return match &valid_request_information.req_match.backend {
+                crate::routing::ServiceBackendType::ServiceBackend(svc) => {
+                    Ok(ksbh_types::providers::proxy::UpstreamPeer {
+                        address: format!("{}:{}", svc.name, svc.port),
+                    })
                 }
-                ksbh_types::prelude::ProxyDecision::StopProcessing(http_code, body) => {
-                    tracing::debug!(
-                        "StopProcessing: {http_code} body: {:?}",
-                        String::from_utf8(body.to_vec())
+                crate::routing::ServiceBackendType::Static => {
+                    let headers = &session.headers();
+                    let http_request_view =
+                        match ksbh_types::requests::http_request::HttpRequestView::new(
+                            headers,
+                            ctx.req_id,
+                            &self.public_config,
+                        ) {
+                            Ok(view) => view,
+                            Err(_) => {
+                                session.set_request_uri(
+                                    http::Uri::from_str("http://internal.ksbh.rs/500")
+                                        .map_err(ksbh_types::prelude::ProxyProviderError::from)?,
+                                );
+
+                                return Ok(ksbh_types::providers::proxy::UpstreamPeer {
+                                    address: self.config.listen_address_internal.to_string(),
+                                });
+                            }
+                        };
+                    let file_path = format!(
+                        "{}/{}",
+                        http_request_view.host.trim_end_matches("/"),
+                        http_request_view.query
                     );
+                    let file_path = urlencoding::encode(&file_path);
+                    let new_path = format!("/static?file={}", file_path);
 
-                    let error_code = match *http_code {
-                        http::StatusCode::NOT_FOUND => "404",
-                        http::StatusCode::BAD_REQUEST => "400",
-                        _ => "500",
-                    };
-
-                    let uri = format!("http://internal.ksbh.rs/{error_code}");
                     session.set_request_uri(
-                        http::Uri::from_str(uri.as_str())
+                        http::Uri::from_str(&new_path)
                             .map_err(ksbh_types::prelude::ProxyProviderError::from)?,
                     );
 
-                    tracing::debug!("Proxy Decision: {:?}, uri: {:?}", proxy_decision, uri);
-
-                    return Ok(ksbh_types::providers::proxy::UpstreamPeer {
+                    Ok(ksbh_types::providers::proxy::UpstreamPeer {
                         address: self.config.listen_address_internal.to_string(),
-                    });
+                    })
                 }
                 _ => {
-                    return Ok(ksbh_types::providers::proxy::UpstreamPeer {
+                    session.set_request_uri(
+                        http::Uri::from_str("http://internal.ksbh.rs/500")
+                            .map_err(ksbh_types::prelude::ProxyProviderError::from)?,
+                    );
+
+                    Ok(ksbh_types::providers::proxy::UpstreamPeer {
                         address: self.config.listen_address_internal.to_string(),
-                    });
+                    })
                 }
             };
-        };
-
-        match &ctx.backend {
-            crate::routing::ServiceBackendType::ServiceBackend(svc) => {
-                Ok(ksbh_types::providers::proxy::UpstreamPeer {
-                    address: format!("{}:{}", svc.name, svc.port),
-                })
-            }
-            crate::routing::ServiceBackendType::ToSelf(_prefix) => {
-                Ok(ksbh_types::providers::proxy::UpstreamPeer {
-                    address: self.config.listen_address_api.to_string(),
-                })
-            }
-            crate::routing::ServiceBackendType::Static => {
-                let http_req = match &ctx.partial_request_information {
-                    Some(partial_req_info) => &partial_req_info.http_request_info,
-                    None => {
-                        session.set_request_uri(
-                            http::Uri::from_str("http://internal.ksbh.rs/500")
-                                .map_err(ksbh_types::prelude::ProxyProviderError::from)?,
-                        );
-
-                        return Ok(ksbh_types::providers::proxy::UpstreamPeer {
-                            address: self.config.listen_address_internal.to_string(),
-                        });
-                    }
-                };
-
-                let file_path = format!(
-                    "{}/{}",
-                    http_req.host.as_str().trim_end_matches("/"),
-                    http_req.query
-                );
-                let file_path = urlencoding::encode(&file_path);
-                let new_path = format!("/static?file={}", file_path);
-
-                session.set_request_uri(
-                    http::Uri::from_str(&new_path)
-                        .map_err(ksbh_types::prelude::ProxyProviderError::from)?,
-                );
-
-                Ok(ksbh_types::providers::proxy::UpstreamPeer {
-                    address: self.config.listen_address_internal.to_string(),
-                })
-            }
-            crate::routing::ServiceBackendType::None => {
-                session.set_request_uri(
-                    http::Uri::from_str("http://internal.ksbh.rs/404")
-                        .map_err(ksbh_types::prelude::ProxyProviderError::from)?,
-                );
-
-                return Ok(ksbh_types::providers::proxy::UpstreamPeer {
-                    address: self.config.listen_address_internal.to_string(),
-                });
-            }
-            crate::routing::ServiceBackendType::Error(name) => {
-                let uri = format!("http://internal.ksbh.rs/{}", name);
-                session.set_request_uri(
-                    http::Uri::from_str(uri.as_str())
-                        .map_err(ksbh_types::prelude::ProxyProviderError::from)?,
-                );
-
-                return Ok(ksbh_types::providers::proxy::UpstreamPeer {
-                    address: self.config.listen_address_internal.to_string(),
-                });
-            }
         }
+
+        // No request match, no module replied, or invalid request
+        session.set_request_uri(
+            http::Uri::from_str("http://internal.ksbh.rs/404")
+                .map_err(ksbh_types::prelude::ProxyProviderError::from)?,
+        );
+
+        return Ok(ksbh_types::providers::proxy::UpstreamPeer {
+            address: self.config.listen_address_internal.to_string(),
+        });
     }
 
     async fn response_filter(
@@ -204,39 +169,34 @@ impl ksbh_types::prelude::ProxyProvider for ProxyService {
         response: &mut http::response::Parts,
         ctx: &mut Self::ProxyContext,
     ) -> Result<(), ksbh_types::prelude::ProxyProviderError> {
-        if ctx.proxy_decision.is_some() {
+        if ctx.proxy_decision.is_some() || session.response_sent() {
             return Ok(());
         }
 
-        if let Some(valid_req_info) = &ctx.valid_request_information
-            && session.get_header(http::header::UPGRADE).is_none()
+        if !response.headers.contains_key(http::header::SET_COOKIE)
+            && crate::cookies::ProxyCookie::from_session(session)
+                .await
+                .is_err()
+            && let Some(valid_request_information) = &ctx.valid_request_information
         {
-            let module_already_set_cookie =
-                response.headers.get(http::header::SET_COOKIE).is_some();
+            let cookie = crate::cookies::ProxyCookie::new(
+                valid_request_information.host.as_str(),
+                None,
+                valid_request_information.session_id,
+            );
 
-            if !module_already_set_cookie {
-                match valid_req_info.cookie.to_cookie_header() {
-                    Ok(header_string) => {
-                        tracing::debug!(
-                            "Setting cookie in response (no module cookie): {}",
-                            header_string
-                        );
-                        response
-                            .headers
-                            .try_insert(
-                                http::header::SET_COOKIE,
-                                http::HeaderValue::from_str(header_string.as_str())
-                                    .map_err(ksbh_types::prelude::ProxyProviderError::from)?,
-                            )
-                            .map_err(ksbh_types::prelude::ProxyProviderError::from)?;
-                    }
-                    Err(e) => {
-                        tracing::error!("Failed to set cookie: {e}");
-                    }
-                }
-            } else {
-                tracing::debug!("Module already set cookie, skipping");
-            }
+            response
+                .headers
+                .try_insert(
+                    http::header::SET_COOKIE,
+                    http::HeaderValue::from_str(&cookie.to_cookie_header().map_err(|e| {
+                        ksbh_types::prelude::ProxyProviderError::InternalErrorDetailled(
+                            e.to_string(),
+                        )
+                    })?)
+                    .map_err(ksbh_types::prelude::ProxyProviderError::from)?,
+                )
+                .map_err(ksbh_types::prelude::ProxyProviderError::from)?;
         }
 
         response
@@ -256,16 +216,18 @@ impl ksbh_types::prelude::ProxyProvider for ProxyService {
         upstream_request: &mut pingora::http::RequestHeader,
         ctx: &mut Self::ProxyContext,
     ) -> Result<(), ksbh_types::prelude::ProxyProviderError> {
-        if ctx.proxy_decision.is_some() {
+        if ctx.proxy_decision.is_some() || session.response_sent() {
             return Ok(());
         }
 
-        let http_req = match &ctx.valid_request_information {
-            Some(v) => &v.http_request_info,
-            None => match &ctx.early_request_information {
-                Some(e) => &e.http_request_info,
-                None => return Ok(()),
-            },
+        let headers = &session.headers();
+        let http_req = match ksbh_types::requests::http_request::HttpRequestView::new(
+            headers,
+            ctx.req_id,
+            &self.public_config,
+        ) {
+            Ok(view) => view,
+            Err(_) => return Ok(()),
         };
 
         let proto = if http_req.uri.as_str().starts_with("wss")
@@ -333,37 +295,14 @@ impl ksbh_types::prelude::ProxyProvider for ProxyService {
     ) {
         let duration = ctx.req_start.elapsed();
 
-        let client_information = if let Some(valid_req_info) = ctx.valid_request_information.take()
-        {
-            Some((
-                valid_req_info.http_request_info,
-                valid_req_info.client_information,
-            ))
-        } else if let Some(partial_req_info) = ctx.partial_request_information.take() {
-            Some((
-                partial_req_info.http_request_info,
-                partial_req_info.client_information,
-            ))
-        } else {
-            ctx.early_request_information.take().map(|early_req_info| {
-                (
-                    early_req_info.http_request_info,
-                    early_req_info.client_information,
-                )
-            })
-        };
-
-        if let Some(client_information) = client_information
+        if let Some(valid_req_information) = ctx.valid_request_information.take()
             && let Some(response_header) = session.response_written()
             && let Err(e) = self
                 .metrics_sender
                 .send(crate::metrics::RequestMetrics::new(
-                    client_information.1,
-                    client_information.0,
-                    ::std::mem::replace(&mut ctx.backend, crate::routing::ServiceBackendType::None),
-                    true,
-                    response_header.status(),
+                    valid_req_information,
                     ::std::mem::take(&mut ctx.modules_metrics),
+                    response_header.status(),
                     duration.as_secs_f64(),
                 ))
                 .await

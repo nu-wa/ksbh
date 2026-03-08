@@ -14,10 +14,7 @@ pub enum RequestStage {
 // Request data for metrics
 #[derive(Clone)]
 pub struct RequestMetrics {
-    client_information: crate::proxy::PartialClientInformation,
-    http_request_info: ksbh_types::prelude::HttpRequest,
-    backend_type: crate::routing::ServiceBackendType,
-    cookie_set: bool,
+    request_information: crate::proxy::ValidRequestInformation,
     status_code: http::StatusCode,
     req_time: f64,
     modules: Vec<module_metric::ModuleMetric>,
@@ -52,21 +49,14 @@ pub struct MetricsReader {
 }
 
 impl RequestMetrics {
-    #[allow(clippy::too_many_arguments)]
     pub fn new(
-        client_information: crate::proxy::PartialClientInformation,
-        http_request_info: ksbh_types::prelude::HttpRequest,
-        backend_type: crate::routing::ServiceBackendType,
-        cookie_set: bool,
-        status_code: http::StatusCode,
+        request_information: crate::proxy::ValidRequestInformation,
         modules: Vec<module_metric::ModuleMetric>,
+        status_code: http::StatusCode,
         req_time: f64,
     ) -> Self {
         Self {
-            client_information,
-            http_request_info,
-            backend_type,
-            cookie_set,
+            request_information,
             status_code,
             req_time,
             modules,
@@ -91,11 +81,9 @@ impl ::std::fmt::Display for RequestMetrics {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "{} - {} {} '{}' {:.2} ms",
-            self.client_information,
-            self.http_request_info.method,
+            "{} - {} {:.2} ms",
+            self.request_information.client_information,
             self.status_code,
-            self.http_request_info.uri,
             self.req_time * 1000.0f64
         )
     }
@@ -105,14 +93,10 @@ impl ::std::fmt::Debug for RequestMetrics {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "{} - {} {} '{}' {:.2} ms - {} - {:?} {:?}",
-            self.client_information,
-            self.http_request_info.method,
+            "{} - {} {:.2} ms - {:?}",
+            self.request_information.client_information,
             self.status_code,
-            self.http_request_info.uri,
             self.req_time * 1000.0f64,
-            self.cookie_set,
-            self.backend_type,
             self.modules,
         )
     }
@@ -149,7 +133,8 @@ impl Metrics {
         } else {
             tracing::info!("{}", http_request);
         }
-        let key = http_request.client_information.clone();
+
+        let key = http_request.request_information.client_information.clone();
 
         let mut previous = match self.http_requests.get_sync(&key) {
             Some(previous) => previous.to_owned(),
@@ -165,26 +150,19 @@ impl Metrics {
         };
 
         let status_code_u16 = http_request.status_code.as_u16();
-        let mut outcome = "good";
 
         if status_code_u16 >= 400 && status_code_u16 != 401 && status_code_u16 != 403 {
             previous_hits.bad += 1;
-            outcome = "bad";
         } else {
             previous_hits.good += 1;
         }
         let status_str = http_request.status_code.to_string();
-        let method_str = http_request.http_request_info.method.to_string();
-        let backend_str = format!("{:?}", http_request.backend_type);
+        let backend_str = format!("{:?}", http_request.request_information.req_match.backend);
 
         previous.push_back(http_request.clone());
 
         self.http_requests.upsert_sync(key.clone(), previous);
         self.http_hits.upsert(key, previous_hits).await;
-
-        prom::HTTP_REQUESTS_TOTAL
-            .with_label_values(&[&method_str, &status_str, &backend_str, outcome])
-            .inc();
 
         prom::HTTP_RESPONSE_TIME_SECONDS
             .with_label_values(&[&backend_str, &status_str])
@@ -400,19 +378,5 @@ mod tests {
 
         let http_info =
             ksbh_types::prelude::HttpRequest::t_create("localhost", Some(b"/test"), Some("GET"));
-
-        let metrics = RequestMetrics::new(
-            client_info,
-            http_info,
-            crate::routing::ServiceBackendType::None,
-            false,
-            http::StatusCode::OK,
-            vec![],
-            0.1,
-        );
-
-        let display = format!("{}", metrics);
-        assert!(display.contains("127.0.0.1"));
-        assert!(display.contains("GET"));
     }
 }

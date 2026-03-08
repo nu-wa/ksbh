@@ -1,7 +1,7 @@
 #[derive(Debug)]
 pub enum ModuleInstanceError {
     FailedToLoad(String),
-    MissingFunction,
+    MissingFunction(&'static str),
 }
 
 #[derive(Debug)]
@@ -29,21 +29,21 @@ impl ModuleInstance {
         let entry_fn: super::ModuleEntryFn = unsafe {
             *lib.get(b"request_filter\0").map_err(|e| {
                 tracing::error!("Failed to find request_filter in {:?}: {}", path_ref, e);
-                ModuleInstanceError::MissingFunction
+                ModuleInstanceError::MissingFunction("request_filter")
             })?
         };
 
         let get_type_fn: super::ModuleGetTypeFn = unsafe {
             *lib.get(b"get_module_type\0").map_err(|e| {
                 tracing::error!("Failed to find get_module_type in {:?}: {}", path_ref, e);
-                ModuleInstanceError::MissingFunction
+                ModuleInstanceError::MissingFunction("get_module_type")
             })?
         };
 
         let free_response_fn: super::ModuleResponseFreeFn = unsafe {
-            *lib.get(b"free_module_buffer\0").map_err(|e| {
-                tracing::error!("Failed to find free_module_buffer in {:?}: {}", path_ref, e);
-                ModuleInstanceError::MissingFunction
+            *lib.get(b"free_response\0").map_err(|e| {
+                tracing::error!("Failed to find free_response in {:?}: {}", path_ref, e);
+                ModuleInstanceError::MissingFunction("free_response")
             })?
         };
 
@@ -85,8 +85,9 @@ impl ::std::fmt::Display for ModuleInstanceError {
             f,
             "ModuleInstanceError {}",
             match self {
-                Self::MissingFunction => "Missing function (request_filter)",
-                Self::FailedToLoad(m) => m.as_str(),
+                Self::MissingFunction(function_name) =>
+                    format!("Missing function: {}", function_name),
+                Self::FailedToLoad(m) => m.to_string(),
             }
         )
     }
@@ -95,7 +96,7 @@ impl ::std::fmt::Display for ModuleInstanceError {
 impl From<libloading::Error> for ModuleInstanceError {
     fn from(value: libloading::Error) -> Self {
         match value {
-            libloading::Error::GetProcAddress { source: _ } => Self::MissingFunction,
+            libloading::Error::GetProcAddress { source: _ } => Self::MissingFunction("unknown"),
             _ => Self::FailedToLoad(value.to_string()),
         }
     }

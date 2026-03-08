@@ -1,3 +1,8 @@
+pub mod service;
+pub(super) mod service_request_filter;
+
+pub use service::ProxyService;
+
 /// A [`ProxyConfiguration`](ProxyConfiguration) represents a configuration for a hostname.
 ///
 /// Plugins and modules will be called in order that they're defined in the configuration file. For
@@ -6,12 +11,8 @@
 #[derive(Debug)]
 pub struct ProxyContext {
     pub config: ::std::sync::Arc<crate::config::Config>,
-    pub backend: crate::routing::ServiceBackendType,
-    pub had_cookie: bool,
     pub modules_metrics: Vec<crate::metrics::module_metric::ModuleMetric>,
-    pub early_request_information: Option<EarlyRequestInformation>,
     pub valid_request_information: Option<ValidRequestInformation>,
-    pub partial_request_information: Option<PartialRequestInformation>,
     pub req_start: ::std::time::Instant,
     pub req_id: uuid::Uuid,
     pub proxy_decision: Option<ksbh_types::prelude::ProxyDecision>,
@@ -26,12 +27,8 @@ impl ProxyContext {
     pub fn new(config: ::std::sync::Arc<crate::config::Config>) -> Self {
         Self {
             config,
-            backend: crate::routing::ServiceBackendType::None,
-            had_cookie: false,
             modules_metrics: Vec::new(),
-            early_request_information: None,
             valid_request_information: None,
-            partial_request_information: None,
             req_start: ::std::time::Instant::now(),
             req_id: uuid::Uuid::new_v4(),
             proxy_decision: None,
@@ -40,22 +37,12 @@ impl ProxyContext {
 }
 
 #[derive(Debug, Clone)]
-pub struct EarlyRequestInformation {
-    pub session: ProxySession,
-    pub cookie: crate::cookies::ProxyCookie,
-    pub http_request_info: ksbh_types::prelude::HttpRequest,
-    pub client_information: PartialClientInformation,
-    pub config: ::std::sync::Arc<crate::config::Config>,
-}
-
-#[derive(Debug, Clone)]
 pub struct ValidRequestInformation {
-    pub session: ProxySession,
-    pub cookie: crate::cookies::ProxyCookie,
-    pub http_request_info: ksbh_types::prelude::HttpRequest,
+    pub host: smol_str::SmolStr,
     pub client_information: PartialClientInformation,
     pub config: ::std::sync::Arc<crate::config::Config>,
     pub req_match: crate::routing::RequestMatch,
+    pub session_id: uuid::Uuid,
 }
 
 #[derive(Debug, Clone)]
@@ -77,17 +64,19 @@ pub struct PartialClientInformation {
 }
 
 impl ValidRequestInformation {
-    pub fn new_from_early(
-        early: EarlyRequestInformation,
+    pub fn new(
+        host: smol_str::SmolStr,
+        client_information: PartialClientInformation,
+        config: ::std::sync::Arc<crate::config::Config>,
         req_match: crate::routing::RequestMatch,
+        session_id: uuid::Uuid,
     ) -> Self {
         Self {
+            host,
+            client_information,
+            config,
             req_match,
-            cookie: early.cookie,
-            http_request_info: early.http_request_info,
-            config: early.config,
-            client_information: early.client_information,
-            session: early.session,
+            session_id,
         }
     }
 }
@@ -179,12 +168,6 @@ impl redis::ToRedisArgs for PartialClientInformation {
     }
 }
 
-pub mod service;
-pub mod service_early_request_filter;
-pub mod service_request_filter;
-
-pub use service::ProxyService;
-
 impl redis::ToSingleRedisArg for PartialClientInformation {}
 
 #[cfg(feature = "test-util")]
@@ -197,9 +180,7 @@ mod tests {
     #[test]
     fn test_proxy_context_new() {
         let config = crate::config::Config::new_for_test();
-        let ctx = ProxyContext::new(config);
-        assert_eq!(ctx.backend, crate::routing::ServiceBackendType::None);
-        assert!(!ctx.had_cookie);
+        let _ctx = ProxyContext::new(config);
     }
 
     #[test]
