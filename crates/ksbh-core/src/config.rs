@@ -11,37 +11,22 @@ pub struct Config {
 }
 
 #[derive(Debug, Clone, serde::Deserialize)]
-pub struct Ports {
-    pub http: u16,
-    pub https: u16,
-}
-
-#[derive(Debug, Clone, serde::Deserialize)]
 pub struct ConfigPorts {
-    pub app: Ports,
-    pub external: Ports,
+    pub app: ksbh_types::Ports,
+    pub external: ksbh_types::Ports,
 }
 
 impl Default for ConfigPorts {
     fn default() -> Self {
         Self {
-            app: Ports {
+            app: ksbh_types::Ports {
                 http: 8080,
                 https: 8081,
             },
-            external: Ports {
+            external: ksbh_types::Ports {
                 http: 80,
                 https: 443,
             },
-        }
-    }
-}
-
-impl Default for Ports {
-    fn default() -> Self {
-        Self {
-            http: 8080,
-            https: 8081,
         }
     }
 }

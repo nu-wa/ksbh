@@ -33,6 +33,13 @@ impl<'a> HttpQueryView<'a> {
             params,
         })
     }
+
+    pub fn get_param(&self, param: &str) -> Option<&str> {
+        self.params
+            .iter()
+            .find(|(k, _)| *k == param)
+            .map(|(_, v)| *v)
+    }
 }
 
 impl HttpQuery {
@@ -42,9 +49,7 @@ impl HttpQuery {
         let mut params: Vec<(crate::KsbhStr, crate::KsbhStr)> = Vec::new();
 
         if let Some(query_params) = req_header.uri.query() {
-            // Iterate directly without intermediate Vec allocations
             for query_with_param in query_params.split('&') {
-                // Split on '=' and take first two parts
                 let mut parts = query_with_param.splitn(2, '=');
 
                 if let Some(key) = parts.next() {
@@ -77,7 +82,6 @@ impl HttpQuery {
 
 impl ::std::fmt::Display for HttpQuery {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        // Write directly to formatter instead of building intermediate String
         write!(f, "{}", self.path)?;
 
         if !self.params.is_empty() {
@@ -101,7 +105,6 @@ impl ::std::fmt::Display for HttpQuery {
 
 impl<'a> ::std::fmt::Display for HttpQueryView<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        // Write directly to formatter instead of building intermediate String
         write!(f, "{}", self.path)?;
 
         if !self.params.is_empty() {

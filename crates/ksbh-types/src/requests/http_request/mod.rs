@@ -33,7 +33,7 @@ impl HttpRequest {
     pub fn new(
         req_header: &http::request::Parts,
         req_uuid: uuid::Uuid,
-        config: &crate::PublicConfig,
+        config: &crate::Ports,
     ) -> Result<Self, error::HttpRequestError> {
         let uri = &req_header.uri;
         let query = crate::prelude::HttpQuery::new(req_header)?;
@@ -77,7 +77,7 @@ impl HttpRequest {
             }
         }
 
-        let is_ssl_port = port.map(|p| p == config.https_port).unwrap_or(false);
+        let is_ssl_port = port.map(|p| p == config.https).unwrap_or(false);
         let mut scheme_str = uri.scheme().map(|scheme| scheme.as_str()).unwrap_or("http");
 
         let is_websocket = req_header
@@ -99,9 +99,9 @@ impl HttpRequest {
 
         let is_secure_proto = scheme_str == "https" || scheme_str == "wss";
         let target_config_port = if is_secure_proto {
-            config.https_port
+            config.https
         } else {
-            config.http_port
+            config.http
         };
         let effective_port = port.unwrap_or(target_config_port);
 
@@ -166,9 +166,9 @@ impl HttpRequest {
         HttpRequest::new(
             &headers,
             req_uuid,
-            &crate::PublicConfig {
-                https_port: 443,
-                http_port: 80,
+            &crate::Ports {
+                https: 443,
+                http: 80,
             },
         )
         .unwrap()
@@ -179,7 +179,7 @@ impl<'a> HttpRequestView<'a> {
     pub fn new(
         req_header: &'a http::request::Parts,
         req_uuid: uuid::Uuid,
-        config: &crate::PublicConfig,
+        config: &crate::Ports,
     ) -> Result<Self, error::HttpRequestError> {
         let uri = &req_header.uri;
         let query = crate::requests::http_query::HttpQueryView::new(req_header)?;
@@ -220,7 +220,7 @@ impl<'a> HttpRequestView<'a> {
             }
         }
 
-        let is_ssl_port = port.map(|p| p == config.https_port).unwrap_or(false);
+        let is_ssl_port = port.map(|p| p == config.https).unwrap_or(false);
         let mut scheme_str = uri.scheme().map(|scheme| scheme.as_str()).unwrap_or("http");
 
         let is_websocket = req_header
@@ -242,9 +242,9 @@ impl<'a> HttpRequestView<'a> {
 
         let is_secure_proto = scheme_str == "https" || scheme_str == "wss";
         let target_config_port = if is_secure_proto {
-            config.https_port
+            config.https
         } else {
-            config.http_port
+            config.http
         };
         let effective_port = port.unwrap_or(target_config_port);
 
@@ -285,13 +285,13 @@ mod tests {
     #[test]
     fn test_parsing() {
         use super::HttpRequest;
-        use crate::PublicConfig;
+        use crate::Ports;
         use crate::prelude::HttpScheme;
         let req_id = uuid::Uuid::new_v4();
 
-        let config = PublicConfig {
-            https_port: 443,
-            http_port: 80,
+        let config = Ports {
+            https: 443,
+            http: 80,
         };
         let request_header = pingora_http::RequestHeader::build_no_case("GET", b"", None);
 
@@ -409,9 +409,9 @@ mod tests {
         );
         assert_eq!(HttpScheme(http::uri::Scheme::HTTPS), parsed_request.scheme);
 
-        let config = PublicConfig {
-            https_port: 443,
-            http_port: 80,
+        let config = Ports {
+            https: 443,
+            http: 80,
         };
 
         request_header.set_uri(
@@ -450,9 +450,9 @@ mod tests {
             parsed_request.uri.as_str()
         );
 
-        let config = PublicConfig {
-            https_port: 8443,
-            http_port: 8080,
+        let config = Ports {
+            https: 443,
+            http: 80,
         };
         let request_header = pingora_http::RequestHeader::build_no_case("GET", b"", None);
 

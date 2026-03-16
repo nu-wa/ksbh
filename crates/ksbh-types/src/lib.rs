@@ -22,4 +22,10 @@ pub struct PublicConfig {
     pub http_port: u16,
 }
 
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct Ports {
+    pub http: u16,
+    pub https: u16,
+}
+
 pub type ArcHashMap<K, V> = arc_swap::ArcSwap<::std::collections::HashMap<K, V>>;
