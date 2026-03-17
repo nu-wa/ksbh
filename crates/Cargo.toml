@@ -50,9 +50,6 @@ default-features = false
 [workspace.dependencies.bytes]
 version = "1.11.0"
 
-[workspace.dependencies.chrono]
-version = "0.4.42"
-
 [workspace.dependencies.extism]
 version = "1.13.0"
 

@@ -57,6 +57,9 @@ version = "0.18.1"
 default-features = false
 features = ["percent-encode", "secure"]
 
+[dependencies.psl]
+version = "2.1.198"
+
 [dependencies.k8s-openapi]
 workspace = true
 
