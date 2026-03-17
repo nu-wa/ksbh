@@ -1,4 +1,6 @@
-pub fn process(ctx: ksbh_modules_sdk::RequestContext) -> ksbh_modules_sdk::ModuleResult {
+pub fn process(
+    ctx: ksbh_modules_sdk::RequestContext,
+) -> Result<ksbh_modules_sdk::ModuleResult, ksbh_modules_sdk::ModuleError> {
     let scheme = ctx.request.scheme.as_str();
     let port = ctx.request.port;
     let uri = ctx.request.uri.as_str();
@@ -17,13 +19,12 @@ pub fn process(ctx: ksbh_modules_sdk::RequestContext) -> ksbh_modules_sdk::Modul
         let response = http::Response::builder()
             .status(http::StatusCode::MOVED_PERMANENTLY)
             .header(http::header::LOCATION, redirect_url)
-            .body(bytes::Bytes::new())
-            .unwrap();
+            .body(bytes::Bytes::new())?;
 
-        return ksbh_modules_sdk::ModuleResult::Stop(response);
+        return Ok(ksbh_modules_sdk::ModuleResult::Stop(response));
     }
 
-    ksbh_modules_sdk::ModuleResult::Pass
+    Ok(ksbh_modules_sdk::ModuleResult::Pass)
 }
 
 ksbh_modules_sdk::register_module!(process, ksbh_modules_sdk::types::ModuleType::HttpToHttps);

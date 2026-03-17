@@ -1,15 +1,21 @@
 pub struct RequestContext<'a> {
-    pub config: &'a ::std::collections::HashMap<smol_str::SmolStr, smol_str::SmolStr>,
-    pub headers: &'a http::HeaderMap,
+    pub config: ::std::collections::HashMap<smol_str::SmolStr, smol_str::SmolStr>,
+    pub headers: http::HeaderMap,
     pub request: RequestInfo,
     pub body: &'a [u8],
     pub session: super::session::SessionHandle,
     pub logger: super::logger::Logger,
     pub mod_name: smol_str::SmolStr,
-    pub client_ip: smol_str::SmolStr,
-    pub user_agent: Option<smol_str::SmolStr>,
+    pub metrics_key: &'a [u8],
     pub cookie_header: smol_str::SmolStr,
     pub metrics: super::metrics::MetricsHandle,
+    pub internal_path: &'a str,
+}
+
+impl<'a> RequestContext<'a> {
+    pub fn session_id(&self) -> [u8; 16] {
+        self.session.session_id()
+    }
 }
 
 pub struct RequestInfo {

@@ -1,4 +1,5 @@
 pub mod context;
+pub mod error;
 pub mod ffi;
 pub mod logger;
 pub mod metrics;
@@ -7,6 +8,7 @@ pub mod session;
 pub mod types;
 
 pub use context::{RequestContext, RequestInfo};
+pub use error::ModuleError;
 pub use ffi::OwnedResponse;
 pub use metrics::MetricsHandle;
 pub use result::ModuleResult;
@@ -16,18 +18,23 @@ pub use result::ModuleResult;
 /// This function should be called to free responses returned by `request_filter`
 /// when the response is not null.
 ///
+/// Currently this is a no-op as the SDK manages memory internally.
+///
 /// # Safety
 ///
-/// The `resp` pointer must have been obtained from a call to the module's
-/// `request_filter` function. Calling this with a null pointer or a pointer
+/// The pointers must have been obtained from a call to the module's
+/// `request_filter` function. Calling this with null pointers or pointers
 /// from another source results in undefined behavior.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn free_response(resp: *const ksbh_core::modules::abi::ModuleResponse) {
-    if !resp.is_null() {
-        // The pointer actually points to an OwnedResponse wrapper
-        // We need to cast it back and drop it to free the owned allocations
-        let _owned = unsafe { Box::from_raw(resp as *mut crate::ffi::OwnedResponse) };
-    }
+pub unsafe extern "C" fn free_response(
+    _headers_ptr: *const ksbh_core::modules::abi::ModuleKvSlice,
+    _headers_len: usize,
+    _body_ptr: *const u8,
+    _body_len: usize,
+) {
+    // Headers are kept alive by a static in the SDK
+    // Body is owned by ModuleResponse which is dropped when the host
+    // finishes processing
 }
 
 #[macro_export]
@@ -45,10 +52,35 @@ macro_rules! register_module {
             if ctx.is_null() {
                 return std::ptr::null();
             }
-            let ctx = $crate::ffi::convert_context(unsafe { &*ctx });
-            match $func(ctx) {
-                $crate::ModuleResult::Pass => std::ptr::null(),
-                $crate::ModuleResult::Stop(resp) => $crate::ffi::alloc_response(resp),
+
+            // Catch panics from module code to prevent crashes
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                $func($crate::ffi::convert_context(unsafe { &*ctx }))
+            }));
+
+            match result {
+                Ok(Ok($crate::ModuleResult::Pass)) => std::ptr::null(),
+                Ok(Ok($crate::ModuleResult::Stop(resp))) => $crate::ffi::alloc_response(resp),
+                Ok(Err(e)) => {
+                    // Module returned an error - return 500 with error message
+                    // The module already logged/handled the error appropriately
+                    let message = e.to_string();
+                    tracing::warn!("Module returned error: {}", message);
+                    let resp = http::Response::builder()
+                        .status(http::StatusCode::INTERNAL_SERVER_ERROR)
+                        .body(bytes::Bytes::from(message))
+                        .unwrap();
+                    $crate::ffi::alloc_response(resp)
+                }
+                Err(_) => {
+                    // Module panicked - return 500
+                    tracing::error!("Module panicked");
+                    let resp = http::Response::builder()
+                        .status(http::StatusCode::INTERNAL_SERVER_ERROR)
+                        .body(bytes::Bytes::from("Module panic"))
+                        .unwrap();
+                    $crate::ffi::alloc_response(resp)
+                }
             }
         }
     };

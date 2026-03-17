@@ -1,11 +1,17 @@
-use ksbh_modules_sdk::{ModuleResult, RequestContext};
-
 mod templates;
 
 const POW_PATH: &str = "/pow";
 
-pub fn process(ctx: RequestContext) -> ModuleResult {
+pub fn process(
+    ctx: ksbh_modules_sdk::RequestContext,
+) -> Result<ksbh_modules_sdk::ModuleResult, ksbh_modules_sdk::ModuleError> {
     let path = ctx.request.path.as_str();
+    let internal_path = ctx.internal_path;
+    let full_pow_path = format!("{}{}", internal_path, POW_PATH);
+
+    if path == full_pow_path {
+        return handle_pow_verification(ctx);
+    }
 
     let difficulty = ctx
         .config
@@ -16,44 +22,36 @@ pub fn process(ctx: RequestContext) -> ModuleResult {
     let secret = ctx
         .config
         .get("secret")
-        .map_or("tell nabil from morrocco to change the secret", |v| v);
+        .map_or("tell nabil from morrocco to change the secret", |v| v)
+        .to_string();
 
     let secret_slice: &[u8; 32] = match secret.as_bytes()[0..32].try_into() {
         Ok(slice) => slice,
         Err(_) => {
             ksbh_modules_sdk::log_error!(ctx.logger, "Secret must be at least 32 bytes");
-            return ModuleResult::Pass;
+            return Ok(ksbh_modules_sdk::ModuleResult::Pass);
         }
     };
 
-    let client_ip = ctx.client_ip.clone();
-    let client_ip_str = client_ip.as_str();
-    let user_agent_clone = ctx.user_agent.clone();
-    let user_agent = user_agent_clone.as_ref().map(|s| s.as_str());
+    let metrics_key = ctx.metrics_key.to_vec();
 
-    let (hits_good, hits_bad) = ctx
-        .metrics
-        .get_hits(client_ip_str, user_agent)
-        .map(|(g, b)| (g as usize, b as usize))
-        .unwrap_or((1, 0));
+    let score = ctx.metrics.get_score(&metrics_key);
 
     let mut actual_difficulty = difficulty;
-    if hits_bad >= hits_good {
-        actual_difficulty += hits_bad / 10;
-    }
+    actual_difficulty += (score / 100) as usize;
 
-    let now = chrono::Utc::now().naive_utc();
-    static ONE_DAY: ::std::time::Duration = ::std::time::Duration::from_hours(24);
+    let now = ksbh_core::utils::current_unix_time();
+    static ONE_DAY: i64 = 86400;
 
     let cookie_header = ctx.cookie_header.as_str();
-    let mut challenge_complete: Option<chrono::NaiveDateTime> = None;
+    let mut challenge_complete: Option<i64> = None;
     let mut challenge_expired = false;
 
     if !cookie_header.is_empty() {
         match ksbh_core::cookies::ProxyCookie::from_cookie_header(cookie_header) {
             Ok(cookie) => {
                 if let Some(ts) = cookie.challenge_complete {
-                    if now > ts + chrono::Duration::from_std(ONE_DAY).unwrap() {
+                    if now > ts + ONE_DAY {
                         challenge_expired = true;
                     } else {
                         challenge_complete = Some(ts);
@@ -66,34 +64,18 @@ pub fn process(ctx: RequestContext) -> ModuleResult {
         }
     }
 
-    if path.starts_with(POW_PATH) {
-        return handle_pow_verification(
-            ctx,
-            secret_slice,
-            actual_difficulty,
-            client_ip_str,
-            user_agent,
-        );
-    }
-
     if challenge_complete.is_some() && !challenge_expired {
-        return ModuleResult::Pass;
+        return Ok(ksbh_modules_sdk::ModuleResult::Pass);
     }
 
     if ctx.request.method.as_str() != "GET" {
-        return ModuleResult::Pass;
+        return Ok(ksbh_modules_sdk::ModuleResult::Pass);
     }
 
-    let iat = ::std::time::SystemTime::now()
-        .duration_since(::std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_secs();
+    let iat = ksbh_core::utils::current_unix_time() as u64;
 
     let mut b3_hasher = blake3::Hasher::new_keyed(secret_slice);
-    b3_hasher.update(client_ip_str.as_bytes());
-    if let Some(ua) = user_agent {
-        b3_hasher.update(ua.as_bytes());
-    }
+    b3_hasher.update(&metrics_key);
     b3_hasher.update(iat.to_string().as_bytes());
 
     let signature = b3_hasher.finalize();
@@ -101,14 +83,38 @@ pub fn process(ctx: RequestContext) -> ModuleResult {
 
     let redirect_to = ctx.request.uri.as_str();
 
-    let html =
-        match templates::render_challenge(&challenge, actual_difficulty, POW_PATH, redirect_to) {
-            Ok(html) => html,
-            Err(e) => {
-                ksbh_modules_sdk::log_error!(ctx.logger, "Failed to render template: {}", e);
-                return ModuleResult::Pass;
-            }
-        };
+    let pow_action_url = if let Some(cookie_domain) = ctx.config.get("cookie_domain") {
+        let scheme = ctx.request.scheme.as_str();
+        let internal_path = ctx.internal_path;
+        format!(
+            "{}://{}{}{}?redirect_to={}",
+            scheme,
+            cookie_domain,
+            internal_path,
+            POW_PATH,
+            urlencoding::encode(redirect_to).into_owned()
+        )
+    } else {
+        let full_pow_path = format!("{}{}", internal_path, POW_PATH);
+        format!(
+            "{}?redirect_to={}",
+            full_pow_path,
+            urlencoding::encode(redirect_to).into_owned()
+        )
+    };
+
+    let html = match templates::render_challenge(
+        &challenge,
+        actual_difficulty,
+        &pow_action_url,
+        redirect_to,
+    ) {
+        Ok(html) => html,
+        Err(e) => {
+            ksbh_modules_sdk::log_error!(ctx.logger, "Failed to render template: {}", e);
+            return Ok(ksbh_modules_sdk::ModuleResult::Pass);
+        }
+    };
 
     let response = match http::Response::builder()
         .status(http::StatusCode::UNAUTHORIZED)
@@ -119,43 +125,57 @@ pub fn process(ctx: RequestContext) -> ModuleResult {
         Ok(r) => r,
         Err(e) => {
             ksbh_modules_sdk::log_error!(ctx.logger, "Failed to build response: {}", e);
-            return ModuleResult::Pass;
+            return Ok(ksbh_modules_sdk::ModuleResult::Pass);
         }
     };
 
-    ModuleResult::Stop(response)
+    Ok(ksbh_modules_sdk::ModuleResult::Stop(response))
 }
 
 fn handle_pow_verification(
-    ctx: RequestContext,
-    secret_slice: &[u8; 32],
-    difficulty: usize,
-    client_ip: &str,
-    user_agent: Option<&str>,
-) -> ModuleResult {
-    let client_ip_owned = client_ip.to_string();
+    ctx: ksbh_modules_sdk::RequestContext,
+) -> Result<ksbh_modules_sdk::ModuleResult, ksbh_modules_sdk::ModuleError> {
     if ctx.request.method.as_str() != "POST" {
         let response = http::Response::builder()
             .status(http::StatusCode::BAD_REQUEST)
-            .body(bytes::Bytes::from_static(b"Invalid METHOD"))
-            .unwrap();
-        return ModuleResult::Stop(response);
+            .body(bytes::Bytes::from_static(b"Invalid METHOD"))?;
+        return Ok(ksbh_modules_sdk::ModuleResult::Stop(response));
     }
+
+    let difficulty = ctx
+        .config
+        .get("difficulty")
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or(4);
+
+    let secret = ctx
+        .config
+        .get("secret")
+        .map_or("tell nabil from morrocco to change the secret", |v| v)
+        .to_string();
+
+    let secret_slice: &[u8; 32] = match secret.as_bytes()[0..32].try_into() {
+        Ok(slice) => slice,
+        Err(_) => {
+            ksbh_modules_sdk::log_error!(ctx.logger, "Secret must be at least 32 bytes");
+            return Ok(ksbh_modules_sdk::ModuleResult::Pass);
+        }
+    };
+
+    let metrics_key = ctx.metrics_key;
 
     let body_str = match ::std::str::from_utf8(ctx.body) {
         Ok(s) => s,
         Err(_) => {
             let response = http::Response::builder()
                 .status(http::StatusCode::BAD_REQUEST)
-                .body(bytes::Bytes::from_static(b"Invalid body"))
-                .unwrap();
-            return ModuleResult::Stop(response);
+                .body(bytes::Bytes::from_static(b"Invalid body"))?;
+            return Ok(ksbh_modules_sdk::ModuleResult::Stop(response));
         }
     };
 
     let mut challenge = String::new();
     let mut nonce: u64 = 0;
-    let mut redirect_to = String::from("/");
 
     for part in body_str.split('&') {
         let mut kv = part.splitn(2, '=');
@@ -170,7 +190,6 @@ fn handle_pow_verification(
         match key {
             "challenge" => challenge = decoded_val,
             "nonce" => nonce = decoded_val.parse().unwrap_or(0),
-            "redirect_to" => redirect_to = decoded_val,
             _ => {}
         }
     }
@@ -178,36 +197,30 @@ fn handle_pow_verification(
     if challenge.is_empty() || nonce == 0 {
         let response = http::Response::builder()
             .status(http::StatusCode::BAD_REQUEST)
-            .body(bytes::Bytes::from_static(b"Invalid Form Data"))
-            .unwrap();
-        return ModuleResult::Stop(response);
+            .body(bytes::Bytes::from_static(b"Invalid Form Data"))?;
+        return Ok(ksbh_modules_sdk::ModuleResult::Stop(response));
     }
 
     let parts: Vec<&str> = challenge.split('.').collect();
     if parts.len() != 2 {
         let response = http::Response::builder()
             .status(http::StatusCode::BAD_REQUEST)
-            .body(bytes::Bytes::from_static(b"Invalid challenge format"))
-            .unwrap();
-        return ModuleResult::Stop(response);
+            .body(bytes::Bytes::from_static(b"Invalid challenge format"))?;
+        return Ok(ksbh_modules_sdk::ModuleResult::Stop(response));
     }
 
     let (iat_str, user_submitted_signature) = (parts[0], parts[1]);
 
     let mut b3_hasher = blake3::Hasher::new_keyed(secret_slice);
-    b3_hasher.update(client_ip_owned.as_bytes());
-    if let Some(ua) = user_agent {
-        b3_hasher.update(ua.as_bytes());
-    }
+    b3_hasher.update(metrics_key);
     b3_hasher.update(iat_str.as_bytes());
 
     let real_signature = b3_hasher.finalize();
     if real_signature.to_hex().as_str() != user_submitted_signature {
         let response = http::Response::builder()
             .status(http::StatusCode::BAD_REQUEST)
-            .body(bytes::Bytes::from_static(b"Invalid signature"))
-            .unwrap();
-        return ModuleResult::Stop(response);
+            .body(bytes::Bytes::from_static(b"Invalid signature"))?;
+        return Ok(ksbh_modules_sdk::ModuleResult::Stop(response));
     }
 
     let iat: u64 = match iat_str.parse() {
@@ -215,23 +228,18 @@ fn handle_pow_verification(
         Err(_) => {
             let response = http::Response::builder()
                 .status(http::StatusCode::BAD_REQUEST)
-                .body(bytes::Bytes::from_static(b"Invalid timestamp"))
-                .unwrap();
-            return ModuleResult::Stop(response);
+                .body(bytes::Bytes::from_static(b"Invalid timestamp"))?;
+            return Ok(ksbh_modules_sdk::ModuleResult::Stop(response));
         }
     };
 
-    let now = ::std::time::SystemTime::now()
-        .duration_since(::std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_secs();
+    let now = ksbh_core::utils::current_unix_time() as u64;
 
     if now > iat + 300 {
         let response = http::Response::builder()
             .status(http::StatusCode::BAD_REQUEST)
-            .body(bytes::Bytes::from_static(b"Challenge expired"))
-            .unwrap();
-        return ModuleResult::Stop(response);
+            .body(bytes::Bytes::from_static(b"Challenge expired"))?;
+        return Ok(ksbh_modules_sdk::ModuleResult::Stop(response));
     }
 
     use sha2::Digest;
@@ -242,28 +250,40 @@ fn handle_pow_verification(
     if !hash.starts_with(&"0".repeat(difficulty)) {
         let response = http::Response::builder()
             .status(http::StatusCode::BAD_REQUEST)
-            .body(bytes::Bytes::from_static(b"Invalid proof"))
-            .unwrap();
-        return ModuleResult::Stop(response);
+            .body(bytes::Bytes::from_static(b"Invalid proof"))?;
+        return Ok(ksbh_modules_sdk::ModuleResult::Stop(response));
     }
 
-    ctx.metrics.increment_good(client_ip, user_agent);
+    ctx.metrics.good_boy(metrics_key);
+
+    let redirect_to = ctx
+        .request
+        .query_params
+        .get("redirect_to")
+        .map(|s| s.as_str())
+        .unwrap_or("/");
+
+    let cookie_domain = ctx.config.get("cookie_domain");
+
+    let domain_for_cookie = if let Some(cd) = cookie_domain {
+        ksbh_core::cookies::get_cookie_domain(cd)
+    } else {
+        ctx.request.host.to_string()
+    };
 
     let cookie_header = ctx.cookie_header.as_str();
     let mut proxy_cookie = if !cookie_header.is_empty() {
         match ksbh_core::cookies::ProxyCookie::from_cookie_header(cookie_header) {
             Ok(c) => c,
-            Err(_) => ksbh_core::cookies::ProxyCookie::new(
-                ctx.request.host.as_str(),
-                None,
-                uuid::Uuid::new_v4(),
-            ),
+            Err(_) => {
+                ksbh_core::cookies::ProxyCookie::new(&domain_for_cookie, None, uuid::Uuid::new_v4())
+            }
         }
     } else {
-        ksbh_core::cookies::ProxyCookie::new(ctx.request.host.as_str(), None, uuid::Uuid::new_v4())
+        ksbh_core::cookies::ProxyCookie::new(&domain_for_cookie, None, uuid::Uuid::new_v4())
     };
 
-    proxy_cookie.challenge_complete = Some(chrono::Utc::now().naive_utc());
+    proxy_cookie.challenge_complete = Some(ksbh_core::utils::current_unix_time());
 
     let cookie_value = match proxy_cookie.to_cookie_header() {
         Ok(v) => v,
@@ -271,9 +291,8 @@ fn handle_pow_verification(
             ksbh_modules_sdk::log_error!(ctx.logger, "Failed to serialize cookie: {}", e);
             let response = http::Response::builder()
                 .status(http::StatusCode::INTERNAL_SERVER_ERROR)
-                .body(bytes::Bytes::from_static(b"Internal error"))
-                .unwrap();
-            return ModuleResult::Stop(response);
+                .body(bytes::Bytes::from_static(b"Internal error"))?;
+            return Ok(ksbh_modules_sdk::ModuleResult::Stop(response));
         }
     };
 
@@ -282,10 +301,9 @@ fn handle_pow_verification(
         .header(http::header::LOCATION, redirect_to)
         .header(http::header::SET_COOKIE, cookie_value)
         .header(http::header::CONTENT_LENGTH, 0)
-        .body(bytes::Bytes::new())
-        .unwrap();
+        .body(bytes::Bytes::new())?;
 
-    ModuleResult::Stop(response)
+    Ok(ksbh_modules_sdk::ModuleResult::Stop(response))
 }
 
 ksbh_modules_sdk::register_module!(process, ksbh_modules_sdk::types::ModuleType::Pow);

@@ -1,17 +1,23 @@
 #[allow(dead_code)]
 pub struct ProxyService {
+    #[allow(dead_code)]
     pub(super) storage: ::std::sync::Arc<crate::Storage>,
+    #[allow(dead_code)]
     pub(super) sessions: ::std::sync::Arc<
         crate::storage::redis_hashmap::RedisHashMap<
             crate::storage::module_session_key::ModuleSessionKey,
             Vec<u8>,
         >,
     >,
+    #[allow(dead_code)]
     pub(super) modules_configs_registry: crate::modules::registry::ModuleRegistryReader,
-    pub(super) public_config: ksbh_types::PublicConfig,
+    #[allow(dead_code)]
     pub(super) config: ::std::sync::Arc<crate::Config>,
+    #[allow(dead_code)]
     pub(super) hosts: crate::routing::RouterReader,
+    #[allow(dead_code)]
     pub(super) metrics_sender: tokio::sync::mpsc::Sender<crate::metrics::RequestMetrics>,
+    #[allow(dead_code)]
     pub(super) modules: ::std::sync::Arc<crate::modules::abi::module_host::ModuleHost>,
 }
 
@@ -20,7 +26,6 @@ impl ProxyService {
     pub fn new(
         config: ::std::sync::Arc<crate::Config>,
         storage: ::std::sync::Arc<crate::Storage>,
-        public_config: ksbh_types::PublicConfig,
         hosts: crate::routing::RouterReader,
         modules_configs_registry: crate::modules::registry::ModuleRegistryReader,
         metrics_sender: tokio::sync::mpsc::Sender<crate::metrics::RequestMetrics>,
@@ -36,7 +41,6 @@ impl ProxyService {
             modules,
             storage,
             sessions,
-            public_config,
             config: config.clone(),
             hosts,
             metrics_sender,
@@ -51,14 +55,6 @@ impl ksbh_types::prelude::ProxyProvider for ProxyService {
 
     fn new_context(&self) -> Self::ProxyContext {
         crate::proxy::ProxyContext::new(self.config.clone())
-    }
-
-    async fn early_request_filter(
-        &self,
-        _session: &mut dyn ksbh_types::prelude::ProxyProviderSession,
-        _ctx: &mut Self::ProxyContext,
-    ) -> ksbh_types::prelude::ProxyProviderResult {
-        Ok(ksbh_types::prelude::ProxyDecision::ContinueProcessing)
     }
 
     async fn request_filter(
@@ -91,7 +87,7 @@ impl ksbh_types::prelude::ProxyProvider for ProxyService {
             );
 
             return Ok(ksbh_types::providers::proxy::UpstreamPeer {
-                address: self.config.listen_address_internal.to_string(),
+                address: self.config.listen_addresses.internal.to_string(),
             });
         }
 
@@ -103,30 +99,29 @@ impl ksbh_types::prelude::ProxyProvider for ProxyService {
                     })
                 }
                 crate::routing::ServiceBackendType::Static => {
-                    let headers = &session.headers();
-                    let http_request_view =
-                        match ksbh_types::requests::http_request::HttpRequestView::new(
-                            headers,
-                            ctx.req_id,
-                            &self.public_config,
-                        ) {
-                            Ok(view) => view,
-                            Err(_) => {
-                                session.set_request_uri(
-                                    http::Uri::from_str("http://internal.ksbh.rs/500")
-                                        .map_err(ksbh_types::prelude::ProxyProviderError::from)?,
-                                );
+                    let http_request = match &ctx.http_request {
+                        Some(req) => req,
+                        None => {
+                            session.set_request_uri(
+                                http::Uri::from_str("http://internal.ksbh.rs/500")
+                                    .map_err(ksbh_types::prelude::ProxyProviderError::from)?,
+                            );
 
-                                return Ok(ksbh_types::providers::proxy::UpstreamPeer {
-                                    address: self.config.listen_address_internal.to_string(),
-                                });
-                            }
-                        };
-                    let file_path = format!(
-                        "{}/{}",
-                        http_request_view.host.trim_end_matches("/"),
-                        http_request_view.query
-                    );
+                            return Ok(ksbh_types::providers::proxy::UpstreamPeer {
+                                address: self.config.listen_addresses.internal.to_string(),
+                            });
+                        }
+                    };
+                    let query_path = http_request.query.path.trim_end_matches("/");
+                    let file_path = if query_path.is_empty() || query_path == "/" {
+                        "index.html".to_string()
+                    } else {
+                        format!(
+                            "{}/{}",
+                            http_request.host.as_str().trim_end_matches("/"),
+                            query_path
+                        )
+                    };
                     let file_path = urlencoding::encode(&file_path);
                     let new_path = format!("/static?file={}", file_path);
 
@@ -136,7 +131,7 @@ impl ksbh_types::prelude::ProxyProvider for ProxyService {
                     );
 
                     Ok(ksbh_types::providers::proxy::UpstreamPeer {
-                        address: self.config.listen_address_internal.to_string(),
+                        address: self.config.listen_addresses.internal.to_string(),
                     })
                 }
                 _ => {
@@ -146,7 +141,7 @@ impl ksbh_types::prelude::ProxyProvider for ProxyService {
                     );
 
                     Ok(ksbh_types::providers::proxy::UpstreamPeer {
-                        address: self.config.listen_address_internal.to_string(),
+                        address: self.config.listen_addresses.internal.to_string(),
                     })
                 }
             };
@@ -159,7 +154,7 @@ impl ksbh_types::prelude::ProxyProvider for ProxyService {
         );
 
         return Ok(ksbh_types::providers::proxy::UpstreamPeer {
-            address: self.config.listen_address_internal.to_string(),
+            address: self.config.listen_addresses.internal.to_string(),
         });
     }
 
@@ -174,9 +169,7 @@ impl ksbh_types::prelude::ProxyProvider for ProxyService {
         }
 
         if !response.headers.contains_key(http::header::SET_COOKIE)
-            && crate::cookies::ProxyCookie::from_session(session)
-                .await
-                .is_err()
+            && ctx.parsed_cookie.is_none()
             && let Some(valid_request_information) = &ctx.valid_request_information
         {
             let cookie = crate::cookies::ProxyCookie::new(
@@ -190,7 +183,7 @@ impl ksbh_types::prelude::ProxyProvider for ProxyService {
                 .try_insert(
                     http::header::SET_COOKIE,
                     http::HeaderValue::from_str(&cookie.to_cookie_header().map_err(|e| {
-                        ksbh_types::prelude::ProxyProviderError::InternalErrorDetailled(
+                        ksbh_types::prelude::ProxyProviderError::InternalErrorDetailed(
                             e.to_string(),
                         )
                     })?)
@@ -220,14 +213,9 @@ impl ksbh_types::prelude::ProxyProvider for ProxyService {
             return Ok(());
         }
 
-        let headers = &session.headers();
-        let http_req = match ksbh_types::requests::http_request::HttpRequestView::new(
-            headers,
-            ctx.req_id,
-            &self.public_config,
-        ) {
-            Ok(view) => view,
-            Err(_) => return Ok(()),
+        let http_req = match &ctx.http_request {
+            Some(req) => req,
+            None => return Ok(()),
         };
 
         let proto = if http_req.uri.as_str().starts_with("wss")

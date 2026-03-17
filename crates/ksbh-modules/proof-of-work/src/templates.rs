@@ -1,6 +1,6 @@
 use askama::Template;
 
-#[derive(Template)]
+#[derive(askama::Template)]
 #[template(path = "challenge.html")]
 pub struct ChallengeTemplate {
     pub challenge: String,

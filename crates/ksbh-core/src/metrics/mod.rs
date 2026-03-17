@@ -5,37 +5,182 @@ pub mod prom;
 
 pub use prometheus;
 
-#[derive(Debug, Clone)]
-pub enum RequestStage {
-    EarlyFilter,
-    RequestFilter,
+#[derive(Debug)]
+pub struct AtomicU64Wrapper {
+    value: ::std::sync::atomic::AtomicU64,
+}
+
+impl Clone for AtomicU64Wrapper {
+    fn clone(&self) -> Self {
+        Self {
+            value: ::std::sync::atomic::AtomicU64::new(self.load()),
+        }
+    }
+}
+
+impl AtomicU64Wrapper {
+    pub fn new(val: u64) -> Self {
+        Self {
+            value: ::std::sync::atomic::AtomicU64::new(val),
+        }
+    }
+
+    pub fn load(&self) -> u64 {
+        self.value.load(::std::sync::atomic::Ordering::Relaxed)
+    }
+
+    pub fn fetch_add(&self, delta: u64) -> u64 {
+        self.value
+            .fetch_add(delta, ::std::sync::atomic::Ordering::Relaxed)
+    }
+
+    pub fn fetch_sub(&self, delta: u64) -> u64 {
+        self.value
+            .fetch_sub(delta, ::std::sync::atomic::Ordering::Relaxed)
+    }
+}
+
+impl serde::Serialize for AtomicU64Wrapper {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_u64(self.load())
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for AtomicU64Wrapper {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        Ok(Self::new(u64::deserialize(deserializer)?))
+    }
 }
 
 // Request data for metrics
 #[derive(Clone)]
 pub struct RequestMetrics {
-    request_information: crate::proxy::ValidRequestInformation,
-    status_code: http::StatusCode,
-    req_time: f64,
-    modules: Vec<module_metric::ModuleMetric>,
+    pub request_information: crate::proxy::ValidRequestInformation,
+    pub status_code: http::StatusCode,
+    pub req_time: f64,
+    pub modules: Vec<module_metric::ModuleMetric>,
 }
 
-/// Simple struct to represent a request information, for now it's very basic.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct Hits {
-    pub logged_at: chrono::NaiveDateTime,
-    pub good: u16,
-    pub bad: u16,
+pub struct RequestScore {
+    score: ::std::sync::atomic::AtomicI64,
+    request_count: ::std::sync::atomic::AtomicU64,
+    window_start: ::std::sync::atomic::AtomicU64,
 }
 
-#[derive(Debug, Clone)]
+impl ::std::fmt::Debug for RequestScore {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        write!(
+            f,
+            "RequestScore {{ score: {}, count: {}, window: {} }}",
+            self.score.load(::std::sync::atomic::Ordering::Relaxed),
+            self.request_count
+                .load(::std::sync::atomic::Ordering::Relaxed),
+            self.window_start
+                .load(::std::sync::atomic::Ordering::Relaxed)
+        )
+    }
+}
+
+impl Clone for RequestScore {
+    fn clone(&self) -> Self {
+        Self {
+            score: ::std::sync::atomic::AtomicI64::new(
+                self.score.load(::std::sync::atomic::Ordering::Relaxed),
+            ),
+            request_count: ::std::sync::atomic::AtomicU64::new(
+                self.request_count
+                    .load(::std::sync::atomic::Ordering::Relaxed),
+            ),
+            window_start: ::std::sync::atomic::AtomicU64::new(
+                self.window_start
+                    .load(::std::sync::atomic::Ordering::Relaxed),
+            ),
+        }
+    }
+}
+
+impl Default for RequestScore {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl RequestScore {
+    pub fn new() -> Self {
+        Self {
+            score: ::std::sync::atomic::AtomicI64::new(0),
+            request_count: ::std::sync::atomic::AtomicU64::new(0),
+            window_start: ::std::sync::atomic::AtomicU64::new(
+                crate::utils::current_unix_time() as u64
+            ),
+        }
+    }
+
+    fn get_window_duration(request_count: u64) -> ::std::time::Duration {
+        let base = ::std::time::Duration::from_secs(10 * 60);
+        let scaling = request_count as f64 / 1000.0;
+        let scaled = base.as_secs_f64() / scaling.max(1.0);
+        ::std::time::Duration::from_secs(scaled.clamp(60.0, 3600.0) as u64)
+    }
+
+    pub fn add_score(&self, delta: i64) {
+        self.score
+            .fetch_add(delta, ::std::sync::atomic::Ordering::Relaxed);
+        self.request_count
+            .fetch_add(1, ::std::sync::atomic::Ordering::Relaxed);
+    }
+
+    pub fn get_score(&self) -> i64 {
+        self.score.load(::std::sync::atomic::Ordering::Relaxed)
+    }
+
+    pub fn get_request_count(&self) -> u64 {
+        self.request_count
+            .load(::std::sync::atomic::Ordering::Relaxed)
+    }
+
+    pub fn should_reset(&self) -> bool {
+        let window_start = self
+            .window_start
+            .load(::std::sync::atomic::Ordering::Relaxed);
+        let request_count = self
+            .request_count
+            .load(::std::sync::atomic::Ordering::Relaxed);
+        let window_duration = Self::get_window_duration(request_count);
+        let elapsed = crate::utils::current_unix_time() - window_start as i64;
+        elapsed > window_duration.as_secs() as i64
+    }
+
+    pub fn reset(&self) {
+        self.score.store(0, ::std::sync::atomic::Ordering::Relaxed);
+        self.request_count
+            .store(0, ::std::sync::atomic::Ordering::Relaxed);
+        self.window_start.store(
+            crate::utils::current_unix_time() as u64,
+            ::std::sync::atomic::Ordering::Relaxed,
+        );
+    }
+
+    pub fn subtract(&self, delta: i64) {
+        self.score
+            .fetch_sub(delta, ::std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
+#[derive(Debug)]
 pub struct Metrics {
-    http_requests: scc::HashMap<
-        crate::proxy::PartialClientInformation,
-        ::std::collections::VecDeque<RequestMetrics>,
+    pub(crate) scores: ::std::sync::Arc<
+        crate::storage::redis_hashmap::RedisHashMap<
+            crate::storage::module_session_key::ModuleSessionKey,
+            Vec<u8>,
+        >,
     >,
-    http_hits:
-        crate::storage::redis_hashmap::RedisHashMap<crate::proxy::PartialClientInformation, Hits>,
 }
 
 #[derive(Debug, Clone)]
@@ -62,18 +207,42 @@ impl RequestMetrics {
             modules,
         }
     }
-}
 
-impl ::std::fmt::Display for RequestStage {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{}",
-            match self {
-                Self::RequestFilter => "RequestFilter",
-                Self::EarlyFilter => "EarlyRequestFilter",
-            }
-        )
+    pub fn calculate_score(&self) -> i64 {
+        let status = self.status_code.as_u16();
+
+        let status_score = match status {
+            500..=599 => 5,
+            400..=599 if status != 401 && status != 403 => 10,
+            _ => 1,
+        };
+
+        let time_score = (self.req_time * 10.0) as i64;
+
+        let module_score: i64 = self
+            .modules
+            .iter()
+            .map(|m| (m.exec_time * 10.0) as i64)
+            .sum();
+
+        status_score + time_score + module_score
+    }
+
+    pub fn observe_prometheus(&self) {
+        let status_str = self.status_code.to_string();
+        let backend_str = format!("{:?}", self.request_information.req_match.backend);
+
+        prom::HTTP_RESPONSE_TIME_SECONDS
+            .with_label_values(&[&backend_str, &status_str])
+            .observe(self.req_time);
+
+        for module in &self.modules {
+            let global = format!("{}", module.global);
+            let module_replied = module.module_replied.to_string();
+            prom::MODULE_EXEC_TIME
+                .with_label_values(&[module.name.as_str(), &global, &module_replied])
+                .observe(module.exec_time);
+        }
     }
 }
 
@@ -103,21 +272,26 @@ impl ::std::fmt::Debug for RequestMetrics {
 }
 
 impl Metrics {
-    fn new(storage: Option<::std::sync::Arc<crate::Storage>>) -> Self {
-        Self {
-            http_requests: scc::HashMap::new(),
-            http_hits: crate::RedisHashMap::new(
-                Some(::std::time::Duration::from_mins(15)),
-                Some(::std::time::Duration::from_hours(24)),
-                storage,
-            ),
-        }
+    fn new(
+        store: ::std::sync::Arc<
+            crate::storage::redis_hashmap::RedisHashMap<
+                crate::storage::module_session_key::ModuleSessionKey,
+                Vec<u8>,
+            >,
+        >,
+    ) -> Self {
+        Self { scores: store }
     }
 
     pub fn create(
-        storage: Option<::std::sync::Arc<crate::Storage>>,
+        store: ::std::sync::Arc<
+            crate::storage::redis_hashmap::RedisHashMap<
+                crate::storage::module_session_key::ModuleSessionKey,
+                Vec<u8>,
+            >,
+        >,
     ) -> (MetricsWriter, MetricsReader) {
-        let metrics = ::std::sync::Arc::new(Metrics::new(storage));
+        let metrics = ::std::sync::Arc::new(Metrics::new(store));
 
         (
             MetricsWriter {
@@ -127,256 +301,87 @@ impl Metrics {
         )
     }
 
-    async fn add_http_request(&self, http_request: RequestMetrics) {
+    pub async fn log_request(&self, http_request: RequestMetrics) {
+        let total_score = http_request.calculate_score();
+        let session_id = http_request.request_information.session_id;
+        let key = crate::storage::module_session_key::ModuleSessionKey::user_session(session_id);
+
+        if let Some(score_bytes) = self.scores.get_hot_sync(&key) {
+            let score: AtomicU64Wrapper =
+                rmp_serde::from_slice(&score_bytes).unwrap_or_else(|_| AtomicU64Wrapper::new(0));
+            let new_value = AtomicU64Wrapper::new(score.load().saturating_add(total_score as u64));
+            let encoded = rmp_serde::to_vec(&new_value).unwrap_or(score_bytes);
+            let _ = self.scores.set_sync(key, encoded);
+        } else {
+            let new_value = AtomicU64Wrapper::new(total_score as u64);
+            let encoded = rmp_serde::to_vec(&new_value).unwrap_or_else(|_| vec![]);
+            let _ = self.scores.set_sync(key, encoded);
+        }
+
+        tracing::info!("{}", http_request);
         if tracing::enabled!(tracing::Level::DEBUG) {
-            tracing::debug!("{:?}", http_request);
-        } else {
-            tracing::info!("{}", http_request);
+            tracing::debug!("{:?}", http_request.clone());
         }
 
-        let key = http_request.request_information.client_information.clone();
+        http_request.observe_prometheus();
+    }
 
-        let mut previous = match self.http_requests.get_sync(&key) {
-            Some(previous) => previous.to_owned(),
-            None => ::std::collections::VecDeque::new(),
-        };
-        let mut previous_hits = match self.http_hits.get_cold(key.clone()).await {
-            Some(prev) => prev.get().inner(),
-            None => Hits {
-                good: 0,
-                bad: 0,
-                logged_at: chrono::Utc::now().naive_utc(),
-            },
-        };
-
-        let status_code_u16 = http_request.status_code.as_u16();
-
-        if status_code_u16 >= 400 && status_code_u16 != 401 && status_code_u16 != 403 {
-            previous_hits.bad += 1;
-        } else {
-            previous_hits.good += 1;
-        }
-        let status_str = http_request.status_code.to_string();
-        let backend_str = format!("{:?}", http_request.request_information.req_match.backend);
-
-        previous.push_back(http_request.clone());
-
-        self.http_requests.upsert_sync(key.clone(), previous);
-        self.http_hits.upsert(key, previous_hits).await;
-
-        prom::HTTP_RESPONSE_TIME_SECONDS
-            .with_label_values(&[&backend_str, &status_str])
-            .observe(http_request.req_time);
-
-        for module in &http_request.modules {
-            let stage = format!("{}", module.stage);
-            let global = format!("{}", module.global);
-            let decision = match &module.decision {
-                Some(dec) => dec.to_string(),
-                None => "None".to_string(),
-            };
-            prom::MODULE_EXEC_TIME
-                .with_label_values(&[module.name.as_str(), &stage, &global, &decision])
-                .observe(module.exec_time);
+    async fn good_boy(&self, session_id: uuid::Uuid) {
+        let key = crate::storage::module_session_key::ModuleSessionKey::user_session(session_id);
+        if let Some(score_bytes) = self.scores.get_hot_sync(&key) {
+            let score: AtomicU64Wrapper =
+                rmp_serde::from_slice(&score_bytes).unwrap_or_else(|_| AtomicU64Wrapper::new(0));
+            let new_value = AtomicU64Wrapper::new(score.load().saturating_sub(50));
+            let encoded = rmp_serde::to_vec(&new_value).unwrap_or(score_bytes);
+            let _ = self.scores.set_sync(key, encoded);
         }
     }
 
-    async fn good_boy(&self, key: crate::proxy::PartialClientInformation) {
-        let mut previous_or_new = self.get_hits_or_new(key.clone()).await;
-
-        // Let's not wipe everything, we keep the previous amount of bad requests + n
-        // TODO: change the hardcoded 5 maybe ?
-        previous_or_new.good += previous_or_new.bad + 5;
-
-        self.http_hits.upsert(key, previous_or_new).await;
+    async fn cleanup(&self, _interval: ::std::time::Duration) -> tokio::task::JoinHandle<()> {
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(tokio::time::Duration::from_secs(60)).await;
+            }
+        })
     }
 
-    async fn clean_http_requests(
-        &self,
-        interval: ::std::time::Duration,
-    ) -> tokio::task::JoinHandle<()> {
-        self.http_hits.watch(interval).await
-    }
-
-    fn get_http_requests_full(
-        &self,
-    ) -> &scc::HashMap<
-        crate::proxy::PartialClientInformation,
-        ::std::collections::VecDeque<RequestMetrics>,
-    > {
-        &self.http_requests
-    }
-
-    fn get_http_requests(
-        &self,
-        key: &crate::proxy::PartialClientInformation,
-    ) -> Option<::std::collections::VecDeque<RequestMetrics>> {
-        self.http_requests.read_sync(key, |_, v| v.clone())
-    }
-
-    async fn get_http_hits(&self, key: &crate::proxy::PartialClientInformation) -> Option<Hits> {
-        self.http_hits
-            .get_cold(key.clone())
-            .await
-            .map(|v| v.inner())
-    }
-
-    async fn get_hits_or_new(&self, key: crate::proxy::PartialClientInformation) -> Hits {
-        match self.http_hits.get_cold(key).await {
-            Some(prev) => prev.get().inner(),
-            None => Hits {
-                good: 0,
-                bad: 0,
-                logged_at: chrono::Local::now().naive_local(),
-            },
-        }
+    async fn get_score(&self, session_id: &uuid::Uuid) -> Option<u64> {
+        let key = crate::storage::module_session_key::ModuleSessionKey::user_session(*session_id);
+        self.scores.get_hot_sync(&key).and_then(|score_bytes| {
+            rmp_serde::from_slice::<AtomicU64Wrapper>(&score_bytes)
+                .ok()
+                .map(|s| s.load())
+        })
     }
 }
 
 impl MetricsReader {
-    pub fn get_http_requests_full(
-        &self,
-    ) -> &scc::HashMap<
-        crate::proxy::PartialClientInformation,
-        ::std::collections::VecDeque<RequestMetrics>,
-    > {
-        self.metrics.get_http_requests_full()
-    }
-
-    pub fn get_http_requests(
-        &self,
-        key: &crate::proxy::PartialClientInformation,
-    ) -> Option<::std::collections::VecDeque<RequestMetrics>> {
-        self.metrics.get_http_requests(key)
-    }
-
-    pub async fn get_http_hits(
-        &self,
-        key: &crate::proxy::PartialClientInformation,
-    ) -> Option<Hits> {
-        self.metrics.get_http_hits(key).await
+    pub async fn get_score(&self, key: &uuid::Uuid) -> Option<u64> {
+        self.metrics.get_score(key).await
     }
 }
 
 impl MetricsWriter {
-    pub fn http_hits(
-        &self,
-    ) -> &crate::storage::redis_hashmap::RedisHashMap<crate::proxy::PartialClientInformation, Hits>
-    {
-        &self.metrics.http_hits
+    pub async fn log_request(&self, http_request: RequestMetrics) {
+        self.metrics.log_request(http_request).await;
     }
 
-    pub async fn add_http_request(&self, http_request: RequestMetrics) {
-        self.metrics.add_http_request(http_request).await;
+    pub async fn cleanup(&self, interval: ::std::time::Duration) -> tokio::task::JoinHandle<()> {
+        self.metrics.cleanup(interval).await
     }
 
-    pub async fn clean_http_requests(
-        &self,
-        interval: ::std::time::Duration,
-    ) -> tokio::task::JoinHandle<()> {
-        self.metrics.clean_http_requests(interval).await
-    }
-
-    pub fn get_http_requests_full(
-        &self,
-    ) -> &scc::HashMap<
-        crate::proxy::PartialClientInformation,
-        ::std::collections::VecDeque<RequestMetrics>,
-    > {
-        self.metrics.get_http_requests_full()
-    }
-
-    pub fn get_http_requests(
-        &self,
-        key: &crate::proxy::PartialClientInformation,
-    ) -> Option<::std::collections::VecDeque<RequestMetrics>> {
-        self.metrics.get_http_requests(key)
-    }
-
-    pub async fn get_http_hits(
-        &self,
-        key: &crate::proxy::PartialClientInformation,
-    ) -> Option<Hits> {
-        self.metrics.get_http_hits(key).await
-    }
-
-    pub async fn good_boy(&self, key: crate::proxy::PartialClientInformation) {
+    pub async fn good_boy(&self, key: uuid::Uuid) {
         self.metrics.good_boy(key).await;
     }
-}
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_request_stage_request_filter() {
-        let stage = RequestStage::RequestFilter;
-        assert_eq!(format!("{}", stage), "RequestFilter");
-    }
-
-    #[test]
-    fn test_request_stage_early_filter() {
-        let stage = RequestStage::EarlyFilter;
-        assert_eq!(format!("{}", stage), "EarlyRequestFilter");
-    }
-
-    #[test]
-    fn test_request_stage_debug() {
-        let stage = RequestStage::RequestFilter;
-        assert_eq!(format!("{:?}", stage), "RequestFilter");
-    }
-
-    #[test]
-    fn test_hits_default() {
-        let hits = Hits {
-            logged_at: chrono::Utc::now().naive_utc(),
-            good: 0,
-            bad: 0,
-        };
-        assert_eq!(hits.good, 0);
-        assert_eq!(hits.bad, 0);
-    }
-
-    #[test]
-    fn test_hits_with_values() {
-        let hits = Hits {
-            logged_at: chrono::Utc::now().naive_utc(),
-            good: 10,
-            bad: 5,
-        };
-        assert_eq!(hits.good, 10);
-        assert_eq!(hits.bad, 5);
-    }
-
-    #[test]
-    fn test_hits_serialize() {
-        let hits = Hits {
-            logged_at: chrono::DateTime::from_timestamp(0, 0).unwrap().naive_utc(),
-            good: 10,
-            bad: 5,
-        };
-
-        let serialized = serde_json::to_string(&hits).unwrap();
-        assert!(serialized.contains("10"));
-    }
-
-    #[test]
-    fn test_hits_deserialize() {
-        let json = r#"{"logged_at":"1970-01-01T00:00:00","good":10,"bad":5}"#;
-        let hits: Hits = serde_json::from_str(json).unwrap();
-        assert_eq!(hits.good, 10);
-        assert_eq!(hits.bad, 5);
-    }
-
-    #[test]
-    fn test_request_metrics_display() {
-        let client_info = crate::proxy::PartialClientInformation {
-            ip: "127.0.0.1".parse().unwrap(),
-            user_agent: Some(ksbh_types::KsbhStr::new("test")),
-        };
-
-        let http_info =
-            ksbh_types::prelude::HttpRequest::t_create("localhost", Some(b"/test"), Some("GET"));
+    pub fn scores(
+        &self,
+    ) -> ::std::sync::Arc<
+        crate::storage::redis_hashmap::RedisHashMap<
+            crate::storage::module_session_key::ModuleSessionKey,
+            Vec<u8>,
+        >,
+    > {
+        self.metrics.scores.clone()
     }
 }

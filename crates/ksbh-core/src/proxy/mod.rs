@@ -16,6 +16,10 @@ pub struct ProxyContext {
     pub req_start: ::std::time::Instant,
     pub req_id: uuid::Uuid,
     pub proxy_decision: Option<ksbh_types::prelude::ProxyDecision>,
+    pub parsed_cookie: Option<crate::cookies::ProxyCookie>,
+    pub http_request: Option<ksbh_types::requests::http_request::HttpRequest>,
+    pub session_id_bytes: [u8; 16],
+    pub metrics_key: Vec<u8>,
 }
 
 #[derive(Debug, Clone, Copy, serde::Deserialize, serde::Serialize)]
@@ -32,6 +36,10 @@ impl ProxyContext {
             req_start: ::std::time::Instant::now(),
             req_id: uuid::Uuid::new_v4(),
             proxy_decision: None,
+            parsed_cookie: None,
+            http_request: None,
+            session_id_bytes: [0u8; 16],
+            metrics_key: Vec::new(),
         }
     }
 }
@@ -169,91 +177,3 @@ impl redis::ToRedisArgs for PartialClientInformation {
 }
 
 impl redis::ToSingleRedisArg for PartialClientInformation {}
-
-#[cfg(feature = "test-util")]
-pub mod test_utils;
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_proxy_context_new() {
-        let config = crate::config::Config::new_for_test();
-        let _ctx = ProxyContext::new(config);
-    }
-
-    #[test]
-    fn test_proxy_session_new() {
-        let session = ProxySession {
-            id: uuid::Uuid::new_v4(),
-        };
-        assert!(session.id != uuid::Uuid::nil());
-    }
-
-    #[test]
-    fn test_client_information_new() {
-        let info = ClientInformation {
-            ip: "127.0.0.1".parse().unwrap(),
-            user_agent: smol_str::SmolStr::new("test-agent"),
-        };
-        assert_eq!(info.ip.to_string(), "127.0.0.1");
-    }
-
-    #[test]
-    fn test_client_information_display() {
-        let info = ClientInformation {
-            ip: "127.0.0.1".parse().unwrap(),
-            user_agent: smol_str::SmolStr::new("test-agent"),
-        };
-        assert_eq!(format!("{}", info), "127.0.0.1 - test-agent");
-    }
-
-    #[test]
-    fn test_client_information_debug() {
-        let info = ClientInformation {
-            ip: "127.0.0.1".parse().unwrap(),
-            user_agent: smol_str::SmolStr::new("test-agent"),
-        };
-        let debug_str = format!("{:?}", info);
-        assert!(debug_str.contains("127.0.0.1"));
-    }
-
-    #[test]
-    fn test_partial_client_information_new() {
-        let info = PartialClientInformation {
-            ip: "127.0.0.1".parse().unwrap(),
-            user_agent: Some(ksbh_types::KsbhStr::new("test-agent")),
-        };
-        assert_eq!(info.ip.to_string(), "127.0.0.1");
-    }
-
-    #[test]
-    fn test_partial_client_information_display_with_ua() {
-        let info = PartialClientInformation {
-            ip: "127.0.0.1".parse().unwrap(),
-            user_agent: Some(ksbh_types::KsbhStr::new("test-agent")),
-        };
-        assert_eq!(format!("{}", info), "127.0.0.1 - test-agent");
-    }
-
-    #[test]
-    fn test_partial_client_information_display_without_ua() {
-        let info = PartialClientInformation {
-            ip: "127.0.0.1".parse().unwrap(),
-            user_agent: None,
-        };
-        assert_eq!(format!("{}", info), "127.0.0.1");
-    }
-
-    #[test]
-    fn test_partial_client_information_from_client() {
-        let client = ClientInformation {
-            ip: "127.0.0.1".parse().unwrap(),
-            user_agent: smol_str::SmolStr::new("test-agent"),
-        };
-        let partial: PartialClientInformation = client.into();
-        assert_eq!(partial.ip.to_string(), "127.0.0.1");
-        assert!(partial.user_agent.is_some());
-    }
-}

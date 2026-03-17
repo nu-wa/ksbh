@@ -5,10 +5,10 @@ OpenID Connect authentication module.
 ## Purpose
 
 This module provides OIDC authentication:
-- OAuth2/OIDC protocol implementation
-- JWT token validation
-- Session management
-- User authentication flow
+- Full OIDC authorization code flow with PKCE
+- Does NOT do JWT validation directly - uses OIDC tokens via openidconnect crate
+- Session cookie management with encrypted session data
+- Uses MessagePack (rmp-serde) for session storage, not Redis directly
 
 ## Implementation
 
@@ -20,8 +20,11 @@ This module provides OIDC authentication:
 
 - `ksbh-core`: Core types and FFI interface
 - `ksbh-types`: Shared types
-- `jsonwebtoken`: JWT handling
+- `jsonwebtoken`: JWT handling (for JWT claims parsing, not validation)
 - `openidconnect`: OIDC protocol
+- `reqwest`: HTTP calls to OIDC provider
+- `rmp-serde`: MessagePack for session storage
+- `base64`: Token encoding
 
 ## Build
 

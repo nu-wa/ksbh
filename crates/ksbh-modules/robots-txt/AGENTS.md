@@ -4,9 +4,7 @@ robots.txt handling module.
 
 ## Purpose
 
-This module handles robots.txt requests:
-- Parses and serves robots.txt
-- Respects crawler directives
+Serves static robots.txt content from configuration. Simply returns the `content` field from module config as `text/plain` when path is `/robots.txt` and method is GET. Does NOT parse or respect crawler directives.
 
 ## Implementation
 
@@ -18,7 +16,6 @@ This module handles robots.txt requests:
 
 - `ksbh-core`: Core types and FFI interface
 - `ksbh-types`: Shared types
-- `pingora`: HTTP framework
 
 ## Build
 

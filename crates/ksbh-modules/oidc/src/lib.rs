@@ -1,8 +1,6 @@
-use ksbh_modules_sdk::{ModuleResult, RequestContext, log_debug, log_error};
-
 const DEFAULT_SESSION_TTL_SECS: u64 = 3600;
 const FLOW_STATE_TTL_SECS: u64 = 300;
-const FIVE_MINUTES: ::std::time::Duration = ::std::time::Duration::from_mins(5);
+const FIVE_MINUTES: i64 = 300;
 const CACHE_METADATA_TTL: ::std::time::Duration = ::std::time::Duration::from_hours(24);
 static SYNC_FAVICON_PATH: &str = "/favicon.ico";
 static DEFAULT_INTERNAL_PATH: &str = "/_ksbh_internal";
@@ -48,7 +46,7 @@ struct OidcFlowState {
     pkce_verifier: String,
     redirect_to: String,
     csrf_token: String,
-    time: chrono::NaiveDateTime,
+    time: i64,
 }
 
 fn get_http_client() -> Result<&'static reqwest::blocking::Client, &'static str> {
@@ -144,10 +142,10 @@ fn load_session_data(session: &ksbh_modules_sdk::session::SessionHandle) -> Oidc
 fn save_session_data(
     session: &ksbh_modules_sdk::session::SessionHandle,
     data: &OidcSessionData,
-    ttl_secs: u64,
+    ttl_secs: i64,
 ) -> bool {
     match rmp_serde::to_vec(data) {
-        Ok(bytes) => session.set_with_ttl(MODULE_NAME, &bytes, ttl_secs),
+        Ok(bytes) => session.set_with_ttl(MODULE_NAME, &bytes, ttl_secs as u64),
         Err(_) => false,
     }
 }
@@ -234,10 +232,10 @@ fn get_authorization_code(
         pkce_verifier: pkce_verifier.into_secret(),
         redirect_to: original_uri.to_string(),
         csrf_token: csrf_token.secret().to_string(),
-        time: chrono::Local::now().naive_local(),
+        time: ksbh_core::utils::current_unix_time(),
     });
 
-    if !save_session_data(session, session_data, FLOW_STATE_TTL_SECS) {
+    if !save_session_data(session, session_data, FLOW_STATE_TTL_SECS as i64) {
         tracing::error!("OIDC: failed to save flow state to session store");
         return Err("Failed to save flow state");
     }
@@ -296,6 +294,18 @@ fn exchange_token(
     Ok(refresh_token)
 }
 
+fn handle_auth_code_result(
+    result: Result<(String, String), &'static str>,
+) -> Result<ksbh_modules_sdk::ModuleResult, ksbh_modules_sdk::ModuleError> {
+    match result {
+        Ok((auth_url, cookie_header)) => write_redirect(&auth_url, &cookie_header),
+        Err(_) => write_error(
+            http::StatusCode::INTERNAL_SERVER_ERROR,
+            "Authorization failed",
+        ),
+    }
+}
+
 fn try_refresh_token(
     config: &OIDCConfig,
     redirect_url: &str,
@@ -319,7 +329,10 @@ fn try_refresh_token(
     Ok(Some(new_refresh_token))
 }
 
-fn write_redirect(location: &str, cookie_header: &str) -> ModuleResult {
+fn write_redirect(
+    location: &str,
+    cookie_header: &str,
+) -> Result<ksbh_modules_sdk::ModuleResult, ksbh_modules_sdk::ModuleError> {
     let response = http::Response::builder()
         .status(http::StatusCode::FOUND)
         .header("Location", location)
@@ -328,20 +341,24 @@ fn write_redirect(location: &str, cookie_header: &str) -> ModuleResult {
             "Cache-Control",
             "no-store, no-cache, must-revalidate, max-age=0",
         )
-        .body(bytes::Bytes::new())
-        .unwrap();
-    ModuleResult::Stop(response)
+        .body(bytes::Bytes::new())?;
+    Ok(ksbh_modules_sdk::ModuleResult::Stop(response))
 }
 
-fn write_error(status: http::StatusCode, message: &str) -> ModuleResult {
-    let response = http::Response::builder()
-        .status(status)
-        .body(bytes::Bytes::from(message.to_string()))
-        .unwrap();
-    ModuleResult::Stop(response)
+fn write_error(
+    status: http::StatusCode,
+    message: &str,
+) -> Result<ksbh_modules_sdk::ModuleResult, ksbh_modules_sdk::ModuleError> {
+    Ok(ksbh_modules_sdk::ModuleResult::Stop(
+        http::Response::builder()
+            .status(status)
+            .body(bytes::Bytes::from(message.to_string()))?,
+    ))
 }
 
-pub fn process(ctx: RequestContext) -> ModuleResult {
+pub fn process(
+    ctx: ksbh_modules_sdk::RequestContext,
+) -> Result<ksbh_modules_sdk::ModuleResult, ksbh_modules_sdk::ModuleError> {
     let logger = ctx.logger;
 
     let issuer_url = match ctx.config.get("issuer_url") {
@@ -375,9 +392,8 @@ pub fn process(ctx: RequestContext) -> ModuleResult {
     let session_ttl_secs = ctx
         .config
         .get("session_ttl_seconds")
-        .and_then(|v| v.parse::<u64>().ok())
-        .unwrap_or(DEFAULT_SESSION_TTL_SECS);
-    let session_ttl = ::std::time::Duration::from_secs(session_ttl_secs);
+        .and_then(|v| v.parse::<i64>().ok())
+        .unwrap_or(DEFAULT_SESSION_TTL_SECS as i64);
 
     let enable_refresh = ctx
         .config
@@ -393,19 +409,19 @@ pub fn process(ctx: RequestContext) -> ModuleResult {
 
     let base_url = build_base_url(&ctx.request);
     let path = ctx.request.path.as_str();
-    let now = chrono::Local::now().naive_local();
+    let now = ksbh_core::utils::current_unix_time();
 
     let host = ctx.request.host.as_str();
 
     let cookie_header = ctx.headers.get("Cookie").and_then(|h| h.to_str().ok());
-    log_debug!(logger, "Cookie header received: {:?}", cookie_header);
+    ksbh_modules_sdk::log_debug!(logger, "Cookie header received: {:?}", cookie_header);
 
     let mut cookie = match cookie_header {
         Some(header) => {
-            log_debug!(logger, "Parsing cookie header: {}", header);
+            ksbh_modules_sdk::log_debug!(logger, "Parsing cookie header: {}", header);
             match ksbh_core::cookies::ProxyCookie::from_cookie_header(header) {
                 Ok(c) => {
-                    log_debug!(
+                    ksbh_modules_sdk::log_debug!(
                         logger,
                         "Cookie parsed, oidc_complete: {:?}",
                         c.oidc_complete
@@ -413,7 +429,7 @@ pub fn process(ctx: RequestContext) -> ModuleResult {
                     c
                 }
                 Err(_e) => {
-                    log_debug!(
+                    ksbh_modules_sdk::log_debug!(
                         logger,
                         "Failed to parse cookie: {:?}, creating new cookie",
                         _e
@@ -423,18 +439,18 @@ pub fn process(ctx: RequestContext) -> ModuleResult {
             }
         }
         None => {
-            log_debug!(logger, "No cookie header, creating new cookie");
+            ksbh_modules_sdk::log_debug!(logger, "No cookie header, creating new cookie");
             ksbh_core::cookies::ProxyCookie::new(host, None, uuid::Uuid::new_v4())
         }
     };
 
     if path == SYNC_FAVICON_PATH {
-        return ModuleResult::Pass;
+        return Ok(ksbh_modules_sdk::ModuleResult::Pass);
     }
 
     let session_valid = cookie
         .oidc_complete
-        .map(|oidc_complete| now < oidc_complete + session_ttl)
+        .map(|oidc_complete| now < oidc_complete + session_ttl_secs)
         .unwrap_or(false);
 
     if ctx.headers.get("Upgrade").is_some() && !session_valid {
@@ -442,7 +458,7 @@ pub fn process(ctx: RequestContext) -> ModuleResult {
     }
 
     if session_valid {
-        return ModuleResult::Pass;
+        return Ok(ksbh_modules_sdk::ModuleResult::Pass);
     }
 
     let mut session_data = load_session_data(&ctx.session);
@@ -484,9 +500,8 @@ pub fn process(ctx: RequestContext) -> ModuleResult {
                 let response = http::Response::builder()
                     .status(http::StatusCode::OK)
                     .header("Set-Cookie", cookie_header)
-                    .body(bytes::Bytes::new())
-                    .unwrap();
-                return ModuleResult::Stop(response);
+                    .body(bytes::Bytes::new())?;
+                return Ok(ksbh_modules_sdk::ModuleResult::Stop(response));
             }
             Err(_) => {
                 session_data.refresh_token = None;
@@ -496,24 +511,15 @@ pub fn process(ctx: RequestContext) -> ModuleResult {
 
     if !path.starts_with(&module_path) || oidc_expired {
         let uri = ctx.request.uri.as_str();
-        match get_authorization_code(
+        let result = get_authorization_code(
             &config,
             &redirect_url,
             uri,
             &mut cookie,
             &ctx.session,
             &mut session_data,
-        ) {
-            Ok((auth_url, cookie_header)) => {
-                return write_redirect(&auth_url, &cookie_header);
-            }
-            Err(_e) => {
-                return write_error(
-                    http::StatusCode::INTERNAL_SERVER_ERROR,
-                    "Authorization failed",
-                );
-            }
-        };
+        );
+        return handle_auth_code_result(result);
     }
 
     let code = ctx.request.query_params.get("code").map(|s| s.as_str());
@@ -547,24 +553,15 @@ pub fn process(ctx: RequestContext) -> ModuleResult {
 
     if now > flow.time + FIVE_MINUTES {
         let original_uri = flow.redirect_to.clone();
-        match get_authorization_code(
+        let result = get_authorization_code(
             &config,
             &redirect_url,
             &original_uri,
             &mut cookie,
             &ctx.session,
             &mut session_data,
-        ) {
-            Ok((auth_url, cookie_header)) => {
-                return write_redirect(&auth_url, &cookie_header);
-            }
-            Err(_) => {
-                return write_error(
-                    http::StatusCode::INTERNAL_SERVER_ERROR,
-                    "Authorization failed",
-                );
-            }
-        };
+        );
+        return handle_auth_code_result(result);
     }
 
     match exchange_token(&config, &redirect_url, code, &flow) {
@@ -586,7 +583,7 @@ pub fn process(ctx: RequestContext) -> ModuleResult {
 
     let cookie_header = match cookie.to_cookie_header() {
         Ok(h) => h,
-        Err(ref e) => {
+        Err(_) => {
             return write_error(
                 http::StatusCode::INTERNAL_SERVER_ERROR,
                 "Cookie encoding error",

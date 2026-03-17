@@ -18,24 +18,26 @@ impl super::ProxyService {
                     }
                 },
             };
-        let req_id = uuid::Uuid::new_v4();
+
+        let req_id = ctx.req_id;
         let headers = &session.headers();
-        let http_request_information =
-            match ksbh_types::requests::http_request::HttpRequestView::new(
-                headers,
-                req_id,
-                &self.public_config,
-            ) {
-                Ok(view) => view,
-                Err(e) => {
-                    tracing::error!("Failed to create HttpRequestView: {:?}", e);
-                    return Ok(ksbh_types::prelude::ProxyDecision::StopProcessing(
-                        http::StatusCode::INTERNAL_SERVER_ERROR,
-                        bytes::Bytes::from_static(b"Internal Server Error"),
-                    ));
-                }
-            };
-        let request_match = match self.hosts.find_route(&http_request_information) {
+
+        let http_request = match ksbh_types::requests::http_request::HttpRequest::new(
+            headers,
+            req_id,
+            &self.config.ports.external,
+        ) {
+            Ok(req) => req,
+            Err(e) => {
+                tracing::error!("Failed to create HttpRequest: {:?}", e);
+                return Ok(ksbh_types::prelude::ProxyDecision::StopProcessing(
+                    http::StatusCode::INTERNAL_SERVER_ERROR,
+                    bytes::Bytes::from_static(b"Internal Server Error"),
+                ));
+            }
+        };
+
+        let request_match = match self.hosts.find_route(&http_request) {
             Some(req_match) => req_match,
             None => {
                 return Ok(ksbh_types::prelude::ProxyDecision::StopProcessing(
@@ -45,13 +47,22 @@ impl super::ProxyService {
             }
         };
 
-        let session_id = match crate::cookies::ProxyCookie::from_session(session).await {
-            Ok(cookie) => cookie.session_id,
-            Err(_) => uuid::Uuid::new_v4(),
-        };
+        if ctx.parsed_cookie.is_none() {
+            ctx.parsed_cookie = crate::cookies::ProxyCookie::from_session(session)
+                .await
+                .ok();
+        }
+
+        let session_id = ctx
+            .parsed_cookie
+            .as_ref()
+            .map(|c| c.session_id)
+            .unwrap_or_else(uuid::Uuid::new_v4);
+
+        ctx.session_id_bytes = session_id.into_bytes();
 
         let valid_request_information = super::ValidRequestInformation::new(
-            smol_str::SmolStr::new(http_request_information.host),
+            smol_str::SmolStr::new(http_request.host.as_str()),
             client_information.clone(),
             self.config.clone(),
             request_match,
@@ -85,22 +96,35 @@ impl super::ProxyService {
 
         let modules_metrics = &mut ctx.modules_metrics;
 
+        ctx.metrics_key = ctx.session_id_bytes.to_vec();
+
+        let internal_path = self.config.url_paths.modules.as_str();
+        let req_ctx = crate::modules::abi::ModuleRequestContext::new(
+            session,
+            &http_request,
+            ctx.session_id_bytes,
+            &ctx.metrics_key,
+            request_body,
+            internal_path,
+        );
+
+        ctx.http_request = Some(http_request);
+        ctx.valid_request_information = Some(valid_request_information.clone());
+
         for module in modules.iter() {
             let start = ::std::time::Instant::now();
 
-            let mod_call_result = self.modules.call_module(
-                &module.mod_spec.r#type,
-                &module.config_kv_slice,
-                session,
-                &http_request_information,
-                request_body.as_deref(),
-                module.name.as_str(),
-                valid_request_information.session_id,
+            let params = crate::modules::abi::ModuleCallParams::new(
+                module.mod_spec.r#type.clone(),
+                module.config_kv_slice.clone(),
+                module.name.clone(),
             );
+
+            let mod_call_result = self.modules.call_module(&req_ctx, &params, session).await;
 
             let mod_exec_time = start.elapsed().as_secs_f64();
 
-            match mod_call_result.await {
+            match mod_call_result {
                 Err(e) => {
                     tracing::error!("Module {} error: {:?}", module.name, e);
                 }
@@ -123,15 +147,13 @@ impl super::ProxyService {
                 module.name.as_str(),
                 mod_exec_time,
                 true,
-                decision.clone(),
+                decision.is_some(),
             ));
 
             if decision.is_some() {
                 return Ok(ksbh_types::prelude::ProxyDecision::ModuleReplied);
             }
         }
-
-        ctx.valid_request_information = Some(valid_request_information);
 
         Ok(ksbh_types::prelude::ProxyDecision::ContinueProcessing)
     }

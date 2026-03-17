@@ -4,10 +4,7 @@ Request rate limiting module.
 
 ## Purpose
 
-This module provides rate limiting functionality:
-- Per-IP rate limiting
-- Configurable thresholds
-- Redis-backed state
+Metrics-based rate limiting using score thresholds. Reads `score_threshold` from config (default: 100). Uses `ctx.metrics.get_score()` to get client's current score. Returns HTTP 429 with `Retry-After` and `X-Score` headers when threshold exceeded.
 
 ## Implementation
 
@@ -19,7 +16,7 @@ This module provides rate limiting functionality:
 
 - `ksbh-core`: Core types and FFI interface
 - `ksbh-types`: Shared types
-- `pingora`: HTTP framework
+- `uuid`: Client identification
 
 ## Build
 

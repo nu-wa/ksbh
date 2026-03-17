@@ -21,6 +21,10 @@ This module implements PoW challenges:
 - `ksbh-types`: Shared types
 - `blake3`: Hashing
 - `sha2`: Hashing
+- `askama`: Template rendering
+- `urlencoding`: URL encoding
+- `uuid`: Session ID generation
+- `hex`: Hex encoding
 
 ## Build
 

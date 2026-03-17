@@ -3,7 +3,7 @@ fn parse_buffer(buffer: &ksbh_core::modules::abi::ModuleBuffer) -> smol_str::Smo
 }
 
 pub fn convert_context<'a>(
-    ffi_ctx: &ksbh_core::modules::abi::ModuleContext<'a>,
+    ffi_ctx: &'a ksbh_core::modules::abi::ModuleContext<'a>,
 ) -> crate::context::RequestContext<'a> {
     let config = parse_config(ffi_ctx.config);
     let headers = parse_headers(ffi_ctx.headers);
@@ -18,30 +18,23 @@ pub fn convert_context<'a>(
     );
     let logger = crate::logger::Logger::new(ffi_ctx.log_fn, ffi_ctx.mod_name);
 
-    let user_agent = parse_buffer(&ffi_ctx.user_agent);
-    let user_agent = if user_agent.is_empty() {
-        None
-    } else {
-        Some(user_agent)
-    };
-
     let metrics = crate::metrics::MetricsHandle::from_ffi(
-        ffi_ctx.metrics_increment_good_fn,
-        ffi_ctx.metrics_get_hits_fn,
+        ffi_ctx.metrics_good_boy_fn,
+        ffi_ctx.metrics_get_score_fn,
     );
 
     crate::context::RequestContext {
-        config: Box::leak(Box::new(config)),
-        headers: Box::leak(Box::new(headers)),
+        config,
+        headers,
         request,
         body: ffi_ctx.body,
         session,
         logger,
         mod_name: smol_str::SmolStr::new(ffi_ctx.mod_name),
-        client_ip: parse_buffer(&ffi_ctx.client_ip),
-        user_agent,
+        metrics_key: ffi_ctx.metrics_key.as_bytes(),
         cookie_header: parse_buffer(&ffi_ctx.cookie_header),
         metrics,
+        internal_path: ffi_ctx.internal_path.as_str().unwrap_or(""),
     }
 }
 
@@ -51,14 +44,8 @@ pub fn parse_config(
     let mut map = ::std::collections::HashMap::new();
 
     for kv in config {
-        if kv.key.is_null() || kv.value.is_null() {
-            continue;
-        }
-
-        let key =
-            unsafe { ::std::str::from_utf8(::std::slice::from_raw_parts(kv.key, kv.key_len)) };
-        let value =
-            unsafe { ::std::str::from_utf8(::std::slice::from_raw_parts(kv.value, kv.value_len)) };
+        let key = ::std::str::from_utf8(&kv.key);
+        let value = ::std::str::from_utf8(&kv.value);
 
         if let (Ok(k), Ok(v)) = (key, value) {
             map.insert(k.into(), v.into());
@@ -72,14 +59,8 @@ pub fn parse_headers(headers: &[ksbh_core::modules::abi::ModuleKvSlice]) -> http
     let mut map = http::HeaderMap::new();
 
     for kv in headers {
-        if kv.key.is_null() || kv.value.is_null() {
-            continue;
-        }
-
-        let key =
-            unsafe { ::std::str::from_utf8(::std::slice::from_raw_parts(kv.key, kv.key_len)) };
-        let value =
-            unsafe { ::std::str::from_utf8(::std::slice::from_raw_parts(kv.value, kv.value_len)) };
+        let key = ::std::str::from_utf8(&kv.key);
+        let value = ::std::str::from_utf8(&kv.value);
 
         if let (Ok(k), Ok(v)) = (key, value)
             && let (Ok(name), Ok(val)) = (
@@ -99,9 +80,8 @@ pub fn parse_request_info(
     let mut query_params = ::std::collections::HashMap::new();
 
     for kv in req_info.get_query_params() {
-        let key = unsafe { std::str::from_utf8(std::slice::from_raw_parts(kv.key, kv.key_len)) };
-        let value =
-            unsafe { std::str::from_utf8(std::slice::from_raw_parts(kv.value, kv.value_len)) };
+        let key = ::std::str::from_utf8(&kv.key);
+        let value = ::std::str::from_utf8(&kv.value);
         if let (Ok(k), Ok(v)) = (key, value) {
             query_params.insert(k.into(), v.into());
         }
@@ -121,8 +101,7 @@ pub fn parse_request_info(
 #[repr(C)]
 pub struct OwnedResponse {
     response: ksbh_core::modules::abi::ModuleResponse,
-    headers: Vec<u8>,
-    body: Vec<u8>,
+    headers: Vec<ksbh_core::modules::abi::ModuleKvSlice>, // Keep alive
 }
 
 impl Drop for OwnedResponse {
@@ -133,38 +112,32 @@ pub fn alloc_response(
     response: http::Response<bytes::Bytes>,
 ) -> *const ksbh_core::modules::abi::ModuleResponse {
     let (parts, body) = response.into_parts();
-    let body_vec = body.to_vec();
-    let headers_bytes = serialize_headers(&parts.headers);
 
-    let response = ksbh_core::modules::abi::module_response::ModuleResponse {
+    let headers_vec: Vec<ksbh_core::modules::abi::ModuleKvSlice> = parts
+        .headers
+        .iter()
+        .map(|(name, value)| ksbh_core::modules::abi::ModuleKvSlice {
+            key: bytes::Bytes::copy_from_slice(name.as_str().as_bytes()),
+            value: bytes::Bytes::copy_from_slice(value.as_bytes()),
+        })
+        .collect();
+
+    let headers_ptr = headers_vec.as_ptr();
+    let headers_len = headers_vec.len();
+
+    let module_response = ksbh_core::modules::abi::module_response::ModuleResponse {
         status_code: parts.status.as_u16(),
-        headers: headers_bytes.as_ptr(),
-        headers_size: headers_bytes.len(),
-        body: body_vec.as_ptr(),
-        body_size: body_vec.len(),
+        headers_ptr,
+        headers_len,
+        body,
     };
 
+    // Keep headers alive by storing in OwnedResponse
     let owned = OwnedResponse {
-        response,
-        headers: headers_bytes,
-        body: body_vec,
+        response: module_response,
+        headers: headers_vec,
     };
 
     let owned_ptr = Box::into_raw(Box::new(owned));
     owned_ptr as *const ksbh_core::modules::abi::ModuleResponse
-}
-
-pub fn serialize_headers(headers: &http::HeaderMap) -> Vec<u8> {
-    let mut data = Vec::new();
-
-    for (name, value) in headers {
-        let name_b = name.as_str().as_bytes();
-        let value_b = value.as_bytes();
-        data.extend_from_slice(&(name_b.len() as u32).to_le_bytes());
-        data.extend_from_slice(name_b);
-        data.extend_from_slice(&(value_b.len() as u32).to_le_bytes());
-        data.extend_from_slice(value_b);
-    }
-
-    data
 }

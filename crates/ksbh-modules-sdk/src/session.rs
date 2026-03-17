@@ -25,6 +25,9 @@ impl SessionHandle {
             free,
         }
     }
+    pub fn session_id(&self) -> [u8; 16] {
+        self.session_id
+    }
     pub fn get(&self, key: &str) -> Option<Vec<u8>> {
         let mut out_ptr: *const u8 = std::ptr::null();
         let mut out_len: usize = 0;
