@@ -1,6 +1,6 @@
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProxyProviderError {
-    InternalErrorDetailled(String),
+    InternalErrorDetailed(String),
     InternalError,
     ParsingError(String),
     RouteNotFound,
@@ -14,7 +14,7 @@ impl ::std::fmt::Display for ProxyProviderError {
             f,
             "ProxyProviderError: {}",
             match self {
-                Self::InternalErrorDetailled(details) => details.as_str(),
+                Self::InternalErrorDetailed(details) => details.as_str(),
                 Self::InternalError => "InternalError",
                 Self::ParsingError(details) => details.as_str(),
                 Self::RouteNotFound => "RouteNotFound",
@@ -101,12 +101,6 @@ pub trait ProxyProvider: Send + Sync {
 
     fn new_context(&self) -> Self::ProxyContext;
 
-    async fn early_request_filter(
-        &self,
-        session: &mut dyn ProxyProviderSession,
-        ctx: &mut Self::ProxyContext,
-    ) -> ProxyProviderResult;
-
     async fn request_filter(
         &self,
         session: &mut dyn ProxyProviderSession,
@@ -150,7 +144,7 @@ mod tests {
 
     #[test]
     fn test_proxy_provider_error_internal_error_detailed() {
-        let error = ProxyProviderError::InternalErrorDetailled("Something went wrong".to_string());
+        let error = ProxyProviderError::InternalErrorDetailed("Something went wrong".to_string());
         assert_eq!(
             format!("{}", error),
             "ProxyProviderError: Something went wrong"
@@ -177,9 +171,9 @@ mod tests {
 
     #[test]
     fn test_proxy_provider_error_debug() {
-        let error = ProxyProviderError::InternalErrorDetailled("test".to_string());
+        let error = ProxyProviderError::InternalErrorDetailed("test".to_string());
         let debug_str = format!("{:?}", error);
-        assert!(debug_str.contains("InternalErrorDetailled"));
+        assert!(debug_str.contains("InternalErrorDetailed"));
     }
 
     #[test]

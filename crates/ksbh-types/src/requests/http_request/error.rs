@@ -1,7 +1,7 @@
 #[derive(Debug)]
 pub enum HttpRequestError {
     InvalidRequest,
-    InvaidString(String),
+    InvalidString(String),
 }
 
 impl ::std::error::Error for HttpRequestError {}
@@ -13,7 +13,7 @@ impl ::std::fmt::Display for HttpRequestError {
             "HttpRequestError: {}",
             match self {
                 Self::InvalidRequest => "Invalid Request",
-                Self::InvaidString(s) => &s,
+                Self::InvalidString(s) => &s,
             }
         )
     }
@@ -21,6 +21,6 @@ impl ::std::fmt::Display for HttpRequestError {
 
 impl From<http::header::ToStrError> for HttpRequestError {
     fn from(value: http::header::ToStrError) -> Self {
-        Self::InvaidString(value.to_string())
+        Self::InvalidString(value.to_string())
     }
 }

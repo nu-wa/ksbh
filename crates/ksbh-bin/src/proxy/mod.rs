@@ -68,11 +68,16 @@ impl<'a> ksbh_types::prelude::ProxyProviderSession for PingoraSessionWrapper<'a>
     async fn read_request_body(
         &mut self,
     ) -> Result<Option<bytes::Bytes>, ksbh_types::prelude::ProxyProviderError> {
+        // If request has no body, `self.session.read_request_body` will timeout.
+        if self.session.is_body_empty() || self.session.body_bytes_read() == 0 {
+            return Ok(None);
+        }
+
         match self.session.read_request_body().await {
             Ok(body) => return Ok(body),
             Err(e) => {
                 return Err(
-                    ksbh_types::prelude::ProxyProviderError::InternalErrorDetailled(e.to_string()),
+                    ksbh_types::prelude::ProxyProviderError::InternalErrorDetailed(e.to_string()),
                 );
             }
         }
@@ -98,23 +103,9 @@ where
 
     async fn early_request_filter(
         &self,
-        pingora_session: &mut pingora::proxy::Session,
-        ctx: &mut P::ProxyContext,
+        _pingora_session: &mut pingora::proxy::Session,
+        _ctx: &mut P::ProxyContext,
     ) -> pingora::prelude::Result<()> {
-        let mut session = PingoraSessionWrapper::new(pingora_session);
-
-        self.provider
-            .early_request_filter(&mut session, ctx)
-            .await
-            .map_err(|e| {
-                pingora::Error::create(
-                    pingora::ErrorType::Custom("InternalErrror"),
-                    pingora::ErrorSource::Internal,
-                    Some(pingora::ImmutStr::Owned(e.to_string().into())),
-                    None,
-                )
-            })?;
-
         Ok(())
     }
 
@@ -132,7 +123,7 @@ where
                 .await
                 .map_err(|e| {
                     pingora::Error::create(
-                        pingora::ErrorType::Custom("InternalErrror"),
+                        pingora::ErrorType::Custom("InternalError"),
                         pingora::ErrorSource::Internal,
                         Some(pingora::ImmutStr::Owned(e.to_string().into())),
                         None,
@@ -152,9 +143,8 @@ where
         ctx: &mut Self::CTX,
     ) {
         let mut session = PingoraSessionWrapper::new(session);
-        let error = pingora_error.map(|e| {
-            ksbh_types::prelude::ProxyProviderError::InternalErrorDetailled(e.to_string())
-        });
+        let error = pingora_error
+            .map(|e| ksbh_types::prelude::ProxyProviderError::InternalErrorDetailed(e.to_string()));
 
         self.provider
             .logging(&mut session, error.as_ref(), ctx)
@@ -178,7 +168,7 @@ where
                 )))
             }
             Err(e) => Err(pingora::Error::create(
-                pingora::ErrorType::Custom("InternalErrror"),
+                pingora::ErrorType::Custom("InternalError"),
                 pingora::ErrorSource::Internal,
                 Some(pingora::ImmutStr::Owned(e.to_string().into())),
                 None,
@@ -202,7 +192,7 @@ where
             Ok(_) => Ok(()),
 
             Err(e) => Err(pingora::Error::create(
-                pingora::ErrorType::Custom("InternalErrror"),
+                pingora::ErrorType::Custom("InternalError"),
                 pingora::ErrorSource::Internal,
                 Some(pingora::ImmutStr::Owned(e.to_string().into())),
                 None,
@@ -226,7 +216,7 @@ where
             Ok(_) => Ok(()),
 
             Err(e) => Err(pingora::Error::create(
-                pingora::ErrorType::Custom("InternalErrror"),
+                pingora::ErrorType::Custom("InternalError"),
                 pingora::ErrorSource::Internal,
                 Some(pingora::ImmutStr::Owned(e.to_string().into())),
                 None,
