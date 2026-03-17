@@ -1,17 +1,11 @@
-use async_trait::async_trait;
-use ksbh_core::certs::CertsWriter;
-use ksbh_core::config_provider::ConfigProvider;
-use ksbh_core::routing::{HostPaths, RouterWriter, ServiceBackend, ServiceBackendType};
-use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use std::path::PathBuf;
+pub use serde::{Deserialize, Serialize};
 
 pub struct FileConfigProvider {
-    config_path: PathBuf,
+    config_path: ::std::path::PathBuf,
 }
 
 impl FileConfigProvider {
-    pub fn new(config_path: PathBuf) -> Self {
+    pub fn new(config_path: ::std::path::PathBuf) -> Self {
         Self { config_path }
     }
 }
@@ -31,7 +25,7 @@ pub struct ModuleConfig {
     #[serde(default)]
     pub global: bool,
     #[serde(default)]
-    pub config: HashMap<String, String>,
+    pub config: ::std::collections::HashMap<::std::string::String, ::std::string::String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -77,40 +71,50 @@ fn default_path_type() -> String {
 impl FileConfigProvider {
     async fn load_and_apply_config(
         &self,
-        router: &RouterWriter,
-        _certs: &CertsWriter,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        let config_content = std::fs::read_to_string(&self.config_path)?;
-        let config: Config = serde_yaml::from_str(&config_content)?;
+        router: &::ksbh_core::routing::RouterWriter,
+        _certs: &::ksbh_core::certs::CertsWriter,
+    ) -> Result<(), Box<dyn ::std::error::Error>> {
+        let config_content = ::std::fs::read_to_string(&self.config_path)?;
+        let config: Config = ::serde_yaml::from_str(&config_content)?;
 
         for module in &config.modules {
-            let mut module_config: hashbrown::HashMap<ksbh_types::KsbhStr, ksbh_types::KsbhStr> =
-                hashbrown::HashMap::new();
+            let mut module_config: ::hashbrown::HashMap<
+                ::ksbh_types::KsbhStr,
+                ::ksbh_types::KsbhStr,
+            > = ::hashbrown::HashMap::new();
 
             for (key, value) in &module.config {
                 let resolved_value = self.resolve_env_var(value);
                 module_config.insert(
-                    ksbh_types::KsbhStr::new(key),
-                    ksbh_types::KsbhStr::new(&resolved_value),
+                    ::ksbh_types::KsbhStr::new(key),
+                    ::ksbh_types::KsbhStr::new(&resolved_value),
                 );
             }
 
             let module_type = match module.r#type.to_lowercase().as_str() {
-                "ratelimit" | "rate_limit" => {
-                    ksbh_core::modules::ModuleConfigurationType::RateLimit
+                "ratelimit" | "rate_limit" | "rate-limit" | "rate limit" => {
+                    ::ksbh_core::modules::ModuleConfigurationType::RateLimit
                 }
-                "httpstohttps" | "http_to_https" | "http2https" => {
-                    ksbh_core::modules::ModuleConfigurationType::HttpToHttps
+                "httpstohttps" | "http_to_https" | "http-to-https" | "http2https" | "http to https" => {
+                    ::ksbh_core::modules::ModuleConfigurationType::HttpToHttps
                 }
-                "robotsdot txt" | "robots_txt" | "robotstxt" => {
-                    ksbh_core::modules::ModuleConfigurationType::RobotsDotTXT
+                "robotstxt" | "robots_txt" | "robots.txt" | "robotsdottxt" => {
+                    ::ksbh_core::modules::ModuleConfigurationType::RobotsDotTXT
                 }
-                "oidc" => ksbh_core::modules::ModuleConfigurationType::OIDC,
-                "pow" | "proofofwork" => ksbh_core::modules::ModuleConfigurationType::POW,
-                _ => ksbh_core::modules::ModuleConfigurationType::Custom(module.r#type.clone()),
+                "oidc" => ::ksbh_core::modules::ModuleConfigurationType::OIDC,
+                "pow" | "proofofwork" | "proof-of-work" | "proof of work" => {
+                    ::ksbh_core::modules::ModuleConfigurationType::POW
+                }
+                _ => {
+                    tracing::warn!(
+                        "Unknown module type '{}' - treating as Custom. Valid types: rate-limit, http-to-https, robots.txt, oidc, pow",
+                        module.r#type
+                    );
+                    ::ksbh_core::modules::ModuleConfigurationType::Custom(module.r#type.clone())
+                }
             };
 
-            let spec = ksbh_core::modules::ModuleConfigurationSpec {
+            let spec = ::ksbh_core::modules::ModuleConfigurationSpec {
                 name: module.name.clone(),
                 r#type: module_type,
                 global: module.global,
@@ -122,7 +126,7 @@ impl FileConfigProvider {
             router.upsert_module(
                 &module.name,
                 module.global,
-                std::sync::Arc::new(module_config),
+                ::std::sync::Arc::new(module_config),
                 spec,
             );
 
@@ -130,27 +134,30 @@ impl FileConfigProvider {
         }
 
         for ingress in &config.ingresses {
-            let mut paths: Vec<(std::sync::Arc<str>, HostPaths)> = Vec::new();
-            let mut host_paths = HostPaths::default();
+            let mut paths: Vec<(::std::sync::Arc<str>, ::ksbh_core::routing::HostPaths)> =
+                ::std::vec::Vec::new();
+            let mut host_paths = ::ksbh_core::routing::HostPaths::default();
 
             for path_config in &ingress.paths {
                 let backend = match path_config.backend.to_lowercase().as_str() {
                     "service" => {
                         if let Some(ref svc) = path_config.service {
-                            ServiceBackendType::ServiceBackend(ServiceBackend {
-                                name: ksbh_types::KsbhStr::new(&svc.name),
-                                port: svc.port,
-                            })
+                            ::ksbh_core::routing::ServiceBackendType::ServiceBackend(
+                                ::ksbh_core::routing::ServiceBackend {
+                                    name: ::ksbh_types::KsbhStr::new(&svc.name),
+                                    port: svc.port,
+                                },
+                            )
                         } else {
-                            ServiceBackendType::None
+                            ::ksbh_core::routing::ServiceBackendType::None
                         }
                     }
-                    "static" => ServiceBackendType::Static,
-                    "self" => ServiceBackendType::ToSelf(None),
-                    _ => ServiceBackendType::None,
+                    "static" => ::ksbh_core::routing::ServiceBackendType::Static,
+                    "self" => ::ksbh_core::routing::ServiceBackendType::ToSelf(None),
+                    _ => ::ksbh_core::routing::ServiceBackendType::None,
                 };
 
-                let path_key = ksbh_types::KsbhStr::new(&path_config.path);
+                let path_key = ::ksbh_types::KsbhStr::new(&path_config.path);
                 match path_config.r#type.as_str() {
                     "exact" => {
                         host_paths.exact.insert(path_key, backend);
@@ -174,13 +181,13 @@ impl FileConfigProvider {
                 );
             }
 
-            let module_names: Vec<std::sync::Arc<str>> = ingress
+            let module_names: Vec<::std::sync::Arc<str>> = ingress
                 .modules
                 .iter()
-                .map(|s| std::sync::Arc::from(s.as_str()))
+                .map(|s| ::std::sync::Arc::from(s.as_str()))
                 .collect();
 
-            paths.push((std::sync::Arc::from(ingress.host.as_str()), host_paths));
+            paths.push((::std::sync::Arc::from(ingress.host.as_str()), host_paths));
             router.insert_ingress(&ingress.name, paths, module_names);
 
             tracing::info!(
@@ -195,7 +202,7 @@ impl FileConfigProvider {
 
     fn resolve_env_var(&self, value: &str) -> String {
         if let Some(var_name) = value.strip_prefix('$')
-            && let Ok(env_value) = ksbh_core::utils::get_env_prefer_file(var_name)
+            && let Ok(env_value) = ::ksbh_core::utils::get_env_prefer_file(var_name)
         {
             return env_value;
         }
@@ -203,17 +210,17 @@ impl FileConfigProvider {
     }
 
     async fn watch_config_file(
-        self: std::sync::Arc<Self>,
-        router: RouterWriter,
-        certs: CertsWriter,
-        mut shutdown: tokio::sync::watch::Receiver<bool>,
+        self: ::std::sync::Arc<Self>,
+        router: ::ksbh_core::routing::RouterWriter,
+        certs: ::ksbh_core::certs::CertsWriter,
+        mut shutdown: ::tokio::sync::watch::Receiver<bool>,
     ) {
-        use notify::{Config, RecommendedWatcher, RecursiveMode, Watcher};
+        use ::notify::{Config, RecommendedWatcher, RecursiveMode, Watcher};
 
-        let (tx, mut rx) = tokio::sync::mpsc::channel(100);
+        let (tx, mut rx) = ::tokio::sync::mpsc::channel(100);
 
         let mut watcher = match RecommendedWatcher::new(
-            move |res: std::result::Result<notify::Event, notify::Error>| {
+            move |res: ::std::result::Result<::notify::Event, ::notify::Error>| {
                 if let Ok(event) = res {
                     let _ = tx.blocking_send(event);
                 }
@@ -235,13 +242,13 @@ impl FileConfigProvider {
         tracing::info!("Watching config file: {:?}", self.config_path);
 
         loop {
-            tokio::select! {
+            ::tokio::select! {
                 _ = shutdown.changed() => {
                     tracing::info!("Config file watcher shutdown");
                     break;
                 }
                 Some(event) = rx.recv() => {
-                    if let notify::EventKind::Modify(_) | notify::EventKind::Create(_) = event.kind {
+                    if let ::notify::EventKind::Modify(_) | ::notify::EventKind::Create(_) = event.kind {
                         tracing::info!("Config file changed, reloading...");
                         match self.load_and_apply_config(&router, &certs).await {
                             Ok(_) => tracing::info!("Config reloaded successfully"),
@@ -254,15 +261,15 @@ impl FileConfigProvider {
     }
 }
 
-#[async_trait]
-impl ConfigProvider for FileConfigProvider {
+#[::async_trait::async_trait]
+impl ::ksbh_core::config_provider::ConfigProvider for FileConfigProvider {
     async fn start(
         &self,
-        router: RouterWriter,
-        certs: CertsWriter,
-        shutdown: tokio::sync::watch::Receiver<bool>,
+        router: ::ksbh_core::routing::RouterWriter,
+        certs: ::ksbh_core::certs::CertsWriter,
+        shutdown: ::tokio::sync::watch::Receiver<bool>,
     ) {
-        let self_arc = std::sync::Arc::new(Self {
+        let self_arc = ::std::sync::Arc::new(Self {
             config_path: self.config_path.clone(),
         });
 
@@ -280,17 +287,17 @@ mod tests {
 
     #[test]
     fn test_resolve_env_var_dollar_sign() {
-        let provider = FileConfigProvider::new(PathBuf::from("/tmp/test.yaml"));
+        let provider = FileConfigProvider::new(::std::path::PathBuf::from("/tmp/test.yaml"));
 
         // Note: set_var is unsafe in multi-threaded context, but this is for testing
-        unsafe { std::env::set_var("TEST_VAR", "test_value") };
+        unsafe { ::std::env::set_var("TEST_VAR", "test_value") };
         assert_eq!(provider.resolve_env_var("$TEST_VAR"), "test_value");
-        unsafe { std::env::remove_var("TEST_VAR") };
+        unsafe { ::std::env::remove_var("TEST_VAR") };
     }
 
     #[test]
     fn test_resolve_env_var_no_dollar() {
-        let provider = FileConfigProvider::new(PathBuf::from("/tmp/test.yaml"));
+        let provider = FileConfigProvider::new(::std::path::PathBuf::from("/tmp/test.yaml"));
         assert_eq!(provider.resolve_env_var("plain_value"), "plain_value");
     }
 
@@ -315,7 +322,7 @@ ingresses:
           name: api
           port: 8080
 "#;
-        let config: Config = serde_yaml::from_str(yaml).unwrap();
+        let config: Config = ::serde_yaml::from_str(yaml).unwrap();
         assert_eq!(config.modules.len(), 1);
         assert_eq!(config.ingresses.len(), 1);
         assert_eq!(config.modules[0].name, "rate-limit");
@@ -328,7 +335,7 @@ ingresses:
 modules: []
 ingresses: []
 "#;
-        let config: Config = serde_yaml::from_str(yaml).unwrap();
+        let config: Config = ::serde_yaml::from_str(yaml).unwrap();
         assert!(config.modules.is_empty());
         assert!(config.ingresses.is_empty());
     }

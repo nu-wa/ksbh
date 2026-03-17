@@ -1,12 +1,16 @@
 pub mod ingress;
 
-pub struct KubeConfigProvider {
-    client: kube::Client,
-}
+pub struct KubeConfigProvider;
 
 impl KubeConfigProvider {
-    pub fn new(client: kube::Client) -> Self {
-        Self { client }
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl Default for KubeConfigProvider {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -18,29 +22,38 @@ impl ksbh_core::config_provider::ConfigProvider for KubeConfigProvider {
         certs: ksbh_core::certs::CertsWriter,
         mut shutdown: tokio::sync::watch::Receiver<bool>,
     ) {
+        let client = match kube::Client::try_default().await {
+            Ok(c) => c,
+            Err(e) => {
+                tracing::error!(
+                    "Failed to connect to Kubernetes: {}. Kubernetes config provider will not be available.",
+                    e
+                );
+                return;
+            }
+        };
+
         let hosts = router;
         let certs_writer = certs;
 
-        let modules_controller_ctx = create_modules_context(self.client.clone(), hosts.clone());
+        let modules_controller_ctx = create_modules_context(client.clone(), hosts.clone());
 
-        let modules_api =
-            kube::Api::<ksbh_core::modules::ModuleConfiguration>::all(self.client.clone());
+        let modules_api = kube::Api::<ksbh_core::modules::ModuleConfiguration>::all(client.clone());
 
         let modules_secret_watcher = create_modules_secret_watcher(modules_controller_ctx.clone());
 
         let shutdown_modules = shutdown.clone();
-        let modules_client = self.client.clone();
 
         let modules_controller_handle = spawn_modules_controller(
             modules_api,
-            modules_client,
+            client.clone(),
             modules_controller_ctx,
             modules_secret_watcher,
             shutdown_modules,
         );
 
         let ingress_controller_handle =
-            Self::create_ingress_task(self.client.clone(), hosts, certs_writer, shutdown.clone());
+            Self::create_ingress_task(client.clone(), hosts, certs_writer, shutdown.clone());
 
         tracing::debug!("Started kubernetes controllers");
 

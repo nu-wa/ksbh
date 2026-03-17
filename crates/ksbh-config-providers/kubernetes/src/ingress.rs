@@ -289,7 +289,9 @@ pub(crate) fn extract_domains_from_cert(
     let mut wildcards: Vec<ksbh_types::KsbhStr> = Vec::new();
     let mut domains: Vec<ksbh_types::KsbhStr> = Vec::new();
 
-    if let Some(leaf) = &certs.first() && let Some(sans) = &leaf.subject_alt_names() {
+    if let Some(leaf) = &certs.first()
+        && let Some(sans) = &leaf.subject_alt_names()
+    {
         for san in sans {
             if let Some(dns_name) = san.dnsname() {
                 if dns_name.starts_with("*.") {
