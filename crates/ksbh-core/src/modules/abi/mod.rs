@@ -6,11 +6,13 @@ pub mod module_buffer;
 pub mod module_context;
 pub mod module_host;
 pub mod module_instance;
+pub mod module_request_context;
 pub mod module_request_info;
 pub mod module_response;
 
-pub use module_buffer::{ModuleBuffer, ModuleKvSlice, OwnedModuleBuffer};
+pub use module_buffer::{ModuleBuffer, ModuleKvSlice};
 pub use module_context::ModuleContext;
+pub use module_request_context::{ModuleCallParams, ModuleRequestContext};
 pub use module_request_info::{QueryParams, RequestInfo};
 pub use module_response::{ModuleResponse, ModuleResponseResult};
 
@@ -61,21 +63,11 @@ pub type SessionSetWithTtlFn = unsafe extern "C" fn(
     ttl_secs: u64,
 ) -> bool;
 
-pub type MetricsIncrementGoodFn = unsafe extern "C" fn(
-    client_ip: *const u8,
-    client_ip_len: usize,
-    user_agent: *const u8,
-    user_agent_len: usize,
-) -> bool;
+pub type MetricsGoodBoyFn =
+    unsafe extern "C" fn(metrics_key: *const u8, metrics_key_len: usize) -> bool;
 
-pub type MetricsGetHitsFn = unsafe extern "C" fn(
-    client_ip: *const u8,
-    client_ip_len: usize,
-    user_agent: *const u8,
-    user_agent_len: usize,
-    out_good: *mut u32,
-    out_bad: *mut u32,
-) -> bool;
+pub type MetricsGetScoreFn =
+    unsafe extern "C" fn(metrics_key: *const u8, metrics_key_len: usize) -> u64;
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -99,7 +91,12 @@ pub struct ModuleType {
 pub type ModuleEntryFn =
     unsafe extern "C" fn(ctx: *const ModuleContext<'_>) -> *const ModuleResponse;
 
-pub type ModuleResponseFreeFn = unsafe extern "C" fn(*const ModuleResponse);
+pub type ModuleResponseFreeFn = unsafe extern "C" fn(
+    headers_ptr: *const ModuleKvSlice,
+    headers_len: usize,
+    body_ptr: *const u8,
+    body_len: usize,
+);
 
 pub type ModuleGetTypeFn = unsafe extern "C" fn() -> ModuleType;
 
@@ -114,12 +111,8 @@ impl<'a> ModuleSession<'a> {
 
     pub fn get_header(&self, name: &str) -> Option<&'a str> {
         for header in self.ctx.headers.iter() {
-            let key = unsafe { ::std::slice::from_raw_parts(header.key, header.key_len) };
-            let key_str = ::std::str::from_utf8(key).ok()?;
-
-            if key_str.eq_ignore_ascii_case(name) {
-                let value = unsafe { ::std::slice::from_raw_parts(header.value, header.value_len) };
-                return ::std::str::from_utf8(value).ok();
+            if header.key.as_ref().eq_ignore_ascii_case(name.as_bytes()) {
+                return ::std::str::from_utf8(&header.value).ok();
             }
         }
         None
@@ -134,12 +127,9 @@ impl<'a> ModuleSession<'a> {
     }
 
     pub fn get_config(&self, key: &str) -> Option<&'a str> {
-        let key_bytes = key.as_bytes();
         for entry in self.ctx.config.iter() {
-            let k = unsafe { ::std::slice::from_raw_parts(entry.key, entry.key_len) };
-            if k == key_bytes {
-                let v = unsafe { ::std::slice::from_raw_parts(entry.value, entry.value_len) };
-                return ::std::str::from_utf8(v).ok();
+            if entry.key.as_ref() == key.as_bytes() {
+                return ::std::str::from_utf8(&entry.value).ok();
             }
         }
         None

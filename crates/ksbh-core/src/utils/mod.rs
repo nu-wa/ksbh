@@ -34,6 +34,13 @@ pub fn get_env_prefer_file(key: &str) -> Result<String, Box<dyn ::std::error::Er
     }
 }
 
+pub fn current_unix_time() -> i64 {
+    ::std::time::SystemTime::now()
+        .duration_since(::std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0)
+}
+
 pub fn remove_whitespace(s: &mut String) {
     s.retain(|c| !c.is_whitespace());
 }
@@ -47,8 +54,8 @@ pub fn remove_whitespace_owned(s: &str) -> String {
 }
 
 pub fn create_required_directories(configuration: &crate::Config) -> Result<(), ::std::io::Error> {
-    ::std::fs::create_dir_all(&configuration.config_directory)?;
-    ::std::fs::create_dir_all(&configuration.modules_directory)?;
+    ::std::fs::create_dir_all(&configuration.config_paths.config)?;
+    ::std::fs::create_dir_all(&configuration.config_paths.modules)?;
 
     Ok(())
 }

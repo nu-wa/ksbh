@@ -10,14 +10,16 @@ impl DynamicTLS {
 
 static DEFAULT_CERT: ::std::sync::LazyLock<ksbh_core::certs::Certificate> =
     ::std::sync::LazyLock::new(|| {
-        let key = pingora::tls::pkey::PKey::generate_ed25519().unwrap();
-        let mut builder = pingora::tls::x509::X509::builder().unwrap();
-        builder.set_version(2).unwrap();
-        builder.set_pubkey(&key).unwrap();
+        let key =
+            pingora::tls::pkey::PKey::generate_ed25519().expect("Failed to generate ED25519 key");
+        let mut builder =
+            pingora::tls::x509::X509::builder().expect("Failed to create X509 builder");
+        builder.set_version(2).expect("Failed to set X509 version");
+        builder.set_pubkey(&key).expect("Failed to set public key");
 
         builder
             .sign(&key, pingora::tls::hash::MessageDigest::null())
-            .unwrap();
+            .expect("Failed to sign certificate");
         let crt = builder.build();
 
         (::std::sync::Arc::new(key), ::std::sync::Arc::new(vec![crt]))

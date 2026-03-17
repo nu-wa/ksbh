@@ -21,7 +21,6 @@ impl pingora::services::background::BackgroundService for MetricsService {
     async fn start(&self, mut shutdown: pingora::server::ShutdownWatch) {
         tracing::info!("Starting Metrics service");
 
-        // TODO: fix this very dirty hack i hate it
         let mut rx = self
             .receiver
             .lock()
@@ -29,22 +28,30 @@ impl pingora::services::background::BackgroundService for MetricsService {
             .take()
             .expect("Can only have one metrics receiver");
 
-        let metrics_receive = self.metrics_w.clone();
-        let metrics_cleanup = self.metrics_w.clone();
+        let metrics_w = self.metrics_w.clone();
 
         let rx_task = tokio::spawn(async move {
-            while let Some(req_metric) = rx.recv().await {
-                metrics_receive.add_http_request(req_metric).await;
+            loop {
+                tokio::select! {
+                    result = rx.recv() => {
+                        match result {
+                            Some(req_metric) => {
+                                metrics_w.log_request(req_metric).await;
+                            }
+                            None => {
+                                tracing::warn!("Metrics channel closed, stopping");
+                                break;
+                            }
+                        }
+                    }
+                    _ = tokio::time::sleep(tokio::time::Duration::from_secs(60)) => {}
+                }
             }
         });
 
-        let clean_task = metrics_cleanup
-            .clean_http_requests(tokio::time::Duration::from_mins(5))
-            .await;
         let _ = shutdown.changed().await;
 
         rx_task.abort();
-        clean_task.abort();
 
         tracing::info!("Ended Metrics service");
     }

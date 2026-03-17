@@ -1,8 +1,9 @@
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
 struct ModuleInnerConfig {
+    #[allow(dead_code)]
     spec: ::std::sync::Arc<super::ModuleConfigurationSpec>,
-    /// Keeps the HashMap alive so KVSlice pointers remain valid
+    #[allow(dead_code)]
     config_values: super::ModuleConfigurationValues,
     config_kv_slice: ::std::sync::Arc<Vec<super::abi::ModuleKvSlice>>,
 }
@@ -31,10 +32,8 @@ impl ModuleInnerConfig {
         let mut entries = Vec::with_capacity(config.len());
         for (k, v) in config.iter() {
             entries.push(super::abi::ModuleKvSlice {
-                key: k.as_bytes().as_ptr(),
-                key_len: k.len(),
-                value: v.as_bytes().as_ptr(),
-                value_len: v.len(),
+                key: bytes::Bytes::copy_from_slice(k.as_bytes()),
+                value: bytes::Bytes::copy_from_slice(v.as_bytes()),
             });
         }
         Self {

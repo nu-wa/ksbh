@@ -9,28 +9,21 @@ pub struct RequestInfo {
     pub port: u16,
 }
 
-unsafe impl Send for RequestInfo {}
-unsafe impl Sync for RequestInfo {}
-
 #[repr(C)]
+#[derive(Clone)]
 pub struct QueryParams {
-    pub params: *const super::ModuleKvSlice,
-    pub len: usize,
+    pub params: Vec<super::ModuleKvSlice>,
 }
-
-unsafe impl Send for QueryParams {}
-unsafe impl Sync for QueryParams {}
 
 impl QueryParams {
     pub fn new(params: &[super::ModuleKvSlice]) -> Self {
         Self {
-            params: params.as_ptr(),
-            len: params.len(),
+            params: params.to_vec(),
         }
     }
 
     pub fn as_slice(&self) -> &[super::ModuleKvSlice] {
-        unsafe { ::std::slice::from_raw_parts(self.params, self.len) }
+        &self.params
     }
 }
 
@@ -85,6 +78,22 @@ impl RequestInfo {
         }
     }
 
+    /// Create from owned HttpRequest (not HttpRequestView).
+    pub fn new_owned(
+        request: &ksbh_types::requests::http_request::HttpRequest,
+        query_params_data: &[super::ModuleKvSlice],
+    ) -> Self {
+        Self {
+            uri: super::ModuleBuffer::from_ref(&request.uri),
+            host: super::ModuleBuffer::from_ref(request.host.as_str()),
+            method: super::ModuleBuffer::from_ref(request.method.0.as_str()),
+            path: super::ModuleBuffer::from_ref(request.query.path.as_str()),
+            query_params: QueryParams::new(query_params_data),
+            scheme: super::ModuleBuffer::from_ref(request.scheme.0.as_str()),
+            port: request.port,
+        }
+    }
+
     pub fn get_uri(&self) -> Option<&str> {
         self.uri.as_str()
     }
@@ -110,17 +119,11 @@ impl RequestInfo {
     }
 
     pub fn get_query_param(&self, key: &str) -> Option<&str> {
-        let key_bytes = key.as_bytes();
-
-        for entry in self.query_params.as_slice() {
-            let k = unsafe { ::std::slice::from_raw_parts(entry.key, entry.key_len) };
-
-            if k == key_bytes {
-                let v = unsafe { ::std::slice::from_raw_parts(entry.value, entry.value_len) };
-                return ::std::str::from_utf8(v).ok();
+        for entry in &self.query_params.params {
+            if entry.key.as_ref() == key.as_bytes() {
+                return ::std::str::from_utf8(&entry.value).ok();
             }
         }
-
         None
     }
 
@@ -137,22 +140,15 @@ mod tests {
     fn test_query_params_new() {
         let params: Vec<super::super::ModuleKvSlice> = vec![];
         let query = QueryParams::new(&params);
-        assert_eq!(query.len, 0);
+        assert!(query.params.is_empty());
         assert!(query.as_slice().is_empty());
     }
 
     #[test]
     fn test_query_params_with_values() {
-        let key = b"key";
-        let value = b"value";
-        let kv = super::super::ModuleKvSlice {
-            key: key.as_ptr(),
-            key_len: key.len(),
-            value: value.as_ptr(),
-            value_len: value.len(),
-        };
+        let kv = super::super::ModuleKvSlice::new("key", "value");
         let query = QueryParams::new(&[kv]);
-        assert_eq!(query.len, 1);
+        assert_eq!(query.params.len(), 1);
     }
 
     #[test]

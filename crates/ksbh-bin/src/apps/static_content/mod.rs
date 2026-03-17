@@ -73,7 +73,7 @@ impl StaticHttpApp {
         templates.upsert_sync("502", html::Template502.render()?);
 
         Ok(Self {
-            config,
+            config: config.clone(),
             templates,
             file_cache: file_cache::FileCache::new(),
         })
@@ -157,12 +157,11 @@ impl StaticHttpApp {
         &self,
         mut session: pingora::protocols::http::ServerSession,
         _shutdown: &pingora::server::ShutdownWatch,
-        http_req_info: ksbh_types::prelude::HttpRequest,
+        file_param: Option<&str>,
     ) -> Option<pingora::apps::ReusedHttpStream> {
-        let file_path = get_clean_file_path(
-            &self.config.serve_directory,
-            &urlencoding::decode(http_req_info.query.get_param("file")?.as_str()).ok()?,
-        )?;
+        let file_param = file_param?;
+        let decoded = urlencoding::decode(file_param).ok()?;
+        let file_path = get_clean_file_path(&self.config.config_paths.static_content, &decoded)?;
 
         let file_meta = self.file_cache.get(&file_path).await?;
 
@@ -362,17 +361,35 @@ impl pingora::apps::HttpServerApp for StaticHttpApp {
                 return None;
             }
         };
+
         let req_id = uuid::Uuid::new_v4();
-        let public_config = self.config.to_public();
         let req_headers = session.req_header();
 
-        let http_request_info =
-            ksbh_types::prelude::HttpRequest::new(req_headers, req_id, &public_config).ok()?;
+        let http_request_info = match ksbh_types::requests::http_request::HttpRequestView::new(
+            req_headers,
+            req_id,
+            &self.config.ports.external,
+        ) {
+            Ok(info) => info,
+            Err(e) => {
+                tracing::error!("{:?}", e);
 
-        tracing::debug!("http_request_info: {:?}", http_request_info);
+                return None;
+            }
+        };
 
-        if http_request_info.method.0 == http::method::Method::GET {
-            match http_request_info.query.path.as_str() {
+        // Extract all data we need from HttpRequestView into owned types
+        let method_str = http_request_info.method.0;
+        let path = http_request_info.query.path.to_string();
+        let file_param = http_request_info
+            .query
+            .get_param("file")
+            .map(|s| s.to_string());
+
+        tracing::debug!("http_request_info: method={:?} path={}", method_str, path);
+
+        if method_str == "GET" {
+            match path.as_str() {
                 "/healthz" => {
                     let res = b"healthzy";
 
@@ -400,7 +417,7 @@ impl pingora::apps::HttpServerApp for StaticHttpApp {
                 }
                 "/static" => {
                     return self
-                        .render_static_file(session, shutdown, http_request_info)
+                        .render_static_file(session, shutdown, file_param.as_deref())
                         .await;
                 }
                 "/400" => {

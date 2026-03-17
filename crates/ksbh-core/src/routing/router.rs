@@ -54,14 +54,14 @@ impl Router {
 
     fn find_route(
         &self,
-        request: &ksbh_types::requests::http_request::HttpRequestView,
+        request: &ksbh_types::requests::http_request::HttpRequest,
     ) -> Option<super::request_match::RequestMatch> {
         let path = if request.query.path.len() > 1 && request.query.path.ends_with('/') {
             request.query.path.trim_end_matches('/')
         } else {
-            request.query.path
+            request.query.path.as_str()
         };
-        let key = ksbh_types::KsbhStr::new(request.host);
+        let key = ksbh_types::KsbhStr::new(request.host.as_str());
 
         self.hosts
             .read_sync(&key, |_, host| {
@@ -89,10 +89,8 @@ impl Router {
         let mut entries = Vec::with_capacity(config.len());
         for (k, v) in config.iter() {
             entries.push(crate::modules::abi::ModuleKvSlice {
-                key: k.as_bytes().as_ptr(),
-                key_len: k.len(),
-                value: v.as_bytes().as_ptr(),
-                value_len: v.len(),
+                key: bytes::Bytes::copy_from_slice(k.as_bytes()),
+                value: bytes::Bytes::copy_from_slice(v.as_bytes()),
             });
         }
         let inner = ::std::sync::Arc::new(ModuleInnerConfig {
@@ -356,48 +354,7 @@ impl Router {
 impl RouterReader {
     pub fn find_route(
         &self,
-        http_request: &ksbh_types::requests::http_request::HttpRequestView,
-    ) -> Option<super::request_match::RequestMatch> {
-        self.router.find_route(http_request)
-    }
-
-    pub fn get_global_modules_configs(&self) -> Vec<super::request_match::RequestMatchModule> {
-        self.router.get_global_modules()
-    }
-}
-
-impl RouterWriter {
-    pub fn insert_ingress(
-        &self,
-        ingress_name: &str,
-        hosts: Vec<(::std::sync::Arc<str>, super::HostPaths)>,
-        module_names: Vec<::std::sync::Arc<str>>,
-    ) {
-        self.router
-            .insert_ingress(ingress_name, hosts, module_names);
-    }
-
-    pub fn delete_ingress(&self, ingress_name: &str) {
-        self.router.delete_ingress(ingress_name);
-    }
-
-    pub fn upsert_module(
-        &self,
-        name: &str,
-        global: bool,
-        config: crate::modules::ModuleConfigurationValues,
-        spec: crate::modules::ModuleConfigurationSpec,
-    ) {
-        self.router.upsert_module(name, global, config, spec);
-    }
-
-    pub fn delete_module_config(&self, name: &str) {
-        self.router.delete_module_config(name);
-    }
-
-    pub fn find_route(
-        &self,
-        http_request: &ksbh_types::requests::http_request::HttpRequestView,
+        http_request: &ksbh_types::requests::http_request::HttpRequest,
     ) -> Option<super::request_match::RequestMatch> {
         self.router.find_route(http_request)
     }
@@ -431,5 +388,39 @@ impl From<&::std::sync::Arc<Router>> for RouterWriter {
         Self {
             router: ::std::sync::Arc::clone(value),
         }
+    }
+}
+
+impl RouterWriter {
+    pub fn delete_module_config(&self, name: &str) {
+        self.router.delete_module_config(name);
+    }
+
+    pub fn upsert_module(
+        &self,
+        name: &str,
+        global: bool,
+        config: crate::modules::ModuleConfigurationValues,
+        spec: crate::modules::ModuleConfigurationSpec,
+    ) {
+        self.router.upsert_module(name, global, config, spec);
+    }
+
+    pub fn insert_ingress(
+        &self,
+        ingress_name: &str,
+        hosts: Vec<(::std::sync::Arc<str>, super::HostPaths)>,
+        module_names: Vec<::std::sync::Arc<str>>,
+    ) {
+        self.router
+            .insert_ingress(ingress_name, hosts, module_names);
+    }
+
+    pub fn delete_ingress(&self, ingress_name: &str) {
+        self.router.delete_ingress(ingress_name);
+    }
+
+    pub fn reload_ingresses(&self) {
+        self.router.reload_ingresses();
     }
 }

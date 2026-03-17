@@ -13,13 +13,27 @@ type SessionStore = ::std::sync::Arc<
 
 type MetricsStore = ::std::sync::Arc<
     crate::storage::redis_hashmap::RedisHashMap<
-        crate::proxy::PartialClientInformation,
-        crate::metrics::Hits,
+        crate::storage::module_session_key::ModuleSessionKey,
+        Vec<u8>,
     >,
 >;
 
 static MODULE_SESSIONS: ::std::sync::OnceLock<SessionStore> = ::std::sync::OnceLock::new();
 static MODULE_METRICS: ::std::sync::OnceLock<MetricsStore> = ::std::sync::OnceLock::new();
+
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
+
+// Thread-local allocation tracking
+thread_local! {
+    static ALLOCATED_SESSIONS: scc::HashMap<(u64, usize), usize> = scc::HashMap::new();
+}
+
+fn get_thread_id() -> u64 {
+    let mut hasher = DefaultHasher::new();
+    std::thread::current().id().hash(&mut hasher);
+    hasher.finish()
+}
 
 pub fn set_module_sessions(sessions: SessionStore) {
     let _ = MODULE_SESSIONS.set(sessions);
@@ -110,10 +124,18 @@ pub unsafe extern "C" fn host_session_get(
         session_uuid,
     );
 
-    if let Some(data) = store.get_sync(&key).or_else(|| store.get_redis_sync(&key)) {
+    if let Some(data) = store.get_hot_or_cold_sync(&key) {
         let data_len = data.len();
         let boxed = Box::into_raw(data.into_boxed_slice());
         let data_ptr = boxed as *mut u8;
+
+        // Track allocation for later cleanup
+        let thread_id = get_thread_id();
+        let ptr_addr = data_ptr as usize;
+        ALLOCATED_SESSIONS.with(|map| {
+            let _ = map.insert_sync((thread_id, ptr_addr), data_len);
+        });
+
         unsafe {
             *out_ptr = data_ptr;
             *out_len = data_len;
@@ -254,19 +276,26 @@ pub unsafe extern "C" fn host_session_free(
     if ptr.is_null() || len == 0 {
         return;
     }
+
+    // Find and remove the allocation record
+    let thread_id = get_thread_id();
+    let ptr_addr = ptr as usize;
+
+    ALLOCATED_SESSIONS.with(|map| {
+        let _ = map.remove_sync(&(thread_id, ptr_addr));
+    });
+
     unsafe {
         let slice = ::std::slice::from_raw_parts_mut(ptr as *mut u8, len);
         let _boxed = Box::from_raw(slice);
     }
 }
 
-pub unsafe extern "C" fn host_metrics_increment_good(
-    client_ip: *const u8,
-    client_ip_len: usize,
-    user_agent: *const u8,
-    user_agent_len: usize,
+pub unsafe extern "C" fn host_metrics_good_boy(
+    metrics_key_ptr: *const u8,
+    metrics_key_len: usize,
 ) -> bool {
-    if client_ip.is_null() {
+    if metrics_key_ptr.is_null() || metrics_key_len != 16 {
         return false;
     }
 
@@ -275,103 +304,54 @@ pub unsafe extern "C" fn host_metrics_increment_good(
         None => return false,
     };
 
-    let ip_slice = unsafe { ::std::slice::from_raw_parts(client_ip, client_ip_len) };
-    let ip_str = match ::std::str::from_utf8(ip_slice) {
-        Ok(s) => s,
-        Err(_) => return false,
-    };
-    let ip: ::std::net::IpAddr = match ip_str.parse() {
+    let uuid_bytes = unsafe { ::std::slice::from_raw_parts(metrics_key_ptr, 16) };
+    let uuid_array: [u8; 16] = match uuid_bytes.try_into() {
         Ok(a) => a,
         Err(_) => return false,
     };
+    let session_uuid = uuid::Uuid::from_bytes(uuid_array);
+    let key = crate::storage::module_session_key::ModuleSessionKey::user_session(session_uuid);
 
-    let ua = if !user_agent.is_null() && user_agent_len > 0 {
-        let ua_slice = unsafe { ::std::slice::from_raw_parts(user_agent, user_agent_len) };
-        match ::std::str::from_utf8(ua_slice) {
-            Ok(s) => Some(ksbh_types::KsbhStr::new(s)),
-            Err(_) => None,
+    if let Some(score_bytes) = store.get_hot_sync(&key)
+        && let Ok(score) = rmp_serde::from_slice::<crate::metrics::AtomicU64Wrapper>(&score_bytes)
+    {
+        let new_value = crate::metrics::AtomicU64Wrapper::new(score.load().saturating_sub(50));
+        if let Ok(encoded) = rmp_serde::to_vec(&new_value) {
+            let _ = store.set_sync(key, encoded);
+            return true;
         }
-    } else {
-        None
-    };
+    }
 
-    let client_info = crate::proxy::PartialClientInformation { ip, user_agent: ua };
-
-    let current = store
-        .get_sync(&client_info)
-        .or_else(|| store.get_redis_sync(&client_info));
-
-    let new_good = match current {
-        Some(hits) => hits.good + hits.bad + 5,
-        None => 5,
-    };
-
-    let new_hits = crate::metrics::Hits {
-        good: new_good,
-        bad: 0,
-        logged_at: chrono::Utc::now().naive_utc(),
-    };
-
-    store.set_sync(client_info.clone(), new_hits.clone());
-    store.set_redis_sync(client_info, new_hits);
-
-    true
+    false
 }
 
-pub unsafe extern "C" fn host_metrics_get_hits(
-    client_ip: *const u8,
-    client_ip_len: usize,
-    user_agent: *const u8,
-    user_agent_len: usize,
-    out_good: *mut u32,
-    out_bad: *mut u32,
-) -> bool {
-    if client_ip.is_null() || out_good.is_null() || out_bad.is_null() {
-        return false;
+pub unsafe extern "C" fn host_metrics_get_score(
+    metrics_key_ptr: *const u8,
+    metrics_key_len: usize,
+) -> u64 {
+    if metrics_key_ptr.is_null() || metrics_key_len != 16 {
+        return 0;
     }
 
     let store: &MetricsStore = match MODULE_METRICS.get() {
         Some(s) => s,
-        None => return false,
+        None => return 0,
     };
 
-    let ip_slice = unsafe { ::std::slice::from_raw_parts(client_ip, client_ip_len) };
-    let ip_str = match ::std::str::from_utf8(ip_slice) {
-        Ok(s) => s,
-        Err(_) => return false,
-    };
-    let ip: ::std::net::IpAddr = match ip_str.parse() {
+    let uuid_bytes = unsafe { ::std::slice::from_raw_parts(metrics_key_ptr, 16) };
+    let uuid_array: [u8; 16] = match uuid_bytes.try_into() {
         Ok(a) => a,
-        Err(_) => return false,
+        Err(_) => return 0,
     };
+    let session_uuid = uuid::Uuid::from_bytes(uuid_array);
+    let key = crate::storage::module_session_key::ModuleSessionKey::user_session(session_uuid);
 
-    let ua = if !user_agent.is_null() && user_agent_len > 0 {
-        let ua_slice = unsafe { ::std::slice::from_raw_parts(user_agent, user_agent_len) };
-        match ::std::str::from_utf8(ua_slice) {
-            Ok(s) => Some(ksbh_types::KsbhStr::new(s)),
-            Err(_) => None,
-        }
-    } else {
-        None
-    };
-
-    let client_info = crate::proxy::PartialClientInformation { ip, user_agent: ua };
-
-    let hits = store
-        .get_sync(&client_info)
-        .or_else(|| store.get_redis_sync(&client_info));
-
-    if let Some(hits) = hits {
-        unsafe {
-            *out_good = hits.good as u32;
-            *out_bad = hits.bad as u32;
-        }
-        return true;
-    }
-
-    unsafe {
-        *out_good = 0;
-        *out_bad = 0;
-    };
-    true
+    store
+        .get_hot_sync(&key)
+        .and_then(|score_bytes| {
+            rmp_serde::from_slice::<crate::metrics::AtomicU64Wrapper>(&score_bytes)
+                .ok()
+                .map(|s| s.load())
+        })
+        .unwrap_or(0)
 }

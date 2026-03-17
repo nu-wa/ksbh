@@ -1,9 +1,17 @@
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ProxyCookie {
-    pub challenge_complete: Option<chrono::NaiveDateTime>,
+    pub challenge_complete: Option<i64>,
     pub session_id: uuid::Uuid,
-    pub oidc_complete: Option<chrono::NaiveDateTime>,
+    pub oidc_complete: Option<i64>,
     domain: String,
+}
+
+pub fn get_cookie_domain(host: &str) -> String {
+    if let Some(domain) = psl::domain(host.as_bytes()) {
+        let domain_str = ::std::str::from_utf8(domain.as_bytes()).unwrap_or(host);
+        return format!(".{}", domain_str);
+    }
+    format!(".{}", host)
 }
 
 #[derive(Debug)]
@@ -38,11 +46,7 @@ impl ::std::fmt::Display for ProxyCookieError {
 }
 
 impl ProxyCookie {
-    pub fn new(
-        domain: &str,
-        oidc_complete: Option<chrono::NaiveDateTime>,
-        session_id: uuid::Uuid,
-    ) -> Self {
+    pub fn new(domain: &str, oidc_complete: Option<i64>, session_id: uuid::Uuid) -> Self {
         Self {
             challenge_complete: None,
             oidc_complete,
@@ -106,6 +110,8 @@ impl ProxyCookie {
         let value_bytes = rmp_serde::to_vec(&self.to_owned())?;
         let value = base64::prelude::BASE64_STANDARD_NO_PAD.encode(value_bytes);
 
+        let domain = get_cookie_domain(&self.domain);
+
         let mut jar = cookie::CookieJar::new();
 
         jar.private_mut(&crate::COOKIE_ENC_KEY).add(
@@ -114,10 +120,12 @@ impl ProxyCookie {
                 .max_age(cookie::time::Duration::hours(24))
                 .http_only(true)
                 .same_site(cookie::SameSite::Lax)
-                .path("/"),
+                .path("/")
+                .domain(domain),
         );
 
-        let result = jar.get(&crate::COOKIE_NAME)
+        let result = jar
+            .get(&crate::COOKIE_NAME)
             .map(|c| c.to_string())
             .ok_or(ProxyCookieError::NoCookie)?;
 
@@ -155,7 +163,7 @@ mod tests {
     #[test]
     fn test_proxy_cookie_new_with_oidc() {
         let session_id = uuid::Uuid::new_v4();
-        let oidc_time = chrono::Utc::now().naive_utc();
+        let oidc_time = crate::utils::current_unix_time();
         let cookie = ProxyCookie::new("example.com", Some(oidc_time), session_id);
 
         assert!(cookie.oidc_complete.is_some());

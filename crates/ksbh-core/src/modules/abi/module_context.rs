@@ -11,9 +11,9 @@ pub struct ModuleContext<'a> {
     pub session_set_with_ttl_fn: super::SessionSetWithTtlFn,
     pub session_free_fn: super::SessionFreeFn,
     pub mod_name: &'a str,
-    pub client_ip: super::ModuleBuffer,
-    pub user_agent: super::ModuleBuffer,
     pub cookie_header: super::ModuleBuffer,
-    pub metrics_increment_good_fn: super::MetricsIncrementGoodFn,
-    pub metrics_get_hits_fn: super::MetricsGetHitsFn,
+    pub metrics_key: super::ModuleBuffer,
+    pub metrics_good_boy_fn: super::MetricsGoodBoyFn,
+    pub metrics_get_score_fn: super::MetricsGetScoreFn,
+    pub internal_path: super::ModuleBuffer,
 }

@@ -2,67 +2,49 @@
 //! receieve, respectively, data from the "host" to the module.
 
 #[repr(C)]
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ModuleBuffer {
-    pub data: *const u8,
-    pub size: usize,
+    pub data: bytes::Bytes,
 }
 
 #[repr(C)]
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ModuleKvSlice {
-    pub key: *const u8,
-    pub key_len: usize,
-    pub value: *const u8,
-    pub value_len: usize,
+    pub key: bytes::Bytes,
+    pub value: bytes::Bytes,
 }
-
-// Represents memory created by a module that will be freed by the host
-#[repr(C)]
-pub struct OwnedModuleBuffer {
-    pub buffer: ModuleBuffer,
-    pub free_ptr: FreeOwnedModuleBuffer,
-}
-
-pub type FreeOwnedModuleBuffer = unsafe extern "C" fn(ModuleBuffer);
-
-unsafe impl Send for ModuleKvSlice {}
-unsafe impl Sync for ModuleKvSlice {}
-
-unsafe impl Send for ModuleBuffer {}
-unsafe impl Sync for ModuleBuffer {}
-
-unsafe impl Send for OwnedModuleBuffer {}
-unsafe impl Sync for OwnedModuleBuffer {}
 
 impl ModuleBuffer {
     pub fn as_str(&self) -> Option<&str> {
-        if self.data.is_null() {
+        if self.data.is_empty() {
             return None;
         }
-
-        unsafe {
-            let slice = ::std::slice::from_raw_parts(self.data, self.size);
-
-            ::std::str::from_utf8(slice).ok()
-        }
+        ::std::str::from_utf8(&self.data).ok()
     }
 
     pub fn empty(&self) -> bool {
-        self.data.is_null() || self.size == 0
+        self.data.is_empty()
     }
 
     pub fn from_ref(src: &str) -> Self {
         Self {
-            data: src.as_ptr(),
-            size: src.len(),
+            data: bytes::Bytes::copy_from_slice(src.as_bytes()),
         }
+    }
+
+    pub fn from_ref_bytes(src: &[u8]) -> Self {
+        Self {
+            data: bytes::Bytes::copy_from_slice(src),
+        }
+    }
+
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.data
     }
 
     pub fn null() -> Self {
         Self {
-            data: ::std::ptr::null(),
-            size: 0,
+            data: bytes::Bytes::new(),
         }
     }
 }
@@ -70,11 +52,17 @@ impl ModuleBuffer {
 impl ModuleKvSlice {
     pub fn new(key: &str, value: &str) -> Self {
         Self {
-            key: key.as_ptr(),
-            key_len: key.len(),
-            value: value.as_ptr(),
-            value_len: value.len(),
+            key: bytes::Bytes::copy_from_slice(key.as_bytes()),
+            value: bytes::Bytes::copy_from_slice(value.as_bytes()),
         }
+    }
+
+    pub fn key_str(&self) -> &str {
+        ::std::str::from_utf8(&self.key).unwrap_or_default()
+    }
+
+    pub fn value_str(&self) -> &str {
+        ::std::str::from_utf8(&self.value).unwrap_or_default()
     }
 }
 
@@ -85,15 +73,15 @@ mod tests {
     #[test]
     fn test_module_buffer_from_ref() {
         let buffer = ModuleBuffer::from_ref("hello");
-        assert_eq!(buffer.size, 5);
+        assert_eq!(buffer.data.len(), 5);
         assert_eq!(buffer.as_str(), Some("hello"));
     }
 
     #[test]
     fn test_module_buffer_null() {
         let buffer = ModuleBuffer::null();
-        assert!(buffer.data.is_null());
-        assert_eq!(buffer.size, 0);
+        assert!(buffer.data.is_empty());
+        assert_eq!(buffer.data.len(), 0);
     }
 
     #[test]
@@ -117,14 +105,14 @@ mod tests {
     #[test]
     fn test_module_kv_slice_new() {
         let kv = ModuleKvSlice::new("key", "value");
-        assert_eq!(kv.key_len, 3);
-        assert_eq!(kv.value_len, 5);
+        assert_eq!(kv.key.len(), 3);
+        assert_eq!(kv.value.len(), 5);
     }
 
     #[test]
     fn test_module_kv_slice_empty() {
         let kv = ModuleKvSlice::new("", "");
-        assert_eq!(kv.key_len, 0);
-        assert_eq!(kv.value_len, 0);
+        assert_eq!(kv.key.len(), 0);
+        assert_eq!(kv.value.len(), 0);
     }
 }

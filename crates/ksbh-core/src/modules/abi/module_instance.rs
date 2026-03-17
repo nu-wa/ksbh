@@ -73,7 +73,15 @@ impl ModuleInstance {
     /// on this same `ModuleInstance`. Calling this with a pointer from a different source
     /// or after the module instance has been dropped results in undefined behavior.
     pub unsafe fn free_response(&self, resp: *const super::ModuleResponse) {
-        unsafe { (self.free_response_fn_entry)(resp) }
+        let response = unsafe { &*resp };
+        unsafe {
+            (self.free_response_fn_entry)(
+                response.headers_ptr,
+                response.headers_len,
+                response.body.as_ptr(),
+                response.body.len(),
+            )
+        }
     }
 }
 

@@ -65,7 +65,7 @@ impl Storage {
                 }
             };
             tracing::error!("Could not reach redis, retrying in 5...");
-            ::std::thread::sleep(tokio::time::Duration::from_secs(5));
+            tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
             redis_attempt += 1;
         }
 

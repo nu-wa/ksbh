@@ -73,6 +73,31 @@ where
         None
     }
 
+    pub fn get_hot_sync(&self, key: &K) -> Option<V> {
+        let now = tokio::time::Instant::now();
+
+        if let Some(v) = self.container.get_sync(key) {
+            if v.expires > now {
+                return Some(v.value.clone());
+            }
+            self.container.remove_sync(key);
+        }
+        None
+    }
+
+    pub fn get_hot_or_cold_sync(&self, key: &K) -> Option<V> {
+        if let Some(v) = self.get_hot_sync(key) {
+            return Some(v);
+        }
+
+        if let Some(v) = self.get_redis_sync(key) {
+            self.set_sync(key.clone(), v.clone());
+            return Some(v);
+        }
+
+        None
+    }
+
     pub async fn get_cold(
         &self,
         key: K,
@@ -257,6 +282,191 @@ where
             .query::<i32>(&mut *conn)
             .map(|n| n > 0)
             .unwrap_or(false)
+    }
+
+    fn incr_hash_impl(
+        key_bytes: &[u8],
+        field: &str,
+        delta: i64,
+        conn: &mut Box<dyn redis::ConnectionLike + Send>,
+    ) -> bool {
+        redis::cmd("HINCRBY")
+            .arg(key_bytes)
+            .arg(field)
+            .arg(delta)
+            .query::<i64>(conn.as_mut())
+            .is_ok()
+    }
+
+    pub fn incr_hash_sync(&self, key: &K, field: &str, delta: i64) -> bool {
+        let key_bytes = match rmp_serde::to_vec(key) {
+            Ok(k) => k,
+            Err(_) => return false,
+        };
+        self.incr_hash_by_key_bytes(&key_bytes, field, delta)
+    }
+
+    pub fn incr_hash_by_key_bytes_sync(&self, key_bytes: &[u8], field: &str, delta: i64) -> bool {
+        self.incr_hash_by_key_bytes(key_bytes, field, delta)
+    }
+
+    fn incr_hash_by_key_bytes(&self, key_bytes: &[u8], field: &str, delta: i64) -> bool {
+        let redis = match self.redis_connection.as_ref() {
+            Some(r) => r,
+            None => return false,
+        };
+
+        let mut conn = match redis.get_redis() {
+            Ok(c) => c,
+            Err(_) => return false,
+        };
+
+        if Self::incr_hash_impl(key_bytes, field, delta, &mut conn) {
+            return true;
+        }
+
+        let mut conn = match redis.get_redis() {
+            Ok(c) => c,
+            Err(_) => return false,
+        };
+        Self::incr_hash_impl(key_bytes, field, delta, &mut conn)
+    }
+
+    pub fn get_hash_field_sync(&self, key: &K, field: &str) -> Option<u32> {
+        let key_bytes = match rmp_serde::to_vec(key) {
+            Ok(k) => k,
+            Err(_) => return None,
+        };
+        self.get_hash_field_by_key_bytes_sync(&key_bytes, field)
+    }
+
+    pub fn incr_hash_async(&self, key: K, field: &'static str, delta: i64) {
+        let redis = match self.redis_connection.clone() {
+            Some(r) => r,
+            None => return,
+        };
+
+        let key_for_task = match rmp_serde::to_vec(&key) {
+            Ok(k) => k,
+            Err(_) => return,
+        };
+
+        let field_static = field;
+        let redis_for_retry = redis.clone();
+        let key_for_retry = key_for_task.clone();
+
+        tokio::spawn(async move {
+            let result = tokio::task::spawn_blocking(move || {
+                let mut conn = match redis.get_redis() {
+                    Ok(c) => c,
+                    Err(_) => return Err(()),
+                };
+
+                let res = redis::cmd("HINCRBY")
+                    .arg(&key_for_task)
+                    .arg(field_static)
+                    .arg(delta)
+                    .query::<i64>(&mut *conn);
+
+                match res {
+                    Ok(_) => Ok(()),
+                    Err(_) => Err(()),
+                }
+            })
+            .await;
+
+            if result.is_err() || result.unwrap().is_err() {
+                tokio::spawn(async move {
+                    let _ = tokio::task::spawn_blocking(move || {
+                        let mut conn = match redis_for_retry.get_redis() {
+                            Ok(c) => c,
+                            Err(_) => return,
+                        };
+                        let _ = redis::cmd("HINCRBY")
+                            .arg(&key_for_retry)
+                            .arg(field_static)
+                            .arg(delta)
+                            .query::<i64>(&mut *conn);
+                    })
+                    .await;
+                });
+            }
+        });
+    }
+
+    pub fn get_hash_all_sync(&self, key: &K) -> Option<(u32, u32)> {
+        let redis = self.redis_connection.as_ref()?;
+
+        let mut conn = redis.get_redis().ok()?;
+        let key_bytes = rmp_serde::to_vec(key).ok()?;
+
+        let result: Option<Vec<(Vec<u8>, i64)>> =
+            redis::cmd("HGETALL").arg(&key_bytes).query(&mut *conn).ok();
+
+        match result {
+            Some(items) => {
+                let mut good = 0u32;
+                let mut bad = 0u32;
+                for (field, value) in items {
+                    let field_str = String::from_utf8_lossy(&field);
+                    match field_str.as_ref() {
+                        "good" => good = value as u32,
+                        "bad" => bad = value as u32,
+                        _ => {}
+                    }
+                }
+                if good > 0 || bad > 0 {
+                    Some((good, bad))
+                } else {
+                    None
+                }
+            }
+            None => None,
+        }
+    }
+
+    pub fn get_hash_field_by_key_bytes_sync(&self, key_bytes: &[u8], field: &str) -> Option<u32> {
+        let redis = self.redis_connection.as_ref()?;
+
+        let mut conn = redis.get_redis().ok()?;
+
+        redis::cmd("HGET")
+            .arg(key_bytes)
+            .arg(field)
+            .query::<Option<i64>>(&mut *conn)
+            .ok()
+            .flatten()
+            .map(|v| v as u32)
+    }
+
+    pub fn get_hash_all_by_key_bytes_sync(&self, key_bytes: &[u8]) -> Option<(u32, u32)> {
+        let redis = self.redis_connection.as_ref()?;
+
+        let mut conn = redis.get_redis().ok()?;
+
+        let result: Option<Vec<(Vec<u8>, i64)>> =
+            redis::cmd("HGETALL").arg(key_bytes).query(&mut *conn).ok();
+
+        match result {
+            Some(items) => {
+                let mut good = 0u32;
+                let mut bad = 0u32;
+                for (field, value) in items {
+                    let field_str = String::from_utf8_lossy(&field);
+                    match field_str.as_ref() {
+                        "good" => good = value as u32,
+                        "bad" => bad = value as u32,
+                        _ => {}
+                    }
+                }
+                if good > 0 || bad > 0 {
+                    Some((good, bad))
+                } else {
+                    None
+                }
+            }
+            None => None,
+        }
     }
 
     pub async fn watch(&self, interval: tokio::time::Duration) -> tokio::task::JoinHandle<()> {

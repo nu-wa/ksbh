@@ -35,9 +35,9 @@ pub enum ModuleConfigurationType {
 impl ModuleConfigurationType {
     pub fn get_weight(&self) -> usize {
         match self {
-            Self::OIDC => usize::MIN,
-            Self::RateLimit => 1,
-            Self::POW => 2,
+            Self::RateLimit => usize::MIN,
+            Self::POW => 1,
+            Self::OIDC => 2,
             Self::Custom(_) => 3,
             Self::RobotsDotTXT => usize::MAX - 1,
             Self::HttpToHttps => usize::MAX,

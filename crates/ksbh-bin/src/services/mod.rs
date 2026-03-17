@@ -36,19 +36,20 @@ impl pingora::services::background::BackgroundService for BackgroundService {
     async fn start(&self, mut shutdown: pingora::server::ShutdownWatch) {
         tracing::info!("Starting background service");
 
+        let dir = self.config.config_paths.modules.clone();
+
+        tracing::info!("Watching modules directory: {:?}", dir);
+
         let (shutdown_signal, _) = tokio::sync::watch::channel(false);
         let plugins_shutdown_signal = shutdown.clone();
         let shutdown_signal = ::std::sync::Arc::new(shutdown_signal);
 
         let sessions = self.sessions.clone();
         let sessions_task_handle = tokio::task::spawn(async move {
-            sessions.watch(tokio::time::Duration::from_hours(2)).await
+            sessions.watch(tokio::time::Duration::from_hours(1)).await
         });
 
         let modules_library = self.modules_libraries.clone();
-        let dir = self.config.modules_directory.clone();
-
-        tracing::info!("Watching modules directory: {:?}", dir);
 
         let plugins_watch_task_handle = tokio::task::spawn(async move {
             let modules_library = modules_library.clone();

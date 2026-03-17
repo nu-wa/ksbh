@@ -1,10 +1,9 @@
 #[repr(C)]
 pub struct ModuleResponse {
     pub status_code: u16,
-    pub headers: *const u8,
-    pub headers_size: usize,
-    pub body: *const u8,
-    pub body_size: usize,
+    pub headers_ptr: *const super::ModuleKvSlice,
+    pub headers_len: usize,
+    pub body: bytes::Bytes,
 }
 
 /// Stupid name i hate it
@@ -18,15 +17,21 @@ impl ModuleResponse {
     pub fn null() -> Self {
         Self {
             status_code: 0,
-            headers: ::std::ptr::null(),
-            headers_size: 0,
-            body: ::std::ptr::null(),
-            body_size: 0,
+            headers_ptr: ::std::ptr::null(),
+            headers_len: 0,
+            body: bytes::Bytes::new(),
         }
     }
 
     pub fn is_null(&self) -> bool {
-        self.headers.is_null() && self.body.is_null()
+        self.headers_ptr.is_null() && self.body.is_empty()
+    }
+
+    pub fn headers_slice(&self) -> &[super::ModuleKvSlice] {
+        if self.headers_ptr.is_null() || self.headers_len == 0 {
+            return &[];
+        }
+        unsafe { ::std::slice::from_raw_parts(self.headers_ptr, self.headers_len) }
     }
 }
 
@@ -38,8 +43,8 @@ mod tests {
     fn test_module_response_null() {
         let response = ModuleResponse::null();
         assert_eq!(response.status_code, 0);
-        assert!(response.headers.is_null());
-        assert!(response.body.is_null());
+        assert!(response.headers_ptr.is_null());
+        assert!(response.body.is_empty());
     }
 
     #[test]

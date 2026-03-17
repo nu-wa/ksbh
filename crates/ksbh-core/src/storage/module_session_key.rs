@@ -1,22 +1,22 @@
-pub const MODULE_SESSION_RESERVED: &str = "_ksbh_session";
+pub const MODULE_SESSION_RESERVED: &str = "_ksbh_internal";
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct ModuleSessionKey {
-    module_name: String,
+    module_name: smol_str::SmolStr,
     session_id: uuid::Uuid,
 }
 
 impl ModuleSessionKey {
     pub fn new(module_name: &str, session_id: uuid::Uuid) -> Self {
         Self {
-            module_name: module_name.to_string(),
+            module_name: smol_str::SmolStr::new(module_name),
             session_id,
         }
     }
 
     pub fn user_session(session_id: uuid::Uuid) -> Self {
         Self {
-            module_name: MODULE_SESSION_RESERVED.to_string(),
+            module_name: smol_str::SmolStr::new(MODULE_SESSION_RESERVED),
             session_id,
         }
     }
@@ -51,7 +51,7 @@ impl<'de> serde::Deserialize<'de> for ModuleSessionKey {
         let session_id = uuid::Uuid::parse_str(session_id_str)
             .map_err(|e| serde::de::Error::custom(format!("invalid UUID: {}", e)))?;
         Ok(Self {
-            module_name: module_name.to_string(),
+            module_name: smol_str::SmolStr::new(module_name),
             session_id,
         })
     }
