@@ -22,7 +22,3 @@ pub trait RoutingProvier {
     );
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-}

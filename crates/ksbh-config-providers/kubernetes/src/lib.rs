@@ -546,7 +546,3 @@ fn error_modules(
     kube::runtime::controller::Action::requeue(::std::time::Duration::from_secs(30))
 }
 
-#[cfg(test)]
-mod tests {
-    // Tests require a Kubernetes cluster to run
-}

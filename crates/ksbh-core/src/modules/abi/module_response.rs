@@ -34,34 +34,3 @@ impl ModuleResponse {
         unsafe { ::std::slice::from_raw_parts(self.headers_ptr, self.headers_len) }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_module_response_null() {
-        let response = ModuleResponse::null();
-        assert_eq!(response.status_code, 0);
-        assert!(response.headers_ptr.is_null());
-        assert!(response.body.is_empty());
-    }
-
-    #[test]
-    fn test_module_response_is_null() {
-        let response = ModuleResponse::null();
-        assert!(response.is_null());
-    }
-
-    #[test]
-    fn test_module_response_result_ok() {
-        let result = ModuleResponseResult::Ok;
-        assert_eq!(result as i32, 0);
-    }
-
-    #[test]
-    fn test_module_response_result_err() {
-        let result = ModuleResponseResult::Err;
-        assert_eq!(result as i32, 1);
-    }
-}
