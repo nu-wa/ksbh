@@ -2,12 +2,10 @@ use std::sync::Arc;
 
 pub fn start_pingora(
     config: ksbh_core::Config,
-    kube_client: kube::Client,
-    storage: Arc<ksbh_core::Storage>,
-    public_config: ksbh_types::PublicConfig,
+    storage: ::std::sync::Arc<ksbh_core::Storage>,
+    _guard: tracing_appender::non_blocking::WorkerGuard,
 ) -> anyhow::Result<()> {
     let (tx, rx) = tokio::sync::mpsc::channel(1024);
-    let (metrics_w, _metrics_r) = ksbh_core::metrics::Metrics::create(Some(storage.clone()));
 
     // Sessions for both proxy and modules (key = ModuleSessionKey)
     let sessions: ksbh_core::storage::redis_hashmap::RedisHashMap<
@@ -20,17 +18,17 @@ pub fn start_pingora(
     );
 
     let sessions = ::std::sync::Arc::new(sessions);
+    let (metrics_w, _metrics_r) = ksbh_core::metrics::Metrics::create(sessions.clone());
     let modules = ::std::sync::Arc::new(ksbh_core::modules::abi::module_host::ModuleHost::new(
         sessions.clone(),
-        ::std::sync::Arc::new(metrics_w.http_hits().clone()),
     ));
     let (router_r, router_w) = ksbh_core::routing::Router::create();
     let (certs_r, certs_w) = ksbh_core::certs::CertsRegistry::create();
     let (modules_r, _modules_w) = ksbh_core::modules::registry::ModuleRegistry::create();
 
-    // Determine which config provider to use based on KSBH_CONFIG_PATH env var
+    // Determine which config provider to use based on KSBH__CONFIG_PATHS__CONFIG env var
     let config_provider: Box<dyn ksbh_core::config_provider::ConfigProvider> =
-        match ksbh_core::utils::get_env_prefer_file("KSBH_CONFIG_PATH") {
+        match ksbh_core::utils::get_env_prefer_file("KSBH__CONFIG_PATHS__CONFIG") {
             Ok(config_path) => {
                 tracing::info!(
                     "Using file-based config provider with path: {}",
@@ -42,9 +40,7 @@ pub fn start_pingora(
             }
             Err(_) => {
                 tracing::info!("Using kubernetes config provider");
-                Box::new(ksbh_config_providers_kubernetes::KubeConfigProvider::new(
-                    kube_client,
-                ))
+                Box::new(ksbh_config_providers_kubernetes::KubeConfigProvider::new())
             }
         };
 
@@ -60,12 +56,15 @@ pub fn start_pingora(
             daemon: false,
             ..Default::default()
         },
-        config.to_server_conf().validate().unwrap(),
+        config
+            .to_server_conf()
+            .validate()
+            .map_err(|e| ::std::io::Error::new(::std::io::ErrorKind::InvalidData, e))?,
     );
 
     let dynamic_cert = Box::new(crate::tls::DynamicTLS::new(certs_r));
     let mut tls_settings = pingora::listeners::tls::TlsSettings::with_callbacks(dynamic_cert)
-        .expect("Could not create dynamic TLS");
+        .expect("Could not create TLS settings");
     tls_settings
         .set_ciphersuites(
             "TLS_AES_128_GCM_SHA256:TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256",
@@ -78,10 +77,10 @@ pub fn start_pingora(
     let mut prom_service = pingora::services::listening::Service::prometheus_http_service();
     prom_service.threads = Some(1);
 
-    prom_service.add_tcp(&config.listen_address_prom.to_string());
+    prom_service.add_tcp(&config.listen_addresses.prometheus.to_string());
 
     let mut static_internal = crate::apps::static_content::static_http_service(config.clone());
-    static_internal.add_tcp(&config.listen_address_internal.to_string());
+    static_internal.add_tcp(&config.listen_addresses.internal.to_string());
     static_internal.threads = Some(2);
 
     let mut services: Vec<Box<dyn pingora::services::Service>> = vec![
@@ -96,7 +95,7 @@ pub fn start_pingora(
                     sessions.clone(),
                 ),
             );
-            bg_service.threads = Some(4);
+            bg_service.threads = Some(1);
             bg_service
         }),
         Box::new({
@@ -113,7 +112,6 @@ pub fn start_pingora(
                 config.clone(),
                 tls_settings,
                 storage,
-                public_config,
                 router_r,
                 modules_r,
                 tx,
@@ -128,7 +126,7 @@ pub fn start_pingora(
     #[cfg(feature = "profiling")]
     {
         let mut profiling_service = crate::profiling::profiling_service();
-        profiling_service.add_tcp(&config.listen_address_profiling.to_string());
+        profiling_service.add_tcp(&config.listen_addresses.profiling.to_string());
         profiling_service.threads = Some(1);
         services.push(Box::new(profiling_service));
     }

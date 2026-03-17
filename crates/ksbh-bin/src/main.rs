@@ -12,7 +12,6 @@ mod server;
 mod services;
 mod tls;
 
-use ::std::sync::Arc;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 #[global_allocator]
@@ -64,29 +63,22 @@ fn main() -> anyhow::Result<()> {
 
     tracing::info!("Starting ksbh...");
 
-    let config = ksbh_core::Config::build_from_env();
+    let config = ksbh_core::Config::load().unwrap();
 
     tracing::debug!("Configuration: {:?}", config);
 
     #[cfg(feature = "profiling")]
     let _agent = profiling::create_pyroscope_agent(&config);
 
-    let public_config = config.to_public();
-
     // Cheat our way out of not being able to run async code
-    let rt = tokio::runtime::Runtime::new().expect("Error when setting up ksbh");
+    let rt = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");
 
     let storage = rt.block_on(async {
-        Arc::new(
+        ::std::sync::Arc::new(
             ksbh_core::Storage::new_with_redis_client_provider(&config.redis_url)
                 .await
-                .expect("Could not create storage"),
+                .expect("Failed to create storage"),
         )
-    });
-    let kube_client = rt.block_on(async {
-        kube::Client::try_default()
-            .await
-            .expect("Could not connect to kubernetes")
     });
 
     let _ = &*ksbh_core::metrics::prom::HTTP_REQUESTS_TOTAL;
@@ -94,5 +86,5 @@ fn main() -> anyhow::Result<()> {
     let _ = &*ksbh_core::metrics::prom::HTTP_RESPONSE_TIME_SECONDS;
     let _ = &*ksbh_core::metrics::prom::PLUGIN_EXEC_TIME;
     let _ = &*ksbh_core::metrics::prom::MODULE_EXEC_TIME;
-    server::start_pingora(config, kube_client, storage, public_config)
+    server::start_pingora(config, storage, _guard)
 }

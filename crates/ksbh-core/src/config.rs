@@ -1,13 +1,19 @@
 #[derive(Debug, Clone, serde::Deserialize)]
 pub struct Config {
-    pub database_url: String,
     pub redis_url: String,
     pub pyroscope_url: Option<String>,
+    #[serde(default)]
     pub ports: ConfigPorts,
+    #[serde(default)]
     pub listen_addresses: ConfigListenAddresses,
+    #[serde(default)]
     pub config_paths: ConfigFilePaths,
+    #[serde(default)]
     pub url_paths: ConfigURLPaths,
+    #[serde(default = "default_threads")]
     pub threads: usize,
+    #[serde(default)]
+    pub performance: ConfigPerformance,
 }
 
 #[derive(Debug, Clone, serde::Deserialize)]
@@ -97,6 +103,26 @@ impl Default for ConfigURLPaths {
     }
 }
 
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct ConfigPerformance {
+    #[serde(default)]
+    pub tcp_fastopen: Option<usize>,
+    #[serde(default)]
+    pub so_reuseport: Option<bool>,
+    #[serde(default)]
+    pub tcp_keepalive: Option<bool>,
+}
+
+impl Default for ConfigPerformance {
+    fn default() -> Self {
+        Self {
+            tcp_fastopen: Some(12),
+            so_reuseport: None,
+            tcp_keepalive: None,
+        }
+    }
+}
+
 #[derive(Debug)]
 pub enum ConfigError {
     ValidationError(&'static str),
@@ -136,8 +162,8 @@ impl From<Box<dyn ::std::error::Error + 'static>> for ConfigError {
 
 impl Config {
     pub fn load() -> Result<Self, ConfigError> {
-        let config_file_path = crate::utils::get_env_prefer_file("KSBH_CONFIG_FILE")
-            .unwrap_or("/app/ksbh-config.yaml".to_string());
+        let config_file_path = crate::utils::get_env_prefer_file("KSBH__CONFIG_PATHS__CONFIG")
+            .unwrap_or("/app/ksbh/config.yaml".to_string());
 
         let cfg = config::Config::builder()
             .add_source(config::File::with_name(&config_file_path).required(false))
@@ -170,4 +196,8 @@ impl Config {
             ..Default::default()
         }
     }
+}
+
+fn default_threads() -> usize {
+    8
 }

@@ -3,7 +3,6 @@ pub fn create_service(
     config: ::std::sync::Arc<ksbh_core::Config>,
     tls_settings: pingora::listeners::tls::TlsSettings,
     storage: ::std::sync::Arc<ksbh_core::Storage>,
-    public_config: ksbh_types::PublicConfig,
     hosts: ksbh_core::routing::RouterReader,
     modules_configs_registry: ksbh_core::modules::registry::ModuleRegistryReader,
     metrics_sender: tokio::sync::mpsc::Sender<ksbh_core::metrics::RequestMetrics>,
@@ -17,12 +16,16 @@ pub fn create_service(
 ) -> pingora::services::listening::Service<
     pingora::proxy::HttpProxy<crate::proxy::PingoraWrapper<ksbh_core::proxy::ProxyService>>,
 > {
-    let pingora_server_conf = ::std::sync::Arc::new(config.to_server_conf().validate().unwrap());
+    let pingora_server_conf = ::std::sync::Arc::new(
+        config
+            .to_server_conf()
+            .validate()
+            .expect("Invalid server configuration"),
+    );
 
     let proxy_wrapper = crate::proxy::PingoraWrapper::new(ksbh_core::proxy::ProxyService::new(
         config.clone(),
         storage,
-        public_config,
         hosts,
         modules_configs_registry,
         metrics_sender,
@@ -36,8 +39,22 @@ pub fn create_service(
         "HttpProxy",
     );
 
-    proxy.add_tcp(&config.listen_address.to_string());
-    proxy.add_tls_with_settings(&config.listen_address_tls.to_string(), None, tls_settings);
+    let perf = &config.performance;
+    let tcp_fastopen = perf
+        .tcp_fastopen
+        .unwrap_or(ksbh_core::constants::DEFAULT_TCP_FASTOPEN_QUEUE_SIZE);
+    let so_reuseport = perf.so_reuseport.unwrap_or(false);
+
+    let mut sock_opts = pingora::listeners::TcpSocketOptions::default();
+    sock_opts.tcp_fastopen = Some(tcp_fastopen);
+    sock_opts.so_reuseport = Some(so_reuseport);
+
+    proxy.add_tcp_with_settings(&config.listen_addresses.http.to_string(), sock_opts.clone());
+    proxy.add_tls_with_settings(
+        &config.listen_addresses.https.to_string(),
+        None,
+        tls_settings,
+    );
 
     proxy
 }

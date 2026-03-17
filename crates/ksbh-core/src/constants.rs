@@ -6,6 +6,8 @@ pub const PLUGIN_TIMEOUT: ::std::time::Duration = ::std::time::Duration::from_se
 pub const REDIS_MODULE_STORAGE_KEY: &str = "ksbh_modules";
 pub const INGRESS_CLASS_NAME: &str = "ksbh";
 
+pub const DEFAULT_TCP_FASTOPEN_QUEUE_SIZE: usize = 12;
+
 pub const ENV_KSBH_COOKIE_KEY: &str = "KSBH_COOKIE_KEY";
 pub const ENV_KSBH_SESSION_COOKIE_NAME: &str = "KSBH_SESSION_COOKIE_NAME";
 pub const ENV_JWT_PEM_DECODE: &str = "KSBH_JWT_PEM_DEC_KEY";
