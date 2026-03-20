@@ -7,16 +7,10 @@ edition = "2024"
 crate-type = ["cdylib"]
 
 [dependencies]
-async-trait = { workspace = true }
 bytes = { workspace = true }
-hashbrown = { workspace = true }
 http = { workspace = true }
-ksbh-core = { path = "../../ksbh-core/" }
-ksbh-modules-sdk = { path = "../../ksbh-modules-sdk/" }
-ksbh-types = { workspace = true }
-pingora = { workspace = true }
-scc = { workspace = true }
-serde = { workspace = true }
-smol_str = { workspace = true }
 tracing = { workspace = true }
-uuid = { workspace = true }
+
+# KSBH
+ksbh-modules-sdk = { path = "../../ksbh-modules-sdk/" }
+ksbh-core = { path = "../../ksbh-core/" }
