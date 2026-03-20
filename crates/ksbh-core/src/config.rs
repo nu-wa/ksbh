@@ -1,6 +1,11 @@
 #[derive(Debug, Clone, serde::Deserialize)]
 pub struct Config {
-    pub redis_url: String,
+    #[serde(default)]
+    pub redis_url: Option<String>,
+    #[serde(default)]
+    pub cookie_key: Option<String>,
+    #[serde(default)]
+    pub constants: ConfigConstants,
     pub pyroscope_url: Option<String>,
     #[serde(default)]
     pub ports: ConfigPorts,
@@ -17,8 +22,33 @@ pub struct Config {
 }
 
 #[derive(Debug, Clone, serde::Deserialize)]
+pub struct ConfigConstants {
+    #[serde(default)]
+    pub tcp_fastopen_queue_size: usize,
+    #[serde(default)]
+    pub cookie_name: String,
+    #[serde(default)]
+    pub proxy_header_name: String,
+    #[serde(default)]
+    pub proxy_header_value: String,
+}
+
+impl Default for ConfigConstants {
+    fn default() -> Self {
+        Self {
+            tcp_fastopen_queue_size: 12,
+            cookie_name: "ksbh".to_string(),
+            proxy_header_name: "Server".to_string(),
+            proxy_header_value: "ksbh".to_string(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
 pub struct ConfigPorts {
+    #[serde(default = "default_ports_app")]
     pub app: ksbh_types::Ports,
+    #[serde(default = "default_ports_external")]
     pub external: ksbh_types::Ports,
 }
 
@@ -39,10 +69,15 @@ impl Default for ConfigPorts {
 
 #[derive(Debug, Clone, serde::Deserialize)]
 pub struct ConfigListenAddresses {
+    #[serde(default = "default_listen_http")]
     pub http: ::std::net::SocketAddr,
+    #[serde(default = "default_listen_https")]
     pub https: ::std::net::SocketAddr,
+    #[serde(default = "default_listen_internal")]
     pub internal: ::std::net::SocketAddr,
+    #[serde(default = "default_listen_profiling")]
     pub profiling: ::std::net::SocketAddr,
+    #[serde(default = "default_listen_prometheus")]
     pub prometheus: ::std::net::SocketAddr,
 }
 
@@ -73,10 +108,28 @@ impl Default for ConfigListenAddresses {
     }
 }
 
+impl ConfigListenAddresses {
+    pub fn internal_connect_addr(&self) -> ::std::net::SocketAddr {
+        match self.internal {
+            ::std::net::SocketAddr::V4(addr) => ::std::net::SocketAddr::new(
+                ::std::net::IpAddr::V4(::std::net::Ipv4Addr::LOCALHOST),
+                addr.port(),
+            ),
+            ::std::net::SocketAddr::V6(addr) => ::std::net::SocketAddr::new(
+                ::std::net::IpAddr::V6(::std::net::Ipv6Addr::LOCALHOST),
+                addr.port(),
+            ),
+        }
+    }
+}
+
 #[derive(Debug, Clone, serde::Deserialize)]
 pub struct ConfigFilePaths {
+    #[serde(default = "default_config_path_config")]
     pub config: ::std::path::PathBuf,
+    #[serde(default = "default_config_path_modules")]
     pub modules: ::std::path::PathBuf,
+    #[serde(default = "default_config_path_static_content")]
     pub static_content: ::std::path::PathBuf,
 }
 
@@ -92,6 +145,7 @@ impl Default for ConfigFilePaths {
 
 #[derive(Debug, Clone, serde::Deserialize)]
 pub struct ConfigURLPaths {
+    #[serde(default = "default_url_path_modules")]
     pub modules: String,
 }
 
@@ -183,15 +237,45 @@ impl Config {
 
     fn validate(&self) -> Result<(), ConfigError> {
         // TODO: implement checks for file paths, if they're valid (openable/readable).
-        if self.redis_url.trim().is_empty() {
+        if let Some(url) = &self.redis_url
+            && url.trim().is_empty()
+        {
             return Err(ConfigError::ValidationError("redis_url cannot be empty"));
         }
+
+        let cookie_key = self.cookie_key.as_ref().ok_or_else(|| {
+            ConfigError::MissingMandatoryValue(
+                "cookie_key must be provided via config or KSBH__COOKIE_KEY".to_string(),
+            )
+        })?;
+
+        if cookie_key.trim().is_empty() {
+            return Err(ConfigError::ValidationError("cookie_key cannot be empty"));
+        }
+
+        if crate::cookie::Key::try_from(cookie_key.as_bytes()).is_err() {
+            return Err(ConfigError::ValidationError(
+                "cookie_key must be at least 64 bytes",
+            ));
+        }
+
+        if self.constants.cookie_name.trim().is_empty() {
+            return Err(ConfigError::ValidationError(
+                "constants.cookie_name cannot be empty",
+            ));
+        }
+
+        http::header::HeaderName::from_bytes(self.constants.proxy_header_name.as_bytes())
+            .map_err(|_| ConfigError::ValidationError("constants.proxy_header_name is invalid"))?;
+
+        http::HeaderValue::from_str(&self.constants.proxy_header_value)
+            .map_err(|_| ConfigError::ValidationError("constants.proxy_header_value is invalid"))?;
 
         Ok(())
     }
 
-    pub fn to_server_conf(&self) -> pingora::server::configuration::ServerConf {
-        pingora::server::configuration::ServerConf {
+    pub fn to_server_conf(&self) -> pingora_core::server::configuration::ServerConf {
+        pingora_core::server::configuration::ServerConf {
             daemon: false,
             ..Default::default()
         }
@@ -200,4 +284,48 @@ impl Config {
 
 fn default_threads() -> usize {
     8
+}
+
+fn default_ports_app() -> ksbh_types::Ports {
+    ConfigPorts::default().app
+}
+
+fn default_ports_external() -> ksbh_types::Ports {
+    ConfigPorts::default().external
+}
+
+fn default_listen_http() -> ::std::net::SocketAddr {
+    ConfigListenAddresses::default().http
+}
+
+fn default_listen_https() -> ::std::net::SocketAddr {
+    ConfigListenAddresses::default().https
+}
+
+fn default_listen_internal() -> ::std::net::SocketAddr {
+    ConfigListenAddresses::default().internal
+}
+
+fn default_listen_profiling() -> ::std::net::SocketAddr {
+    ConfigListenAddresses::default().profiling
+}
+
+fn default_listen_prometheus() -> ::std::net::SocketAddr {
+    ConfigListenAddresses::default().prometheus
+}
+
+fn default_config_path_config() -> ::std::path::PathBuf {
+    ConfigFilePaths::default().config
+}
+
+fn default_config_path_modules() -> ::std::path::PathBuf {
+    ConfigFilePaths::default().modules
+}
+
+fn default_config_path_static_content() -> ::std::path::PathBuf {
+    ConfigFilePaths::default().static_content
+}
+
+fn default_url_path_modules() -> String {
+    ConfigURLPaths::default().modules
 }

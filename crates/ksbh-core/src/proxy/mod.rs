@@ -17,6 +17,7 @@ pub struct ProxyContext {
     pub req_id: uuid::Uuid,
     pub proxy_decision: Option<ksbh_types::prelude::ProxyDecision>,
     pub parsed_cookie: Option<crate::cookies::ProxyCookie>,
+    pub needs_session_cookie: bool,
     pub http_request: Option<ksbh_types::requests::http_request::HttpRequest>,
     pub session_id_bytes: [u8; 16],
     pub metrics_key: Vec<u8>,
@@ -37,6 +38,7 @@ impl ProxyContext {
             req_id: uuid::Uuid::new_v4(),
             proxy_decision: None,
             parsed_cookie: None,
+            needs_session_cookie: false,
             http_request: None,
             session_id_bytes: [0u8; 16],
             metrics_key: Vec::new(),
@@ -47,6 +49,8 @@ impl ProxyContext {
 #[derive(Debug, Clone)]
 pub struct ValidRequestInformation {
     pub host: smol_str::SmolStr,
+    pub path: ksbh_types::KsbhStr,
+    pub method: ksbh_types::prelude::HttpMethod,
     pub client_information: PartialClientInformation,
     pub config: ::std::sync::Arc<crate::config::Config>,
     pub req_match: crate::routing::RequestMatch,
@@ -74,6 +78,8 @@ pub struct PartialClientInformation {
 impl ValidRequestInformation {
     pub fn new(
         host: smol_str::SmolStr,
+        path: ksbh_types::KsbhStr,
+        method: ksbh_types::prelude::HttpMethod,
         client_information: PartialClientInformation,
         config: ::std::sync::Arc<crate::config::Config>,
         req_match: crate::routing::RequestMatch,
@@ -81,6 +87,8 @@ impl ValidRequestInformation {
     ) -> Self {
         Self {
             host,
+            path,
+            method,
             client_information,
             config,
             req_match,

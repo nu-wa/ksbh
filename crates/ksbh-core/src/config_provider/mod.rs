@@ -32,11 +32,10 @@ impl ConfigService {
 }
 
 #[async_trait::async_trait]
-impl pingora::services::background::BackgroundService for ConfigService {
-    async fn start(&self, shutdown: pingora::server::ShutdownWatch) {
+impl pingora_core::services::background::BackgroundService for ConfigService {
+    async fn start(&self, shutdown: pingora_core::server::ShutdownWatch) {
         self.provider
             .start(self.router.clone(), self.certs.clone(), shutdown)
             .await;
     }
 }
-

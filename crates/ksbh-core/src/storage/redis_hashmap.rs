@@ -1,3 +1,5 @@
+//! A very naive attempt at keeping some values in memory and storing them into Redis after memory TTL expires.
+
 #[derive(Clone)]
 pub struct RedisHashMap<K, V> {
     ttl: tokio::time::Duration,
@@ -523,4 +525,3 @@ impl<V> ::std::borrow::Borrow<V> for StoredValue<V> {
         &self.value
     }
 }
-

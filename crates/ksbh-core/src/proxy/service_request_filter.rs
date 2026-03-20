@@ -48,10 +48,13 @@ impl super::ProxyService {
         };
 
         if ctx.parsed_cookie.is_none() {
-            ctx.parsed_cookie = crate::cookies::ProxyCookie::from_session(session)
-                .await
-                .ok();
+            ctx.parsed_cookie =
+                crate::cookies::ProxyCookie::from_session(&self.cookie_settings, session)
+                    .await
+                    .ok();
         }
+
+        ctx.needs_session_cookie = ctx.parsed_cookie.is_none();
 
         let session_id = ctx
             .parsed_cookie
@@ -63,6 +66,8 @@ impl super::ProxyService {
 
         let valid_request_information = super::ValidRequestInformation::new(
             smol_str::SmolStr::new(http_request.host.as_str()),
+            ksbh_types::KsbhStr::new(http_request.query.path.as_str()),
+            http_request.method.clone(),
             client_information.clone(),
             self.config.clone(),
             request_match,
@@ -102,6 +107,7 @@ impl super::ProxyService {
         let req_ctx = crate::modules::abi::ModuleRequestContext::new(
             session,
             &http_request,
+            ctx.needs_session_cookie,
             ctx.session_id_bytes,
             &ctx.metrics_key,
             request_body,

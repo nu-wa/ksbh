@@ -24,6 +24,9 @@ pub struct ModuleRequestContext<'req> {
     /// Cookie header (owned smol_str::SmolStr - no allocation for short strings)
     pub cookie_header: smol_str::SmolStr,
 
+    /// Whether the host must append the proxy session cookie for module responses.
+    pub needs_session_cookie: bool,
+
     /// Session ID as bytes (pre-converted from UUID)
     pub session_id_bytes: [u8; 16],
 
@@ -42,6 +45,7 @@ impl<'req> ModuleRequestContext<'req> {
     pub fn new(
         session: &mut dyn ksbh_types::prelude::ProxyProviderSession,
         http_request: &ksbh_types::requests::http_request::HttpRequest,
+        needs_session_cookie: bool,
         session_id_bytes: [u8; 16],
         metrics_key: &'req [u8],
         body: Option<bytes::Bytes>,
@@ -80,6 +84,7 @@ impl<'req> ModuleRequestContext<'req> {
             query_params: query_params_vec,
             request_info,
             cookie_header,
+            needs_session_cookie,
             session_id_bytes,
             metrics_key,
             body,

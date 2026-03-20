@@ -49,6 +49,8 @@ tracing-subscriber = { workspace = true }
 urlencoding = "2.1.3"
 uuid = { workspace = true }
 
+mimalloc = { workspace = true }
+
 [dependencies.anyhow]
 version = "1.0.97"
 
@@ -60,11 +62,6 @@ workspace = true
 version = "0.3.31"
 default-features = false
 features = ["alloc", "async-await"]
-
-[dependencies.jsonwebtoken]
-version = "10.2.0"
-default-features = false
-features = ["rust_crypto", "use_pem"]
 
 [dependencies.k8s-openapi]
 workspace = true

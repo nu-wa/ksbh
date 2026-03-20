@@ -134,6 +134,3 @@ pub trait ProxyProvider: Send + Sync {
         ctx: &mut Self::ProxyContext,
     );
 }
-
-#[cfg(feature = "test-util")]
-pub mod test_utils;

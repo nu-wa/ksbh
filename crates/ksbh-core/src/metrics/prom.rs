@@ -1,7 +1,7 @@
 lazy_static::lazy_static! {
     pub static ref HTTP_REQUESTS_TOTAL: prometheus::CounterVec = prometheus ::register_counter_vec!(
         prometheus::opts!("ksbh_http_requests_total", "Total number of HTTP requests"),
-        &["method", "status", "backend", "outcome"]
+        &["method", "status", "backend", "outcome", "host", "path"]
     ).expect("Failed to register HTTP_REQUESTS_TOTAL metric - metrics subsystem may be broken");
 
     pub static ref PINGORA_ERRORS_TOTAL: prometheus::CounterVec = prometheus::register_counter_vec!(

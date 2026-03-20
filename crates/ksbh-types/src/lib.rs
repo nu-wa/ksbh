@@ -1,3 +1,4 @@
+///! This crate holds common types used in the workspace.
 pub use http;
 
 pub mod ksbh_str;
@@ -7,8 +8,6 @@ pub mod requests;
 pub use ksbh_str::KsbhStr;
 
 pub mod prelude {
-    #[cfg(feature = "test-util")]
-    pub use crate::providers::proxy::test_utils::{MockBuilder, MockProxyProviderSession};
     pub use crate::providers::proxy::{
         ProxyDecision, ProxyProvider, ProxyProviderError, ProxyProviderResult, ProxyProviderSession,
     };

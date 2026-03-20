@@ -26,6 +26,7 @@ pub struct ModuleHost {
         crate::modules::ModuleConfigurationType,
         super::module_instance::ModuleInstance,
     >,
+    cookie_settings: ::std::sync::Arc<crate::cookies::CookieSettings>,
     store: ::std::sync::Arc<
         crate::storage::redis_hashmap::RedisHashMap<
             crate::storage::module_session_key::ModuleSessionKey,
@@ -36,6 +37,7 @@ pub struct ModuleHost {
 
 impl ModuleHost {
     pub fn new(
+        cookie_settings: ::std::sync::Arc<crate::cookies::CookieSettings>,
         store: ::std::sync::Arc<
             crate::storage::redis_hashmap::RedisHashMap<
                 crate::storage::module_session_key::ModuleSessionKey,
@@ -47,6 +49,7 @@ impl ModuleHost {
         super::host_functions::set_module_metrics(store.clone());
         Self {
             modules: scc::HashMap::new(),
+            cookie_settings,
             store,
         }
     }
@@ -140,6 +143,23 @@ impl ModuleHost {
             }
         }
 
+        if req_ctx.needs_session_cookie
+            && !response_sets_proxy_cookie(&http_response, &self.cookie_settings.name)
+        {
+            let cookie = crate::cookies::ProxyCookie::new(
+                req_ctx.request_info.get_host().unwrap_or_default(),
+                uuid::Uuid::from_bytes(req_ctx.session_id_bytes),
+            );
+
+            let cookie_header = cookie
+                .to_cookie_header(&self.cookie_settings)
+                .map_err(|e| ModuleHostError::InternalError(e.to_string()))?;
+            let cookie_header = http::HeaderValue::from_str(&cookie_header)
+                .map_err(|e| ModuleHostError::InternalError(e.to_string()))?;
+
+            http_response = http_response.header(http::header::SET_COOKIE, cookie_header);
+        }
+
         let response = http_response
             .body(body)
             .map_err(|e| ModuleHostError::InternalError(e.to_string()))?;
@@ -154,4 +174,34 @@ impl ModuleHost {
 
         Ok(())
     }
+}
+
+fn response_sets_proxy_cookie(response: &http::response::Builder, cookie_name: &str) -> bool {
+    let headers = match response.headers_ref() {
+        Some(headers) => headers,
+        None => return false,
+    };
+
+    for header in headers.get_all(http::header::SET_COOKIE) {
+        let header_value = match header.to_str() {
+            Ok(header_value) => header_value,
+            Err(_) => continue,
+        };
+
+        let first_segment = match header_value.split(';').next() {
+            Some(first_segment) => first_segment,
+            None => continue,
+        };
+
+        let parsed_cookie_name = match first_segment.split_once('=') {
+            Some((parsed_cookie_name, _)) => parsed_cookie_name.trim(),
+            None => continue,
+        };
+
+        if parsed_cookie_name == cookie_name {
+            return true;
+        }
+    }
+
+    false
 }

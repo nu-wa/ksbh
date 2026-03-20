@@ -19,6 +19,9 @@ pub struct ProxyService {
     pub(super) metrics_sender: tokio::sync::mpsc::Sender<crate::metrics::RequestMetrics>,
     #[allow(dead_code)]
     pub(super) modules: ::std::sync::Arc<crate::modules::abi::module_host::ModuleHost>,
+    pub(super) cookie_settings: ::std::sync::Arc<crate::cookies::CookieSettings>,
+    pub(super) proxy_header_name: http::header::HeaderName,
+    pub(super) proxy_header_value: http::HeaderValue,
 }
 
 impl ProxyService {
@@ -36,7 +39,14 @@ impl ProxyService {
             >,
         >,
         modules: ::std::sync::Arc<crate::modules::abi::module_host::ModuleHost>,
+        cookie_settings: ::std::sync::Arc<crate::cookies::CookieSettings>,
     ) -> Self {
+        let proxy_header_name =
+            http::header::HeaderName::from_bytes(config.constants.proxy_header_name.as_bytes())
+                .expect("validated proxy header name must parse");
+        let proxy_header_value = http::HeaderValue::from_str(&config.constants.proxy_header_value)
+            .expect("validated proxy header value must parse");
+
         Self {
             modules,
             storage,
@@ -45,6 +55,9 @@ impl ProxyService {
             hosts,
             metrics_sender,
             modules_configs_registry,
+            cookie_settings,
+            proxy_header_name,
+            proxy_header_value,
         }
     }
 }
@@ -72,6 +85,11 @@ impl ksbh_types::prelude::ProxyProvider for ProxyService {
     ) -> Result<ksbh_types::providers::proxy::UpstreamPeer, ksbh_types::prelude::ProxyProviderError>
     {
         use std::str::FromStr;
+        let internal_upstream_address = self
+            .config
+            .listen_addresses
+            .internal_connect_addr()
+            .to_string();
 
         // Return to internal error page
         if let Some(ksbh_types::prelude::ProxyDecision::StopProcessing(
@@ -87,7 +105,7 @@ impl ksbh_types::prelude::ProxyProvider for ProxyService {
             );
 
             return Ok(ksbh_types::providers::proxy::UpstreamPeer {
-                address: self.config.listen_addresses.internal.to_string(),
+                address: internal_upstream_address.clone(),
             });
         }
 
@@ -108,7 +126,7 @@ impl ksbh_types::prelude::ProxyProvider for ProxyService {
                             );
 
                             return Ok(ksbh_types::providers::proxy::UpstreamPeer {
-                                address: self.config.listen_addresses.internal.to_string(),
+                                address: internal_upstream_address.clone(),
                             });
                         }
                     };
@@ -131,7 +149,7 @@ impl ksbh_types::prelude::ProxyProvider for ProxyService {
                     );
 
                     Ok(ksbh_types::providers::proxy::UpstreamPeer {
-                        address: self.config.listen_addresses.internal.to_string(),
+                        address: internal_upstream_address.clone(),
                     })
                 }
                 _ => {
@@ -141,7 +159,7 @@ impl ksbh_types::prelude::ProxyProvider for ProxyService {
                     );
 
                     Ok(ksbh_types::providers::proxy::UpstreamPeer {
-                        address: self.config.listen_addresses.internal.to_string(),
+                        address: internal_upstream_address.clone(),
                     })
                 }
             };
@@ -154,7 +172,7 @@ impl ksbh_types::prelude::ProxyProvider for ProxyService {
         );
 
         return Ok(ksbh_types::providers::proxy::UpstreamPeer {
-            address: self.config.listen_addresses.internal.to_string(),
+            address: internal_upstream_address,
         });
     }
 
@@ -169,12 +187,11 @@ impl ksbh_types::prelude::ProxyProvider for ProxyService {
         }
 
         if !response.headers.contains_key(http::header::SET_COOKIE)
-            && ctx.parsed_cookie.is_none()
+            && ctx.needs_session_cookie
             && let Some(valid_request_information) = &ctx.valid_request_information
         {
             let cookie = crate::cookies::ProxyCookie::new(
                 valid_request_information.host.as_str(),
-                None,
                 valid_request_information.session_id,
             );
 
@@ -182,11 +199,15 @@ impl ksbh_types::prelude::ProxyProvider for ProxyService {
                 .headers
                 .try_insert(
                     http::header::SET_COOKIE,
-                    http::HeaderValue::from_str(&cookie.to_cookie_header().map_err(|e| {
-                        ksbh_types::prelude::ProxyProviderError::InternalErrorDetailed(
-                            e.to_string(),
-                        )
-                    })?)
+                    http::HeaderValue::from_str(
+                        &cookie
+                            .to_cookie_header(&self.cookie_settings)
+                            .map_err(|e| {
+                                ksbh_types::prelude::ProxyProviderError::InternalErrorDetailed(
+                                    e.to_string(),
+                                )
+                            })?,
+                    )
                     .map_err(ksbh_types::prelude::ProxyProviderError::from)?,
                 )
                 .map_err(ksbh_types::prelude::ProxyProviderError::from)?;
@@ -195,8 +216,8 @@ impl ksbh_types::prelude::ProxyProvider for ProxyService {
         response
             .headers
             .try_insert(
-                crate::constants::PROXY_HEADER_NAME,
-                http::HeaderValue::from_static(crate::constants::PROXY_HEADER_VALUE),
+                self.proxy_header_name.clone(),
+                self.proxy_header_value.clone(),
             )
             .map_err(ksbh_types::prelude::ProxyProviderError::from)?;
 
@@ -206,7 +227,7 @@ impl ksbh_types::prelude::ProxyProvider for ProxyService {
     async fn upstream_request_filter(
         &self,
         session: &mut dyn ksbh_types::prelude::ProxyProviderSession,
-        upstream_request: &mut pingora::http::RequestHeader,
+        upstream_request: &mut pingora_http::RequestHeader,
         ctx: &mut Self::ProxyContext,
     ) -> Result<(), ksbh_types::prelude::ProxyProviderError> {
         if ctx.proxy_decision.is_some() || session.response_sent() {

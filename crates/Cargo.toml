@@ -128,3 +128,9 @@ version = "0.2.4"
 version = "1.19.0"
 default-features = false
 features = ["fast-rng", "macro-diagnostics", "serde", "v4", "v5", "v6"]
+
+[workspace.dependencies.mimalloc]
+version = "0.1.48"
+
+[workspace.dependencies.urlencoding]
+version = "2.1.3"

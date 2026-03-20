@@ -1,12 +1,12 @@
 pub type Certificate = (
-    ::std::sync::Arc<pingora::tls::pkey::PKey<pingora::tls::pkey::Private>>,
-    ::std::sync::Arc<Vec<pingora::tls::x509::X509>>,
+    ::std::sync::Arc<pingora_core::tls::pkey::PKey<pingora_core::tls::pkey::Private>>,
+    ::std::sync::Arc<Vec<pingora_core::tls::x509::X509>>,
 );
 
 #[derive(Debug, Clone)]
 pub struct Cert {
-    private_key: ::std::sync::Arc<pingora::tls::pkey::PKey<pingora::tls::pkey::Private>>,
-    certs: ::std::sync::Arc<Vec<pingora::tls::x509::X509>>,
+    private_key: ::std::sync::Arc<pingora_core::tls::pkey::PKey<pingora_core::tls::pkey::Private>>,
+    certs: ::std::sync::Arc<Vec<pingora_core::tls::x509::X509>>,
     domains: Vec<ksbh_types::KsbhStr>,
     wildcards: Vec<ksbh_types::KsbhStr>,
 }
@@ -53,8 +53,8 @@ impl CertsRegistry {
     async fn add_cert(
         &self,
         name: &str,
-        private_key: pingora::tls::pkey::PKey<pingora::tls::pkey::Private>,
-        certs: Vec<pingora::tls::x509::X509>,
+        private_key: pingora_core::tls::pkey::PKey<pingora_core::tls::pkey::Private>,
+        certs: Vec<pingora_core::tls::x509::X509>,
         domains: Vec<ksbh_types::KsbhStr>,
         wildcards: Vec<ksbh_types::KsbhStr>,
     ) -> Result<(), Box<dyn ::std::error::Error>> {
@@ -141,8 +141,8 @@ impl CertsWriter {
     pub async fn add_cert(
         &self,
         name: &str,
-        private_key: pingora::tls::pkey::PKey<pingora::tls::pkey::Private>,
-        certs: Vec<pingora::tls::x509::X509>,
+        private_key: pingora_core::tls::pkey::PKey<pingora_core::tls::pkey::Private>,
+        certs: Vec<pingora_core::tls::x509::X509>,
         domains: Vec<ksbh_types::KsbhStr>,
         wildcards: Vec<ksbh_types::KsbhStr>,
     ) -> Result<(), Box<dyn ::std::error::Error>> {

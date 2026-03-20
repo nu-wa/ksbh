@@ -5,12 +5,18 @@ pub struct ModuleInnerConfig {
     pub config_kv_slice: ::std::sync::Arc<Vec<crate::modules::abi::ModuleKvSlice>>,
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct IngressModuleConfig {
+    pub modules: Vec<::std::sync::Arc<str>>,
+    pub excluded_modules: Vec<::std::sync::Arc<str>>,
+}
+
 #[derive(Debug)]
 pub struct Router {
     hosts: scc::HashMap<ksbh_types::KsbhStr, ::std::sync::Arc<Host>>,
     module_registry: scc::HashMap<ksbh_types::KsbhStr, ::std::sync::Arc<ModuleInnerConfig>>,
     global_module_registry: scc::HashMap<ksbh_types::KsbhStr, ::std::sync::Arc<ModuleInnerConfig>>,
-    ingress_module_names: scc::HashMap<::std::sync::Arc<str>, Vec<::std::sync::Arc<str>>>,
+    ingress_module_config: scc::HashMap<::std::sync::Arc<str>, IngressModuleConfig>,
 }
 
 #[derive(Debug, Clone)]
@@ -121,12 +127,12 @@ impl Router {
         &self,
         ingress_name: &str,
         hosts: Vec<(::std::sync::Arc<str>, super::HostPaths)>,
-        module_names: Vec<::std::sync::Arc<str>>,
+        module_config: IngressModuleConfig,
     ) {
         let ingress_name: ::std::sync::Arc<str> = ::std::sync::Arc::from(ingress_name);
 
-        self.ingress_module_names
-            .upsert_sync(ingress_name.clone(), module_names);
+        self.ingress_module_config
+            .upsert_sync(ingress_name.clone(), module_config);
 
         let merged_modules = ::std::sync::Arc::new(self.get_ingress_modules(&ingress_name));
         let ingress = ::std::sync::Arc::new(Ingress {
@@ -158,7 +164,7 @@ impl Router {
     fn delete_ingress(&self, ingress_name: &str) {
         let ingress_name = ::std::sync::Arc::from(ingress_name);
 
-        self.ingress_module_names.remove_sync(&ingress_name);
+        self.ingress_module_config.remove_sync(&ingress_name);
 
         let mut keys: Vec<ksbh_types::KsbhStr> = Vec::new();
         let mut entry = self.hosts.begin_sync();
@@ -202,18 +208,40 @@ impl Router {
         &self,
         ingress_name: &::std::sync::Arc<str>,
     ) -> Vec<super::request_match::RequestMatchModule> {
-        let mut result = self.get_global_modules();
-
-        let names: Vec<::std::sync::Arc<str>> = self
-            .ingress_module_names
+        let module_config = self
+            .ingress_module_config
             .read_sync(ingress_name, |_, v| v.clone())
             .unwrap_or_default();
 
-        if names.is_empty() {
-            return result;
-        }
+        let excluded = module_config.excluded_modules.clone();
+        let route_module_names: Vec<&str> =
+            module_config.modules.iter().map(|s| s.as_ref()).collect();
 
-        for n in names {
+        let global_modules = self.get_global_modules();
+        let mut result: Vec<super::request_match::RequestMatchModule> = global_modules
+            .into_iter()
+            .filter(|m| {
+                let name = m.name.as_ref();
+                if excluded.iter().any(|e| e.as_ref() == name) {
+                    if self
+                        .global_module_registry
+                        .get_sync(&ksbh_types::KsbhStr::new(name))
+                        .is_none()
+                    {
+                        tracing::warn!(
+                            "Excluded module '{}' not found in global modules for ingress '{}'",
+                            name,
+                            ingress_name
+                        );
+                    }
+                    false
+                } else {
+                    !route_module_names.iter().any(|n| *n == name)
+                }
+            })
+            .collect();
+
+        for n in &module_config.modules {
             let key = ksbh_types::KsbhStr::new(n.as_ref());
 
             if let Some(def) = self.module_registry.get_sync(&key) {
@@ -224,6 +252,13 @@ impl Router {
                 });
             }
         }
+
+        result.sort_by(|a, b| {
+            b.mod_spec
+                .r#type
+                .get_weight()
+                .cmp(&a.mod_spec.r#type.get_weight())
+        });
 
         result
     }
@@ -243,12 +278,11 @@ impl Router {
             entry = occupied_entry.next_sync();
         }
 
-        let mut ingress_to_names: Vec<(::std::sync::Arc<str>, Vec<::std::sync::Arc<str>>)> =
-            Vec::new();
-        let mut entry = self.ingress_module_names.begin_sync();
+        let mut ingress_configs: Vec<(::std::sync::Arc<str>, IngressModuleConfig)> = Vec::new();
+        let mut entry = self.ingress_module_config.begin_sync();
 
         while let Some(occupied_entry) = entry {
-            ingress_to_names.push((occupied_entry.key().clone(), occupied_entry.get().clone()));
+            ingress_configs.push((occupied_entry.key().clone(), occupied_entry.get().clone()));
 
             entry = occupied_entry.next_sync();
         }
@@ -258,10 +292,36 @@ impl Router {
             ::std::sync::Arc<Vec<super::request_match::RequestMatchModule>>,
         > = ::std::collections::HashMap::new();
 
-        for (ingress_name, names) in ingress_to_names {
-            let mut list = global_modules.clone();
+        for (ingress_name, module_config) in ingress_configs {
+            let excluded = module_config.excluded_modules.clone();
+            let route_module_names: Vec<&str> =
+                module_config.modules.iter().map(|s| s.as_ref()).collect();
 
-            for n in names {
+            let mut list: Vec<super::request_match::RequestMatchModule> = global_modules
+                .clone()
+                .into_iter()
+                .filter(|m| {
+                    let name = m.name.as_ref();
+                    if excluded.iter().any(|e| e.as_ref() == name) {
+                        if self
+                            .global_module_registry
+                            .get_sync(&ksbh_types::KsbhStr::new(name))
+                            .is_none()
+                        {
+                            tracing::warn!(
+                                "Excluded module '{}' not found in global modules for ingress '{}'",
+                                name,
+                                ingress_name
+                            );
+                        }
+                        false
+                    } else {
+                        !route_module_names.iter().any(|n| *n == name)
+                    }
+                })
+                .collect();
+
+            for n in &module_config.modules {
                 let k = ksbh_types::KsbhStr::new(n.as_ref());
 
                 if let Some(def) = module_definitions.get(&k) {
@@ -370,7 +430,7 @@ impl Default for Router {
             hosts: scc::HashMap::new(),
             module_registry: scc::HashMap::new(),
             global_module_registry: scc::HashMap::new(),
-            ingress_module_names: scc::HashMap::new(),
+            ingress_module_config: scc::HashMap::new(),
         }
     }
 }
@@ -410,10 +470,10 @@ impl RouterWriter {
         &self,
         ingress_name: &str,
         hosts: Vec<(::std::sync::Arc<str>, super::HostPaths)>,
-        module_names: Vec<::std::sync::Arc<str>>,
+        module_config: IngressModuleConfig,
     ) {
         self.router
-            .insert_ingress(ingress_name, hosts, module_names);
+            .insert_ingress(ingress_name, hosts, module_config);
     }
 
     pub fn delete_ingress(&self, ingress_name: &str) {

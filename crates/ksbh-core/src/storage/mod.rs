@@ -16,7 +16,7 @@ impl RedisProvider for redis::Client {
 
 #[derive(Clone)]
 pub struct Storage {
-    redis_provider: ::std::sync::Arc<dyn RedisProvider>,
+    redis_provider: Option<::std::sync::Arc<dyn RedisProvider>>,
 }
 
 #[cfg(feature = "test-util")]
@@ -45,6 +45,12 @@ impl MockProvider {
 }
 
 impl Storage {
+    pub fn empty() -> Self {
+        Self {
+            redis_provider: None,
+        }
+    }
+
     pub async fn new_with_redis_client_provider(
         redis_url: &str,
     ) -> Result<Self, Box<dyn ::std::error::Error>> {
@@ -82,17 +88,25 @@ impl Storage {
         }
 
         Ok(Self {
-            redis_provider: ::std::sync::Arc::new(redis_client),
+            redis_provider: Some(::std::sync::Arc::new(redis_client)),
         })
     }
 
     #[cfg(feature = "test-util")]
     pub async fn new_mock(redis_provider: ::std::sync::Arc<MockProvider>) -> Self {
-        Self { redis_provider }
+        Self {
+            redis_provider: Some(redis_provider),
+        }
     }
 
     pub fn get_redis(&self) -> Result<Box<dyn redis::ConnectionLike + Send>, redis::RedisError> {
-        self.redis_provider.get_connection()
+        match &self.redis_provider {
+            Some(provider) => provider.get_connection(),
+            None => Err(redis::RedisError::from((
+                redis::ErrorKind::Io,
+                "Redis not configured",
+            ))),
+        }
     }
 }
 

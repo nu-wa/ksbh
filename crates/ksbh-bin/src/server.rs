@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 pub fn start_pingora(
     config: ksbh_core::Config,
     storage: ::std::sync::Arc<ksbh_core::Storage>,
@@ -19,7 +17,10 @@ pub fn start_pingora(
 
     let sessions = ::std::sync::Arc::new(sessions);
     let (metrics_w, _metrics_r) = ksbh_core::metrics::Metrics::create(sessions.clone());
+    let cookie_settings =
+        ::std::sync::Arc::new(ksbh_core::cookies::CookieSettings::from_config(&config)?);
     let modules = ::std::sync::Arc::new(ksbh_core::modules::abi::module_host::ModuleHost::new(
+        cookie_settings.clone(),
         sessions.clone(),
     ));
     let (router_r, router_w) = ksbh_core::routing::Router::create();
@@ -72,7 +73,7 @@ pub fn start_pingora(
         .expect("Could not set ciphersuites");
     tls_settings.enable_h2();
 
-    let config = Arc::new(config);
+    let config = ::std::sync::Arc::new(config);
 
     let mut prom_service = pingora::services::listening::Service::prometheus_http_service();
     prom_service.threads = Some(1);
@@ -117,6 +118,7 @@ pub fn start_pingora(
                 tx,
                 sessions,
                 modules,
+                cookie_settings,
             );
             proxy_service.threads = Some(config.threads);
             proxy_service

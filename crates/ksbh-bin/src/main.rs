@@ -15,37 +15,12 @@ mod tls;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 #[global_allocator]
-static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 #[cfg(all(feature = "profiling", target_env = "gnu"))]
 #[unsafe(export_name = "malloc_conf")]
 #[allow(non_upper_case_globals)]
 pub static malloc_conf: &[u8] = b"prof:true,prof_active:true,lg_prof_sample:19\0";
-
-pub static JWT_ENC_ENC_KEY: ::std::sync::LazyLock<jsonwebtoken::EncodingKey> =
-    ::std::sync::LazyLock::new(|| {
-        let key_content =
-            match ksbh_core::utils::get_env_prefer_file(ksbh_core::constants::ENV_JWT_PEM_ENCODE) {
-                Ok(key_content) => key_content,
-                Err(e) => {
-                    panic!("{e}");
-                }
-            };
-
-        let key_content = key_content.trim();
-
-        jsonwebtoken::EncodingKey::from_ec_pem(key_content.as_bytes()).unwrap()
-    });
-
-pub static JWT_ENC_DEC_KEY: ::std::sync::LazyLock<jsonwebtoken::DecodingKey> =
-    ::std::sync::LazyLock::new(|| {
-        let key_content =
-            ksbh_core::utils::get_env_prefer_file(ksbh_core::constants::ENV_JWT_PEM_DECODE)
-                .unwrap();
-        let key_content = key_content.trim();
-
-        jsonwebtoken::DecodingKey::from_ec_pem(key_content.as_bytes()).unwrap()
-    });
 
 fn main() -> anyhow::Result<()> {
     let (non_blocking, _guard) = tracing_appender::non_blocking(::std::io::stdout());
@@ -74,11 +49,14 @@ fn main() -> anyhow::Result<()> {
     let rt = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");
 
     let storage = rt.block_on(async {
-        ::std::sync::Arc::new(
-            ksbh_core::Storage::new_with_redis_client_provider(&config.redis_url)
-                .await
-                .expect("Failed to create storage"),
-        )
+        match &config.redis_url {
+            Some(url) => ::std::sync::Arc::new(
+                ksbh_core::Storage::new_with_redis_client_provider(url)
+                    .await
+                    .expect("Failed to create storage"),
+            ),
+            None => ::std::sync::Arc::new(ksbh_core::Storage::empty()),
+        }
     });
 
     let _ = &*ksbh_core::metrics::prom::HTTP_REQUESTS_TOTAL;

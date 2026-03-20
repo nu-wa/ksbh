@@ -207,13 +207,31 @@ where
         ctx: &mut Self::CTX,
     ) -> pingora::prelude::Result<()> {
         let mut session = PingoraSessionWrapper::new(pingora_session);
+        let original_response = pingora_response.clone();
+        let mut response_parts = original_response.as_owned_parts();
 
         match self
             .provider
-            .response_filter(&mut session, pingora_response, ctx)
+            .response_filter(&mut session, &mut response_parts, ctx)
             .await
         {
-            Ok(_) => Ok(()),
+            Ok(_) => {
+                let headers_count = response_parts.headers.len();
+                let mut rebuilt_response = pingora::http::ResponseHeader::build(
+                    response_parts.status,
+                    Some(headers_count),
+                )?;
+                rebuilt_response.set_version(response_parts.version);
+                rebuilt_response.set_reason_phrase(original_response.get_reason_phrase())?;
+
+                for (header_name, header_value) in &response_parts.headers {
+                    rebuilt_response.append_header(header_name.clone(), header_value.clone())?;
+                }
+
+                *pingora_response = rebuilt_response;
+
+                Ok(())
+            }
 
             Err(e) => Err(pingora::Error::create(
                 pingora::ErrorType::Custom("InternalError"),

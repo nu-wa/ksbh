@@ -97,7 +97,7 @@ pub async fn watch_directory_files_async<S, FnEntry, FnNotify, FutEntry, FutNoti
     path: S,
     entry_fn: FnEntry,
     notify_fn: FnNotify,
-    mut shutdown_watch: Option<pingora::server::ShutdownWatch>,
+    mut shutdown_watch: Option<pingora_core::server::ShutdownWatch>,
 ) -> Result<(), notify::Error>
 where
     FnEntry: Fn(walkdir::DirEntry) -> FutEntry + 'static,
@@ -197,4 +197,3 @@ pub fn get_client_ip_from_session(
 
     client_addr
 }
-

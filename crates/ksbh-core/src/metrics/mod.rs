@@ -229,8 +229,31 @@ impl RequestMetrics {
     }
 
     pub fn observe_prometheus(&self) {
+        let host_str = self.request_information.host.as_str();
+        let path_str = self.request_information.path.as_str();
+        let method_str = self.request_information.method.to_string();
         let status_str = self.status_code.to_string();
         let backend_str = format!("{:?}", self.request_information.req_match.backend);
+        let outcome = if self.status_code.is_server_error() {
+            "server_error"
+        } else if self.status_code.is_client_error() {
+            "client_error"
+        } else if self.status_code.is_redirection() {
+            "redirect"
+        } else {
+            "success"
+        };
+
+        prom::HTTP_REQUESTS_TOTAL
+            .with_label_values(&[
+                &method_str,
+                &status_str,
+                &backend_str,
+                outcome,
+                host_str,
+                path_str,
+            ])
+            .inc();
 
         prom::HTTP_RESPONSE_TIME_SECONDS
             .with_label_values(&[&backend_str, &status_str])
@@ -250,8 +273,11 @@ impl ::std::fmt::Display for RequestMetrics {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "{} - {} {:.2} ms",
+            "{} - {} {} {} - {} {:.2} ms",
             self.request_information.client_information,
+            self.request_information.method,
+            self.request_information.host,
+            self.request_information.path,
             self.status_code,
             self.req_time * 1000.0f64
         )
@@ -262,8 +288,11 @@ impl ::std::fmt::Debug for RequestMetrics {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "{} - {} {:.2} ms - {:?}",
+            "{} - {} {} {} - {} {:.2} ms - {:?}",
             self.request_information.client_information,
+            self.request_information.method,
+            self.request_information.host,
+            self.request_information.path,
             self.status_code,
             self.req_time * 1000.0f64,
             self.modules,

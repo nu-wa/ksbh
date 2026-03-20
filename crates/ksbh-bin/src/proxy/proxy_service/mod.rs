@@ -13,6 +13,7 @@ pub fn create_service(
         >,
     >,
     modules: ::std::sync::Arc<ksbh_core::modules::abi::module_host::ModuleHost>,
+    cookie_settings: ::std::sync::Arc<ksbh_core::cookies::CookieSettings>,
 ) -> pingora::services::listening::Service<
     pingora::proxy::HttpProxy<crate::proxy::PingoraWrapper<ksbh_core::proxy::ProxyService>>,
 > {
@@ -31,6 +32,7 @@ pub fn create_service(
         metrics_sender,
         sessions,
         modules,
+        cookie_settings,
     ));
 
     let mut proxy = pingora::proxy::http_proxy_service_with_name(
@@ -42,7 +44,7 @@ pub fn create_service(
     let perf = &config.performance;
     let tcp_fastopen = perf
         .tcp_fastopen
-        .unwrap_or(ksbh_core::constants::DEFAULT_TCP_FASTOPEN_QUEUE_SIZE);
+        .unwrap_or(config.constants.tcp_fastopen_queue_size);
     let so_reuseport = perf.so_reuseport.unwrap_or(false);
 
     let mut sock_opts = pingora::listeners::TcpSocketOptions::default();

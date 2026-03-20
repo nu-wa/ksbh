@@ -1,6 +1,8 @@
 mod templates;
 
 const POW_PATH: &str = "/pow";
+const CHALLENGE_COMPLETE_KEY: &str = "challenge_complete";
+const ONE_DAY: i64 = 86400;
 
 pub fn process(
     ctx: ksbh_modules_sdk::RequestContext,
@@ -41,25 +43,26 @@ pub fn process(
     actual_difficulty += (score / 100) as usize;
 
     let now = ksbh_core::utils::current_unix_time();
-    static ONE_DAY: i64 = 86400;
-
-    let cookie_header = ctx.cookie_header.as_str();
     let mut challenge_complete: Option<i64> = None;
     let mut challenge_expired = false;
 
-    if !cookie_header.is_empty() {
-        match ksbh_core::cookies::ProxyCookie::from_cookie_header(cookie_header) {
-            Ok(cookie) => {
-                if let Some(ts) = cookie.challenge_complete {
-                    if now > ts + ONE_DAY {
-                        challenge_expired = true;
-                    } else {
-                        challenge_complete = Some(ts);
-                    }
+    if let Some(stored_challenge_complete) = ctx.session.get(CHALLENGE_COMPLETE_KEY) {
+        match ::std::str::from_utf8(&stored_challenge_complete)
+            .ok()
+            .and_then(|value| value.parse::<i64>().ok())
+        {
+            Some(ts) => {
+                if now > ts + ONE_DAY {
+                    challenge_expired = true;
+                } else {
+                    challenge_complete = Some(ts);
                 }
             }
-            Err(e) => {
-                ksbh_modules_sdk::log_debug!(ctx.logger, "Failed to parse cookie: {}", e);
+            None => {
+                ksbh_modules_sdk::log_debug!(
+                    ctx.logger,
+                    "Failed to parse challenge_complete session value"
+                );
             }
         }
     }
@@ -263,43 +266,26 @@ fn handle_pow_verification(
         .map(|s| s.as_str())
         .unwrap_or("/");
 
-    let cookie_domain = ctx.config.get("cookie_domain");
+    let challenge_complete = ksbh_core::utils::current_unix_time().to_string();
 
-    let domain_for_cookie = if let Some(cd) = cookie_domain {
-        ksbh_core::cookies::get_cookie_domain(cd)
-    } else {
-        ctx.request.host.to_string()
-    };
-
-    let cookie_header = ctx.cookie_header.as_str();
-    let mut proxy_cookie = if !cookie_header.is_empty() {
-        match ksbh_core::cookies::ProxyCookie::from_cookie_header(cookie_header) {
-            Ok(c) => c,
-            Err(_) => {
-                ksbh_core::cookies::ProxyCookie::new(&domain_for_cookie, None, uuid::Uuid::new_v4())
-            }
-        }
-    } else {
-        ksbh_core::cookies::ProxyCookie::new(&domain_for_cookie, None, uuid::Uuid::new_v4())
-    };
-
-    proxy_cookie.challenge_complete = Some(ksbh_core::utils::current_unix_time());
-
-    let cookie_value = match proxy_cookie.to_cookie_header() {
-        Ok(v) => v,
-        Err(e) => {
-            ksbh_modules_sdk::log_error!(ctx.logger, "Failed to serialize cookie: {}", e);
-            let response = http::Response::builder()
-                .status(http::StatusCode::INTERNAL_SERVER_ERROR)
-                .body(bytes::Bytes::from_static(b"Internal error"))?;
-            return Ok(ksbh_modules_sdk::ModuleResult::Stop(response));
-        }
-    };
+    if !ctx.session.set_with_ttl(
+        CHALLENGE_COMPLETE_KEY,
+        challenge_complete.as_bytes(),
+        ONE_DAY as u64,
+    ) {
+        ksbh_modules_sdk::log_error!(
+            ctx.logger,
+            "Failed to persist challenge_complete in session storage"
+        );
+        let response = http::Response::builder()
+            .status(http::StatusCode::INTERNAL_SERVER_ERROR)
+            .body(bytes::Bytes::from_static(b"Internal error"))?;
+        return Ok(ksbh_modules_sdk::ModuleResult::Stop(response));
+    }
 
     let response = http::Response::builder()
         .status(http::StatusCode::FOUND)
         .header(http::header::LOCATION, redirect_to)
-        .header(http::header::SET_COOKIE, cookie_value)
         .header(http::header::CONTENT_LENGTH, 0)
         .body(bytes::Bytes::new())?;
 

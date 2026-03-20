@@ -427,26 +427,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "bincode"
-version = "2.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "36eaf5d7b090263e8150820482d5d93cd964a81e4019913c972f4edcc6edb740"
-dependencies = [
- "bincode_derive",
- "serde",
- "unty",
-]
-
-[[package]]
-name = "bincode_derive"
-version = "2.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bf95709a440f45e986983918d0e8a1f30a9b1df04918fc828670606804ac3c09"
-dependencies = [
- "virtue",
-]
-
-[[package]]
 name = "bit-set"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -869,29 +849,6 @@ dependencies = [
  "toml",
  "winnow",
  "yaml-rust2",
-]
-
-[[package]]
-name = "confique"
-version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "06b4f5ec222421e22bb0a8cbaa36b1d2b50fd45cdd30c915ded34108da78b29f"
-dependencies = [
- "confique-macro",
- "serde",
- "serde_yaml",
-]
-
-[[package]]
-name = "confique-macro"
-version = "0.0.13"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e4d1754680cd218e7bcb4c960cc9bae3444b5197d64563dccccfdf83cab9e1a7"
-dependencies = [
- "heck",
- "proc-macro2",
- "quote",
- "syn 2.0.114",
 ]
 
 [[package]]
@@ -1533,19 +1490,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "28dea519a9695b9977216879a3ebfddf92f1c08c05d984f8996aecd6ecdc811d"
 
 [[package]]
-name = "figment2"
-version = "0.11.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4380ce44915a6227efbb61e3885bc1c8e99fb9820f5db612abfac2c5cfc46871"
-dependencies = [
- "atomic",
- "serde",
- "serde_norway",
- "uncased",
- "version_check",
-]
-
-[[package]]
 name = "filetime"
 version = "0.2.27"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2051,17 +1995,11 @@ dependencies = [
 name = "http_to_https"
 version = "0.1.0"
 dependencies = [
- "async-trait",
  "bytes",
  "http 1.4.0",
  "ksbh-core",
  "ksbh-modules-sdk",
- "ksbh-types",
- "scc",
- "serde",
- "smol_str",
  "tracing",
- "uuid",
 ]
 
 [[package]]
@@ -2640,7 +2578,6 @@ dependencies = [
  "http_to_https",
  "httpdate",
  "jemalloc_pprof",
- "jsonwebtoken",
  "k8s-openapi",
  "ksbh-config-providers-file",
  "ksbh-config-providers-kubernetes",
@@ -2648,6 +2585,7 @@ dependencies = [
  "ksbh-types",
  "kube",
  "memmap2",
+ "mimalloc",
  "mime_guess",
  "oidc",
  "pingora",
@@ -2714,13 +2652,10 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
- "bincode",
  "bytes",
  "config",
- "confique",
  "cookie",
  "criterion",
- "figment2",
  "hashbrown 0.16.1",
  "http 1.4.0",
  "k8s-openapi",
@@ -2731,7 +2666,8 @@ dependencies = [
  "libloading 0.9.0",
  "log",
  "notify 8.2.0",
- "pingora",
+ "pingora-core",
+ "pingora-http",
  "prometheus",
  "prometheus-static-metric",
  "proptest",
@@ -2983,6 +2919,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b6d2cec3eae94f9f509c767b45932f1ada8350c4bdb85af2fcab4a3c14807981"
 
 [[package]]
+name = "libmimalloc-sys"
+version = "0.1.44"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "667f4fec20f29dfc6bc7357c582d91796c169ad7e2fce709468aefeb2c099870"
+dependencies = [
+ "cc",
+ "libc",
+]
+
+[[package]]
 name = "libredox"
 version = "0.1.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3120,6 +3066,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5aa361d4faea93603064a027415f07bd8e1d5c88c9fbf68bf56a285428fd79ce"
 dependencies = [
  "autocfg",
+]
+
+[[package]]
+name = "mimalloc"
+version = "0.1.48"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e1ee66a4b64c74f4ef288bcbb9192ad9c3feaad75193129ac8509af543894fd8"
+dependencies = [
+ "libmimalloc-sys",
 ]
 
 [[package]]
@@ -3447,10 +3402,8 @@ dependencies = [
 name = "oidc"
 version = "0.1.0"
 dependencies = [
- "async-trait",
  "base64 0.22.1",
  "bytes",
- "hashbrown 0.16.1",
  "http 1.4.0",
  "jsonwebtoken",
  "ksbh-core",
@@ -3461,9 +3414,8 @@ dependencies = [
  "rmp-serde",
  "scc",
  "serde",
- "smol_str",
  "tracing",
- "uuid",
+ "urlencoding",
 ]
 
 [[package]]
@@ -4230,24 +4182,16 @@ name = "proof-of-work"
 version = "0.1.0"
 dependencies = [
  "askama",
- "async-trait",
  "blake3",
  "bytes",
- "hashbrown 0.16.1",
  "hex",
  "http 1.4.0",
  "ksbh-core",
  "ksbh-modules-sdk",
- "ksbh-types",
- "pingora",
- "scc",
  "serde",
  "sha2",
- "smol_str",
- "tokio",
  "tracing",
  "urlencoding",
- "uuid",
 ]
 
 [[package]]
@@ -4542,19 +4486,11 @@ dependencies = [
 name = "rate-limit"
 version = "0.1.0"
 dependencies = [
- "async-trait",
  "bytes",
- "hashbrown 0.16.1",
  "http 1.4.0",
  "ksbh-core",
  "ksbh-modules-sdk",
- "ksbh-types",
- "pingora",
- "scc",
- "serde",
- "smol_str",
  "tracing",
- "uuid",
 ]
 
 [[package]]
@@ -4818,18 +4754,11 @@ dependencies = [
 name = "robots-txt"
 version = "0.1.0"
 dependencies = [
- "async-trait",
  "bytes",
  "http 1.4.0",
  "ksbh-core",
  "ksbh-modules-sdk",
- "ksbh-types",
- "pingora",
- "scc",
- "serde",
- "smol_str",
  "tracing",
- "uuid",
 ]
 
 [[package]]
@@ -5211,19 +5140,6 @@ dependencies = [
  "serde",
  "serde_core",
  "zmij",
-]
-
-[[package]]
-name = "serde_norway"
-version = "0.9.42"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e408f29489b5fd500fab51ff1484fc859bb655f32c671f307dcd733b72e8168c"
-dependencies = [
- "indexmap 2.12.1",
- "itoa",
- "ryu",
- "serde",
- "unsafe-libyaml-norway",
 ]
 
 [[package]]
@@ -6155,15 +6071,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "eaea85b334db583fe3274d12b4cd1880032beab409c0d774be044d4480ab9a94"
 
 [[package]]
-name = "uncased"
-version = "0.9.10"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e1b88fcfe09e89d3866a5c11019378088af2d24c3fbd4f0543f96b479ec90697"
-dependencies = [
- "version_check",
-]
-
-[[package]]
 name = "unicase"
 version = "2.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6214,12 +6121,6 @@ name = "untrusted"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8ecb6da28b8a351d773b68d5825ac39017e680750f980f3a1a85cd8dd28a47c1"
-
-[[package]]
-name = "unty"
-version = "0.0.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6d49784317cd0d1ee7ec5c716dd598ec5b4483ea832a2dced265471cc0f690ae"
 
 [[package]]
 name = "url"
@@ -6284,12 +6185,6 @@ name = "version_check"
 version = "0.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
-
-[[package]]
-name = "virtue"
-version = "0.0.18"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "051eb1abcf10076295e815102942cc58f9d5e3b4560e46e53c21e8ff6f3af7b1"
 
 [[package]]
 name = "wait-timeout"
