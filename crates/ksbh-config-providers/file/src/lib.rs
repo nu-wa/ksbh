@@ -38,6 +38,8 @@ pub struct IngressConfig {
     pub paths: Vec<PathConfig>,
     #[serde(default)]
     pub modules: Vec<String>,
+    #[serde(default)]
+    pub excluded_modules: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -95,9 +97,8 @@ impl FileConfigProvider {
                 "ratelimit" | "rate_limit" | "rate-limit" | "rate limit" => {
                     ::ksbh_core::modules::ModuleConfigurationType::RateLimit
                 }
-                "httpstohttps" | "http_to_https" | "http-to-https" | "http2https" | "http to https" => {
-                    ::ksbh_core::modules::ModuleConfigurationType::HttpToHttps
-                }
+                "httpstohttps" | "http_to_https" | "http-to-https" | "http2https"
+                | "http to https" => ::ksbh_core::modules::ModuleConfigurationType::HttpToHttps,
                 "robotstxt" | "robots_txt" | "robots.txt" | "robotsdottxt" => {
                     ::ksbh_core::modules::ModuleConfigurationType::RobotsDotTXT
                 }
@@ -187,8 +188,19 @@ impl FileConfigProvider {
                 .map(|s| ::std::sync::Arc::from(s.as_str()))
                 .collect();
 
+            let excluded_modules: Vec<::std::sync::Arc<str>> = ingress
+                .excluded_modules
+                .iter()
+                .map(|s| ::std::sync::Arc::from(s.as_str()))
+                .collect();
+
+            let module_config = ::ksbh_core::routing::IngressModuleConfig {
+                modules: module_names,
+                excluded_modules,
+            };
+
             paths.push((::std::sync::Arc::from(ingress.host.as_str()), host_paths));
-            router.insert_ingress(&ingress.name, paths, module_names);
+            router.insert_ingress(&ingress.name, paths, module_config);
 
             tracing::info!(
                 "Loaded ingress: {} for host: {}",
@@ -280,4 +292,3 @@ impl ::ksbh_core::config_provider::ConfigProvider for FileConfigProvider {
         self_arc.watch_config_file(router, certs, shutdown).await;
     }
 }
-

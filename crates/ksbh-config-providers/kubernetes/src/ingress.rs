@@ -73,10 +73,20 @@ pub(super) async fn reconcile_ingress(
     super::ensure_finalizer(&api, &*obj).await?;
 
     let module_names = extract_module_names(obj.metadata.annotations.as_ref());
+    let excluded_modules = extract_excluded_module_names(obj.metadata.annotations.as_ref());
 
     process_tls_configs(ctx.as_ref(), &namespace, &name, spec.tls.as_ref()).await?;
 
-    process_rules(ctx.as_ref(), &namespace, &name, &rules, &module_names, &obj).await?;
+    process_rules(
+        ctx.as_ref(),
+        &namespace,
+        &name,
+        &rules,
+        &module_names,
+        &excluded_modules,
+        &obj,
+    )
+    .await?;
 
     Ok(kube::runtime::controller::Action::requeue(
         ::std::time::Duration::from_secs(250),
@@ -126,6 +136,26 @@ pub(crate) fn extract_module_names(
     }
 
     module_names
+}
+
+pub(crate) fn extract_excluded_module_names(
+    annotations: Option<&std::collections::BTreeMap<::std::string::String, ::std::string::String>>,
+) -> Vec<::std::sync::Arc<str>> {
+    let mut excluded_modules: Vec<::std::sync::Arc<str>> = Vec::new();
+
+    if let Some(annotations) = annotations
+        && let Some(value) =
+            annotations.get(ksbh_core::constants::KSBH_ANNOTATION_KEY_EXCLUDED_MODULES)
+    {
+        let mut value = value.clone();
+        ksbh_core::utils::remove_whitespace(&mut value);
+
+        for module in value.split(",") {
+            excluded_modules.push(::std::sync::Arc::from(module));
+        }
+    }
+
+    excluded_modules
 }
 
 async fn process_tls_configs(
@@ -312,6 +342,7 @@ async fn process_rules(
     name: &str,
     rules: &[k8s_openapi::api::networking::v1::IngressRule],
     module_names: &[::std::sync::Arc<str>],
+    excluded_modules: &[::std::sync::Arc<str>],
     obj: &::std::sync::Arc<k8s_openapi::api::networking::v1::Ingress>,
 ) -> Result<(), ReconcileError> {
     let mut hosts: Vec<(::std::sync::Arc<str>, ksbh_core::routing::HostPaths)> = Vec::new();
@@ -352,7 +383,12 @@ async fn process_rules(
         hosts.push((::std::sync::Arc::from(host.clone()), host_paths));
     }
 
-    ctx.hosts.insert_ingress(name, hosts, module_names.to_vec());
+    let module_config = ksbh_core::routing::IngressModuleConfig {
+        modules: module_names.to_vec(),
+        excluded_modules: excluded_modules.to_vec(),
+    };
+
+    ctx.hosts.insert_ingress(name, hosts, module_config);
 
     Ok(())
 }
@@ -436,4 +472,3 @@ pub(super) fn error_ingress(
     tracing::error!("Ingress: '{:?}', caused an error: '{}", obj, err);
     kube::runtime::controller::Action::requeue(::std::time::Duration::from_secs(60 * 5))
 }
-

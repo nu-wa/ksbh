@@ -545,4 +545,3 @@ fn error_modules(
     tracing::error!("Module: '{:?}', caused an error: '{}", obj, err);
     kube::runtime::controller::Action::requeue(::std::time::Duration::from_secs(30))
 }
-
