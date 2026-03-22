@@ -1,0 +1,38 @@
+{{- if eq .Values.configProvider.mode "kubernetes" }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "ksbh.fullname" . }}
+  labels:
+    {{- include "ksbh.labels" . | nindent 4 }}
+rules:
+  - apiGroups:
+      - "modules.ksbh.rs"
+    resources:
+      - moduleconfigurations
+    verbs:
+      - get
+      - list
+      - watch
+      - patch
+      - update
+  - apiGroups:
+      - "networking.k8s.io"
+    resources:
+      - ingresses
+    verbs:
+      - get
+      - list
+      - watch
+      - patch
+      - update
+  - apiGroups:
+      - ""
+    resources:
+      - secrets
+      - services
+    verbs:
+      - get
+      - list
+      - watch
+{{- end }}

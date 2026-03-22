@@ -1,0 +1,50 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "ksbh.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "ksbh.labels" . | nindent 4 }}
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/path: "/metrics"
+    prometheus.io/port: {{ .Values.service.prometheus | quote }}
+spec:
+  type: {{ .Values.service.type }}
+  {{ if eq .Values.service.type "LoadBalancer" }}
+  loadBalancerIP: {{ .Values.service.loadBalancerIP }}
+  externalTrafficPolicy: {{ .Values.service.externalTrafficPolicy }}
+  {{ end }}
+  ports:
+    - port: {{ .Values.service.http }}
+      targetPort: http
+      protocol: TCP
+      name: http
+      {{- if and (eq .Values.service.type "NodePort") .Values.service.nodePorts.http }}
+      nodePort: {{ .Values.service.nodePorts.http }}
+      {{- end }}
+    - port: {{ .Values.service.https }}
+      targetPort: https
+      protocol: TCP
+      name: https
+      {{- if and (eq .Values.service.type "NodePort") .Values.service.nodePorts.https }}
+      nodePort: {{ .Values.service.nodePorts.https }}
+      {{- end }}
+    - port: {{ .Values.service.prometheus }}
+      targetPort: prometheus
+      protocol: TCP
+      name: prometheus
+      {{- if and (eq .Values.service.type "NodePort") .Values.service.nodePorts.prometheus }}
+      nodePort: {{ .Values.service.nodePorts.prometheus }}
+      {{- end }}
+    {{- if .Values.service.profiling }}
+    - port: {{ .Values.service.profiling }}
+      targetPort: profiling
+      protocol: TCP
+      name: profiling
+      {{- if and (eq .Values.service.type "NodePort") .Values.service.nodePorts.profiling }}
+      nodePort: {{ .Values.service.nodePorts.profiling }}
+      {{- end }}
+    {{- end }}
+  selector:
+    {{- include "ksbh.selectorLabels" . | nindent 4 }}

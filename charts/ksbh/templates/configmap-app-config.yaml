@@ -1,0 +1,59 @@
+{{- if eq .Values.configProvider.mode "file" }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "ksbh.fullname" . }}-app-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "ksbh.labels" . | nindent 4 }}
+data:
+  config.yaml: |
+    {{- with .Values.app.redisUrl }}
+    redis_url: {{ . | quote }}
+    {{- end }}
+    {{- with .Values.app.pyroscopeUrl }}
+    pyroscope_url: {{ . | quote }}
+    {{- end }}
+    threads: {{ .Values.app.threads }}
+
+    constants:
+      tcp_fastopen_queue_size: {{ .Values.app.constants.tcpFastopenQueueSize }}
+      cookie_name: {{ .Values.app.constants.cookieName | quote }}
+      cookie_secure: {{ .Values.app.constants.cookieSecure }}
+      proxy_header_name: {{ .Values.app.constants.proxyHeaderName | quote }}
+      proxy_header_value: {{ .Values.app.constants.proxyHeaderValue | quote }}
+
+    ports:
+      app:
+        http: {{ .Values.app.ports.app.http }}
+        https: {{ .Values.app.ports.app.https }}
+      external:
+        http: {{ .Values.app.ports.external.http }}
+        https: {{ .Values.app.ports.external.https }}
+
+    listen_addresses:
+      http: {{ .Values.app.listenAddresses.http | quote }}
+      https: {{ .Values.app.listenAddresses.https | quote }}
+      internal: {{ .Values.app.listenAddresses.internal | quote }}
+      profiling: {{ .Values.app.listenAddresses.profiling | quote }}
+      prometheus: {{ .Values.app.listenAddresses.prometheus | quote }}
+
+    config_paths:
+      config: {{ .Values.app.configPaths.config | quote }}
+      modules: {{ .Values.app.configPaths.modules | quote }}
+      static_content: {{ .Values.app.configPaths.staticContent | quote }}
+
+    url_paths:
+      modules: {{ .Values.app.urlPaths.modules | quote }}
+
+    performance:
+      {{- if ne .Values.app.performance.tcpFastopen nil }}
+      tcp_fastopen: {{ .Values.app.performance.tcpFastopen }}
+      {{- end }}
+      {{- if ne .Values.app.performance.soReuseport nil }}
+      so_reuseport: {{ .Values.app.performance.soReuseport }}
+      {{- end }}
+      {{- if ne .Values.app.performance.tcpKeepalive nil }}
+      tcp_keepalive: {{ .Values.app.performance.tcpKeepalive }}
+      {{- end }}
+{{- end }}

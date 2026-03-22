@@ -1,0 +1,35 @@
+KSBH was installed into namespace `{{ .Release.Namespace }}`.
+
+Kubernetes Service exposure:
+{{- if contains "LoadBalancer" .Values.service.type }}
+- Public HTTP is exposed through the `{{ include "ksbh.fullname" . }}` Service on port `{{ .Values.service.http }}`.
+- Watch the LoadBalancer address with:
+  `kubectl get svc -n {{ .Release.Namespace }} -w {{ include "ksbh.fullname" . }}`
+{{- else if contains "NodePort" .Values.service.type }}
+- Public HTTP is exposed through NodePort on the `{{ include "ksbh.fullname" . }}` Service.
+{{- else if contains "ClusterIP" .Values.service.type }}
+- Public HTTP is only available inside the cluster unless you port-forward the Service or a pod.
+{{- end }}
+
+- These Service ports do not define the proxy listeners by themselves. In file-provider mode the chart also renders app listener config. In Kubernetes-provider mode the running process still uses its typed runtime config defaults unless configured otherwise.
+
+Operational endpoints:
+- Health: internal listener on `:{{ include "ksbh.internalPort" . }}/healthz` and not exposed by the Kubernetes Service
+- Metrics: `http://<pod-or-service>:{{ .Values.service.prometheus }}/metrics`
+- Profiling: `http://<pod-or-service>:{{ .Values.service.profiling }}/` when the binary is built with the `profiling` feature
+
+Provider mode:
+{{- if eq .Values.configProvider.mode "kubernetes" }}
+- Kubernetes provider is active because `KSBH__CONFIG_PATHS__CONFIG` is not set.
+- ksbh watches cluster-wide resources to build runtime config:
+  - `Ingress` objects with `spec.ingressClassName: ksbh`
+  - cluster-scoped `ModuleConfiguration` resources
+- This chart installs the `ModuleConfiguration` CRD by default. Use `--skip-crds` if your platform manages CRDs separately.
+- ksbh requires cluster-wide RBAC for `Ingress`, `ModuleConfiguration`, `Secret`, and `Service`.
+- The chart does not create any `Ingress` objects for you. You must create them separately for Kubernetes-provider routing to work.
+- TLS secrets and backend Services referenced by an `Ingress` must exist in the same namespace as that `Ingress`.
+- `ModuleConfiguration.spec.secretRef.namespace` defaults to `default` if omitted. Set it explicitly when module secrets live elsewhere.
+{{- else if eq .Values.configProvider.mode "file" }}
+- File provider is active. This chart rendered `config.yaml` and set `KSBH__CONFIG_PATHS__CONFIG={{ .Values.app.configPaths.config }}`.
+- In file-provider mode, the chart-rendered `app.*` values map to `ksbh_core::Config`.
+{{- end }}

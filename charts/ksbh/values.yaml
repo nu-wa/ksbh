@@ -1,0 +1,126 @@
+image:
+  repository: "ksbh"
+  tag: "latest"
+  pullPolicy: IfNotPresent
+
+configProvider:
+  mode: kubernetes
+  # kubernetes | file
+
+replicaCount: 1
+
+nameOverride: ""
+fullnameOverride: ""
+
+imagePullSecrets: []
+
+serviceAccount:
+  create: true
+  automount: true
+  annotations: {}
+  name: ""
+
+podAnnotations: {}
+podLabels: {}
+
+podSecurityContext: {}
+
+securityContext: {}
+
+service:
+  type: LoadBalancer
+  loadBalancerIP: 10.15.25.110
+  externalTrafficPolicy: Local
+  http: 8080
+  https: 8081
+  profiling: 8083
+  prometheus: 8084
+  nodePorts:
+    http: null
+    https: null
+    profiling: null
+    prometheus: null
+
+app:
+  redisUrl: null
+  pyroscopeUrl: null
+  threads: 8
+
+  constants:
+    tcpFastopenQueueSize: 12
+    cookieName: "ksbh"
+    cookieSecure: true
+    proxyHeaderName: "Server"
+    proxyHeaderValue: "ksbh"
+
+  ports:
+    app:
+      http: 8080
+      https: 8081
+    external:
+      http: 80
+      https: 443
+
+  listenAddresses:
+    http: "0.0.0.0:8080"
+    https: "0.0.0.0:8081"
+    internal: "0.0.0.0:8082"
+    profiling: "0.0.0.0:8083"
+    prometheus: "0.0.0.0:8084"
+
+  configPaths:
+    config: "/app/ksbh/config.yaml"
+    modules: "/app/modules"
+    staticContent: "/app/ksbh/config"
+
+  urlPaths:
+    modules: "/_ksbh_internal/"
+
+  performance:
+    tcpFastopen: 12
+    soReuseport: null
+    tcpKeepalive: null
+
+env:
+  DEBUG_LEVEL: "pingora=info,oidc=debug,rate_limit=debug,proof-of-work=debug,proof_of_work=debug,robots_txt=debug,robots-txt=debug,ksbh_core=debug,ksbh=debug"
+
+configEnv: {}
+
+resources: {}
+
+livenessProbe:
+  httpGet:
+    path: /healthz
+    port: internal
+  initialDelaySeconds: 20
+  periodSeconds: 5
+
+readinessProbe:
+  httpGet:
+    path: /healthz
+    port: internal
+  periodSeconds: 5
+
+persistence:
+  enabled: true
+  claimName: ""
+  accessModes:
+    - ReadWriteMany
+  size: 10Gi
+  storageClassName: null
+  mountPath: /app/data
+
+volumes: []
+
+volumeMounts: []
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}
+
+cookieKeySecret:
+  create: true
+  name: ""
+  key: "cookie-key"
