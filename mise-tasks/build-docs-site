@@ -7,14 +7,29 @@
 
 set -euo pipefail
 
+export PATH="${HOME}/.cargo/bin:${HOME}/.local/bin:${PATH}"
+
 if ! command -v ddc >/dev/null 2>&1; then
-  cargo install \
-    --git https://github.com/bearcove/dodeca \
-    --branch main \
-    --locked \
-    --root "${HOME}/.local" \
-    --bin ddc \
-    dodeca
+  if ! command -v rustup >/dev/null 2>&1; then
+    echo "rustup is required to install dodeca from source" >&2
+    exit 1
+  fi
+
+  rustup target add wasm32-unknown-unknown
+
+  if ! command -v wasm-bindgen >/dev/null 2>&1; then
+    cargo install --locked wasm-bindgen-cli
+  fi
+
+  dodeca_install_dir="$(mktemp -d)"
+  trap 'rm -rf "${dodeca_install_dir}"' EXIT
+  curl -fsSL https://github.com/bearcove/dodeca/archive/refs/heads/main.tar.gz \
+    | tar -xz -C "${dodeca_install_dir}"
+
+  (
+    cd "${dodeca_install_dir}/dodeca-main"
+    cargo xtask install
+  )
 fi
 
 deno task build:css
