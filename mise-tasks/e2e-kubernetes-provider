@@ -366,6 +366,7 @@ metadata:
 spec:
   name: pow-browser
   type: POW
+  weight: 80
   global: false
   requiresProperRequest: false
   requiresBody: true
