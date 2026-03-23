@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+{% block title %}{{ page.title }} - ksbh{% endblock title %}
+{% block main_class %}ksbh-main__content{% endblock main_class %}
+{% block body %}
+{% set current_section_path = page.ancestors | last %}
+{% if current_section_path %}
+{% set current_section = get_section(path=current_section_path) %}
+{% else %}
+{% set current_section = none %}
+{% endif %}
+{% if current_section %}
+{% set current_section_permalink = current_section.permalink %}
+{% else %}
+{% set current_section_permalink = "" %}
+{% endif %}
+{% set current_page_path = page.path %}
+{% set current_page_permalink = page.permalink %}
+{% set docs_sidebar = data.docs_sidebar %}
+<div class="ksbh-doc-layout">
+    <aside class="ksbh-rail ksbh-rail--left">
+        <div class="ksbh-rail__header">
+            <div class="ksbh-eyebrow">Directory</div>
+            <div class="ksbh-meta">{% if current_section %}{{ current_section.title }}{% else %}Documentation{% endif %}</div>
+        </div>
+        <div class="ksbh-rail__body">
+            <div class="ksbh-nav">
+                {% for sidebar_item in docs_sidebar %}
+                {% set doc_section = get_section(path=sidebar_item.path) %}
+                {% set is_active_section = current_section and (doc_section.title == current_section.title or doc_section.permalink == current_section_permalink) %}
+                <section class="ksbh-nav__section">
+                    <a href="{{ doc_section.permalink }}" class="ksbh-nav__section-link {% if is_active_section %}is-active{% endif %}">{{ doc_section.title }}</a>
+                    <ul class="ksbh-nav__pages">
+                        {% if sidebar_item.pages is defined and sidebar_item.pages %}
+                        {% for sidebar_page in sidebar_item.pages %}
+                        {% for child_page in doc_section.pages %}
+                        {% if child_page.path == sidebar_page.path %}
+                        {% set is_active_page = current_page_path == child_page.path or current_page_permalink == child_page.permalink %}
+                        <li><a href="{{ child_page.permalink }}" class="ksbh-nav__page-link {% if is_active_page %}is-active{% endif %}">{{ child_page.title }}</a></li>
+                        {% endif %}
+                        {% endfor %}
+                        {% endfor %}
+                        {% else %}
+                        {% for child_page in doc_section.pages %}
+                        {% set is_active_page = current_page_path == child_page.path or current_page_permalink == child_page.permalink %}
+                        <li><a href="{{ child_page.permalink }}" class="ksbh-nav__page-link {% if is_active_page %}is-active{% endif %}">{{ child_page.title }}</a></li>
+                        {% endfor %}
+                        {% endif %}
+                    </ul>
+                </section>
+                {% endfor %}
+            </div>
+        </div>
+    </aside>
+
+    <div class="ksbh-doc-panel js-doc-scroll">
+        <div class="ksbh-doc-shell">
+            <article class="ksbh-article">
+                <header class="ksbh-page-header">
+                    <div class="ksbh-kicker">{% if current_section %}{{ current_section.title }}{% else %}Documentation{% endif %}</div>
+                    <h1 class="ksbh-page-title">{{ page.title }}</h1>
+                    <p class="ksbh-page-summary">
+                        {% if page.extra is defined and page.extra is not none and page.extra.description is defined %}
+                        {{ page.extra.description }}
+                        {% else %}
+                        Practical setup and reference material for configuring and operating ksbh.
+                        {% endif %}
+                    </p>
+                </header>
+
+                <div class="doc-body ksbh-prose">
+                    {{ page.content | safe }}
+                </div>
+            </article>
+        </div>
+    </div>
+
+    <aside class="ksbh-rail ksbh-rail--right">
+        <div class="ksbh-rail__header">
+            <div class="ksbh-eyebrow">On This Page</div>
+        </div>
+        <div class="ksbh-rail__body ksbh-rail__body--tight">
+            {% if page.toc %}
+            <ul class="js-toc ksbh-toc">
+                {% for item in page.toc %}
+                <li class="ksbh-toc__item">
+                    <a href="{{ item.permalink }}" class="js-toc-link ksbh-toc__link">{{ item.title }}</a>
+                    {% if item.children %}
+                    <ul class="ksbh-toc ksbh-toc--nested">
+                        {% for child in item.children %}
+                        <li class="ksbh-toc__item">
+                            <a href="{{ child.permalink }}" class="js-toc-link ksbh-toc__link">{{ child.title }}</a>
+                        </li>
+                        {% endfor %}
+                    </ul>
+                    {% endif %}
+                </li>
+                {% endfor %}
+            </ul>
+            {% endif %}
+        </div>
+    </aside>
+</div>
+{% endblock body %}

@@ -1,0 +1,31 @@
+- path: docs/getting-started/_index.md
+  pages:
+    - path: docs/getting-started/quick-start/_index.md
+    - path: docs/getting-started/installation/_index.md
+    - path: docs/getting-started/running/_index.md
+- path: docs/configuration/_index.md
+  pages:
+    - path: docs/configuration/yaml-config/_index.md
+    - path: docs/configuration/env-variables/_index.md
+    - path: docs/configuration/providers/_index.md
+    - path: docs/configuration/reference/_index.md
+- path: docs/modules/_index.md
+  pages:
+    - path: docs/modules/configuration/_index.md
+    - path: docs/modules/proof-of-work/_index.md
+    - path: docs/modules/rate-limit/_index.md
+    - path: docs/modules/oidc/_index.md
+    - path: docs/modules/http-to-https/_index.md
+    - path: docs/modules/robots-txt/_index.md
+- path: docs/deployment/_index.md
+  pages:
+    - path: docs/deployment/docker/_index.md
+    - path: docs/deployment/kubernetes/_index.md
+    - path: docs/deployment/crds/_index.md
+    - path: docs/deployment/production/_index.md
+- path: docs/module-development/_index.md
+  pages:
+    - path: docs/module-development/getting-started/_index.md
+    - path: docs/module-development/module-result/_index.md
+    - path: docs/module-development/sdk-reference/_index.md
+    - path: docs/module-development/examples/_index.md

@@ -1,0 +1,41 @@
+@import "tailwindcss";
+@plugin "daisyui" {
+    themes: false;
+}
+
+@plugin "daisyui/theme" {
+    name: "ksbh-casbah";
+    default: true;
+    prefersdark: true;
+    color-scheme: dark;
+    --color-base-100: #241f33;
+    --color-base-200: #2f2942;
+    --color-base-300: #75507b;
+    --color-base-content: #d1cae8;
+    --color-primary: #ae81ff;
+    --color-primary-content: #241f33;
+    --color-secondary: #f1568e;
+    --color-secondary-content: #241f33;
+    --color-accent: #c5a3ff;
+    --color-accent-content: #241f33;
+    --color-neutral: #1f1a2d;
+    --color-neutral-content: #f8f8f2;
+    --color-info: #c2ffff;
+    --color-info-content: #241f33;
+    --color-success: #5adba2;
+    --color-success-content: #241f33;
+    --color-warning: #e6c000;
+    --color-warning-content: #241f33;
+    --color-error: #ff857f;
+    --color-error-content: #241f33;
+    --radius-selector: 0.375rem;
+    --radius-field: 0.375rem;
+    --radius-box: 0.5rem;
+    --size-selector: 0.25rem;
+    --size-field: 0.25rem;
+    --border: 1px;
+    --depth: 0;
+    --noise: 0;
+}
+
+@import "../../crates/ksbh-ui/static/css/shared.css";

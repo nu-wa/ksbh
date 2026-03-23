@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+#MISE description="Build shared UI CSS and docs CSS"
+#MISE dir="./docs"
+#MISE sources=["docs/deno.json", "docs/package.json", "docs/css/base.css", "crates/ksbh-ui/static/css/shared.css"]
+
+set -euo pipefail
+
+deno run -A npm:@tailwindcss/cli \
+  -i ../crates/ksbh-ui/static/css/shared.css \
+  -o ../crates/ksbh-ui/static/css/style.css
+
+  deno run -A npm:@tailwindcss/cli \
+  -i css/base.css \
+  -o static/css/style.css

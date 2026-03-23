@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+#MISE description="Build the static docs site into docs/public"
+#MISE dir="./docs"
+#MISE sources=["docs/.config/dodeca.styx", "docs/content/**/*.md", "docs/data/**/*.yaml", "docs/templates/**/*.html", "docs/static/**/*", "docs/deno.json", "docs/package.json", "crates/ksbh-ui/static/css/shared.css"]
+#MISE outputs=["docs/public/**/*"]
+
+set -euo pipefail
+
+deno task build:css
+ddc build

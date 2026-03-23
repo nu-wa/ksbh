@@ -1,0 +1,7 @@
+{
+    "allowScripts": ["npm:@parcel/watcher@2.5.6"],
+    "tasks": {
+        "build:css": "deno run -A scripts/build-css.ts",
+        "dev:css": "deno run -A scripts/build-css.ts --watch"
+    }
+}

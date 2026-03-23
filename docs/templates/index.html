@@ -1,0 +1,208 @@
+{% extends "base.html" %}
+{% block title %}ksbh - Reverse Proxy{% endblock title %}
+{% block body_class %}ksbh-body--home{% endblock body_class %}
+{% block main_class %}ksbh-main__content ksbh-main__content--index{% endblock main_class %}
+{% block body %}
+{% set home = get_section(path="_index.md") %}
+<section class="ksbh-home">
+    <section class="ksbh-home__hero">
+        <div class="ksbh-home__hero-copy">
+            <div class="ksbh-home__eyebrow-row">
+                <div class="ksbh-home__eyebrow">Personal Learning Project</div>
+                <div class="ksbh-home__rule"></div>
+            </div>
+            <h1 class="ksbh-home__title">{{ home.title }}</h1>
+            <p class="ksbh-home__summary ksbh-home__summary--note">
+                A Rust reverse proxy project focused on module pipelines, ingress composition,
+                and understanding how traffic moves at the edge.
+            </p>
+            <div class="ksbh-home__actions">
+                <a href="/docs/getting-started/quick-start" class="ksbh-button ksbh-button--primary">Get Started</a>
+                <a href="/docs" class="ksbh-button">Browse Docs</a>
+            </div>
+        </div>
+
+        <div class="ksbh-home__hero-aside">
+            <div class="ksbh-home__hero-frame">
+                <div class="ksbh-home__hero-frame-inner"></div>
+            </div>
+            <div class="ksbh-home__hero-status">
+                <span class="ksbh-home__hero-status-dot"></span>
+                <div>
+                    <div>Built To Learn</div>
+                    <div class="ksbh-home__hero-status-subtitle">Still Experimental</div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="ksbh-home__section ksbh-home__section--rationale">
+        <div class="ksbh-home__section-copyblock">
+            <div class="ksbh-home__section-index">01 // Rationale</div>
+            <h2 class="ksbh-home__section-title">Why This Exists.</h2>
+            <p class="ksbh-home__section-copy">
+                KSBH exists to learn by building: routing, modules, runtime behavior,
+                and configuration models worked through directly in code.
+            </p>
+        </div>
+
+        <div class="ksbh-home__stack">
+            <article class="ksbh-home__stack-card">
+                <span class="ksbh-home__stack-index">01</span>
+                <div>
+                    <h3>Architectural Clarity</h3>
+                    <p>Make the moving parts of a reverse proxy visible instead of treating them as a black box.</p>
+                </div>
+            </article>
+            <article class="ksbh-home__stack-card">
+                <span class="ksbh-home__stack-index">02</span>
+                <div>
+                    <h3>Module Pipeline Study</h3>
+                    <p>Study global and ingress-local request processing as composable steps.</p>
+                </div>
+            </article>
+            <article class="ksbh-home__stack-card">
+                <span class="ksbh-home__stack-index">03</span>
+                <div>
+                    <h3>Rust Implementation</h3>
+                    <p>Build the runtime in Rust and understand the tradeoffs directly from the implementation.</p>
+                </div>
+            </article>
+            <article class="ksbh-home__stack-card">
+                <span class="ksbh-home__stack-index">04</span>
+                <div>
+                    <h3>Ingress Composition</h3>
+                    <p>Compare local file configuration with Kubernetes-native resource models.</p>
+                </div>
+            </article>
+        </div>
+    </section>
+
+    <section class="ksbh-home__section ksbh-home__section--flow">
+        <div class="ksbh-home__section-heading">
+            <div class="ksbh-home__section-index">02 // Data Pathway</div>
+            <h2 class="ksbh-home__section-banner">Request Flow</h2>
+        </div>
+
+        <div class="ksbh-home__flow">
+            <div class="ksbh-home__flow-step ksbh-home__flow-step--arrow">
+                <span class="ksbh-home__flow-step-no">01</span>
+                <span class="ksbh-home__flow-icon material-symbols-outlined" aria-hidden="true">inbox</span>
+                <span class="ksbh-home__flow-step-label">Request</span>
+            </div>
+            <div class="ksbh-home__flow-step ksbh-home__flow-step--arrow">
+                <span class="ksbh-home__flow-step-no">02</span>
+                <span class="ksbh-home__flow-icon material-symbols-outlined" aria-hidden="true">route</span>
+                <span class="ksbh-home__flow-step-label">Route Match</span>
+            </div>
+            <div class="ksbh-home__flow-step ksbh-home__flow-step--arrow">
+                <span class="ksbh-home__flow-step-no">03</span>
+                <span class="ksbh-home__flow-icon material-symbols-outlined" aria-hidden="true">public</span>
+                <span class="ksbh-home__flow-step-label">Global Modules</span>
+            </div>
+            <div class="ksbh-home__flow-step ksbh-home__flow-step--arrow">
+                <span class="ksbh-home__flow-step-no">04</span>
+                <span class="ksbh-home__flow-icon material-symbols-outlined" aria-hidden="true">login</span>
+                <span class="ksbh-home__flow-step-label">Ingress Modules</span>
+            </div>
+            <div class="ksbh-home__flow-step ksbh-home__flow-step--inverse">
+                <span class="ksbh-home__flow-step-no">05</span>
+                <span class="ksbh-home__flow-icon material-symbols-outlined" aria-hidden="true">dns</span>
+                <span class="ksbh-home__flow-step-label">Backend</span>
+            </div>
+        </div>
+    </section>
+
+    <section class="ksbh-home__section ksbh-home__section--core">
+        <div class="ksbh-home__section-heading">
+            <div class="ksbh-home__section-index">03 // System Modules</div>
+            <h2 class="ksbh-home__section-banner">Core Pieces</h2>
+        </div>
+
+        <div class="ksbh-home__core-grid">
+            <article class="ksbh-home__core-card">
+                <h3>Runtime</h3>
+                <p>
+                    The runtime handles routing, module execution, backend proxying, and runtime
+                    state updates.
+                </p>
+            </article>
+            <article class="ksbh-home__core-card">
+                <h3>Modules</h3>
+                <ul>
+                    <li>http to https</li>
+                    <li>robots.txt</li>
+                    <li>oidc</li>
+                    <li>proof of work</li>
+                    <li>rate limit</li>
+                </ul>
+            </article>
+            <article class="ksbh-home__core-card">
+                <h3>Config Providers</h3>
+                <p>
+                    File-based and Kubernetes-native configuration both feed the same routing and
+                    module model.
+                </p>
+            </article>
+        </div>
+    </section>
+
+    <section class="ksbh-home__section ksbh-home__section--docs">
+        <div class="ksbh-home__section-heading">
+            <div class="ksbh-home__section-index">04 // Knowledge Base</div>
+            <h2 class="ksbh-home__section-banner">Documentation</h2>
+        </div>
+
+        <div class="ksbh-home__docs-grid">
+            <a href="/docs/getting-started/" class="ksbh-home__docs-link">
+                <span>Getting Started</span>
+                <span class="ksbh-home__docs-arrow">+</span>
+            </a>
+            <a href="/docs/modules/" class="ksbh-home__docs-link">
+                <span>Module Specifications</span>
+                <span class="ksbh-home__docs-arrow">+</span>
+            </a>
+            <a href="/docs/configuration/" class="ksbh-home__docs-link">
+                <span>Configuration</span>
+                <span class="ksbh-home__docs-arrow">+</span>
+            </a>
+            <a href="/docs/module-development/" class="ksbh-home__docs-link">
+                <span>Developer Guide</span>
+                <span class="ksbh-home__docs-arrow">+</span>
+            </a>
+        </div>
+    </section>
+
+    <section class="ksbh-home__section ksbh-home__section--cta">
+        <div class="ksbh-home__cta-copy">
+            <h2 class="ksbh-home__cta-title">Start Here.</h2>
+            <p class="ksbh-home__cta-text">Read through the project, try it locally, and see how the pieces fit together.</p>
+        </div>
+        <div class="ksbh-home__cta-actions">
+            <a href="https://github.com/nu-wa/ksbh" target="_blank" class="ksbh-button ksbh-button--primary">GitHub Repo</a>
+            <a href="https://codeberg.org/kekra/ksbh" target="_blank" class="ksbh-button">Codeberg</a>
+        </div>
+    </section>
+
+    <section class="ksbh-home__landing-footer">
+        <div class="ksbh-home__landing-footer-brand">
+            <span class="ksbh-home__landing-footer-wordmark">ksbh</span>
+            <p>
+                Built to learn reverse proxy architecture, request modules, and runtime composition.
+            </p>
+        </div>
+        <div class="ksbh-home__landing-footer-links">
+            <div>
+                <span class="ksbh-home__landing-footer-label">Docs</span>
+                <a href="/docs/getting-started/">Getting Started</a>
+                <a href="/docs/modules/">Modules</a>
+            </div>
+            <div>
+                <span class="ksbh-home__landing-footer-label">Project</span>
+                <a href="https://github.com/nu-wa/ksbh" target="_blank">GitHub</a>
+                <a href="https://codeberg.org/kekra/ksbh" target="_blank">Codeberg</a>
+            </div>
+        </div>
+    </section>
+</section>
+{% endblock body %}

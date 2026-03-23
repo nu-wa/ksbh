@@ -47,7 +47,7 @@ tracing = { workspace = true }
 tracing-appender = { workspace = true }
 tracing-log = "0.2"
 tracing-subscriber = { workspace = true }
-urlencoding = "2.1.3"
+urlencoding = { workspace = true }
 uuid = { workspace = true }
 
 mimalloc = { workspace = true }
@@ -60,7 +60,7 @@ version = "1.0.97"
 workspace = true
 
 [dependencies.futures]
-version = "0.3.31"
+workspace = true
 default-features = false
 features = ["alloc", "async-await"]
 

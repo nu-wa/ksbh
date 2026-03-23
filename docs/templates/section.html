@@ -1,0 +1,123 @@
+{% extends "base.html" %}
+{% block title %}{{ section.title }} - ksbh{% endblock title %}
+{% block main_class %}ksbh-main__content{% endblock main_class %}
+{% block body %}
+{% set current_section_path = section.path %}
+{% set current_section_permalink = section.permalink %}
+{% set current_page_path = "" %}
+{% set current_page_permalink = "" %}
+{% set docs_sidebar = data.docs_sidebar %}
+<div class="ksbh-doc-layout">
+    <aside class="ksbh-rail ksbh-rail--left">
+        <div class="ksbh-rail__header">
+            <div class="ksbh-eyebrow">Directory</div>
+            <div class="ksbh-meta">{{ section.title }}</div>
+        </div>
+        <div class="ksbh-rail__body">
+            <div class="ksbh-nav">
+                {% for sidebar_item in docs_sidebar %}
+                {% set doc_section = get_section(path=sidebar_item.path) %}
+                {% set is_active_section = doc_section.title == section.title or doc_section.permalink == current_section_permalink %}
+                <section class="ksbh-nav__section">
+                    <a href="{{ doc_section.permalink }}" class="ksbh-nav__section-link {% if is_active_section %}is-active{% endif %}">{{ doc_section.title }}</a>
+                    <ul class="ksbh-nav__pages">
+                        {% if sidebar_item.pages is defined and sidebar_item.pages %}
+                        {% for sidebar_page in sidebar_item.pages %}
+                        {% for child_page in doc_section.pages %}
+                        {% if child_page.path == sidebar_page.path %}
+                        {% set is_active_page = current_page_path == child_page.path or current_page_permalink == child_page.permalink %}
+                        <li><a href="{{ child_page.permalink }}" class="ksbh-nav__page-link {% if is_active_page %}is-active{% endif %}">{{ child_page.title }}</a></li>
+                        {% endif %}
+                        {% endfor %}
+                        {% endfor %}
+                        {% else %}
+                        {% for child_page in doc_section.pages %}
+                        {% set is_active_page = current_page_path == child_page.path or current_page_permalink == child_page.permalink %}
+                        <li><a href="{{ child_page.permalink }}" class="ksbh-nav__page-link {% if is_active_page %}is-active{% endif %}">{{ child_page.title }}</a></li>
+                        {% endfor %}
+                        {% endif %}
+                    </ul>
+                </section>
+                {% endfor %}
+            </div>
+        </div>
+    </aside>
+
+    <div class="ksbh-doc-panel js-doc-scroll">
+        <div class="ksbh-doc-shell">
+            <article class="ksbh-article">
+                <header class="ksbh-page-header">
+                    <div class="ksbh-kicker">Documentation</div>
+                    <h1 class="ksbh-page-title">{{ section.title }}</h1>
+                    <p class="ksbh-page-summary">
+                        {% if section.extra is defined and section.extra is not none and section.extra.description is defined %}
+                        {{ section.extra.description }}
+                        {% else %}
+                        Browse the guides and reference material available in this documentation sector.
+                        {% endif %}
+                    </p>
+                </header>
+
+                {% if section.pages %}
+                <section class="ksbh-block ksbh-section-pages">
+                    <div class="ksbh-block__label">Pages</div>
+                    <div class="ksbh-card-grid">
+                        {% for child_page in section.pages %}
+                        <a
+                            href="{{ child_page.permalink }}"
+                            class="ksbh-card-link"
+                        >
+                            <div class="ksbh-card-link__inner">
+                                <div>
+                                    <div class="ksbh-card-link__eyebrow">Document</div>
+                                    <h3 class="ksbh-card-link__title">{{ child_page.title }}</h3>
+                                    <p class="ksbh-card-link__summary">
+                                        {% if child_page.extra is defined and child_page.extra is not none and child_page.extra.description is defined %}
+                                        {{ child_page.extra.description }}
+                                        {% else %}
+                                        Open this page for implementation details and reference material.
+                                        {% endif %}
+                                    </p>
+                                </div>
+                                <div class="ksbh-card-link__marker">::</div>
+                            </div>
+                        </a>
+                        {% endfor %}
+                    </div>
+                </section>
+                {% endif %}
+
+                <div class="doc-body ksbh-prose">
+                    {{ section.content | safe }}
+                </div>
+            </article>
+        </div>
+    </div>
+
+    <aside class="ksbh-rail ksbh-rail--right">
+        <div class="ksbh-rail__header">
+            <div class="ksbh-eyebrow">On This Page</div>
+        </div>
+        <div class="ksbh-rail__body ksbh-rail__body--tight">
+            {% if section.toc %}
+            <ul class="js-toc ksbh-toc">
+                {% for item in section.toc %}
+                <li class="ksbh-toc__item">
+                    <a href="{{ item.permalink }}" class="js-toc-link ksbh-toc__link">{{ item.title }}</a>
+                    {% if item.children %}
+                    <ul class="ksbh-toc ksbh-toc--nested">
+                        {% for child in item.children %}
+                        <li class="ksbh-toc__item">
+                            <a href="{{ child.permalink }}" class="js-toc-link ksbh-toc__link">{{ child.title }}</a>
+                        </li>
+                        {% endfor %}
+                    </ul>
+                    {% endif %}
+                </li>
+                {% endfor %}
+            </ul>
+            {% endif %}
+        </div>
+    </aside>
+</div>
+{% endblock body %}

@@ -48,9 +48,13 @@ Default to `cargo ... -p <package>` when targeting one package. Workspace-wide c
 
 The docs site uses Dodeca plus Tailwind v4/DaisyUI.
 
-- Source CSS: `docs/static/css/base.css`
+- Source CSS: `docs/css/base.css`
 - Generated CSS: `docs/static/css/style.css`
+- Shared UI source CSS: `crates/ksbh-ui/static/css/shared.css`
+- Shared UI generated CSS: `crates/ksbh-ui/static/css/style.css`
+- One-shot docs CSS build: `cd docs && deno task build:css`
 - Start CSS watcher: `cd docs && deno task dev:css`
+- Build CSS once: `mise run build-css`
 - Start docs server: `cd docs && ddc serve`
 
 Do not treat `docs/static/css/style.css` as source of truth.
@@ -78,9 +82,14 @@ Repo-level infra and e2e helpers live outside the Rust workspace:
 
 Notable tasks:
 
+- `mise run build-css`
 - `mise run run-kind`
 - `mise run clean-kind`
 - `mise run build-release-image`
+- `mise run build-docs-site`
+- `mise run build-helm-repo`
+- `mise run build-docs-site-image`
+- `mise run build-charts-site-image`
 - `mise run lint-helm-chart`
 - `mise run package-helm-chart`
 - `mise run e2e`

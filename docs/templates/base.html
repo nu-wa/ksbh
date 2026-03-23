@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="ksbh-casbah">
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>{% block title %}ksbh{% endblock title %}</title>
+        <meta
+            name="description"
+            content="{% block description %}Yet Another Rust reverse proxy built on pingora{% endblock description %}"
+        />
+        <link rel="icon" type="image/svg+xml" href="/logo.svg" />
+        <link rel="icon" type="image/x-icon" href="/logo.ico" />
+        <link
+            rel="preload"
+            href="/fonts/IBMPlexSans/IBMPlexSans-Regular.woff2"
+            as="font"
+            type="font/woff2"
+        />
+        <link
+            rel="preload"
+            href="/fonts/IBMPlexSans/IBMPlexSans-Italic.woff2"
+            as="font"
+            type="font/woff2"
+        />
+        <link
+            rel="preload"
+            href="/fonts/IBMPlexSans/IBMPlexSans-SemiBold.woff2"
+            as="font"
+            type="font/woff2"
+        />
+        <link
+            rel="preload"
+            href="/fonts/IBMPlexSans/IBMPlexSans-Bold.woff2"
+            as="font"
+            type="font/woff2"
+        />
+        <link
+            rel="preload"
+            href="/fonts/IBMPlexMono/IBMPlexMono-Regular.woff2"
+            as="font"
+            type="font/woff2"
+        />
+        <link
+            rel="preload"
+            href="/fonts/IBMPlexMono/IBMPlexMono-Bold.woff2"
+            as="font"
+            type="font/woff2"
+        />
+        <link
+            rel="preload"
+            href="/fonts/SpaceGrotesk/SpaceGrotesk-Bold.woff2"
+            as="font"
+            type="font/woff2"
+        />
+        <link
+            rel="stylesheet"
+            href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght@300&display=swap"
+        />
+        <link rel="stylesheet" href="/css/style.css" />
+    </head>
+    <body class="ksbh-body {% block body_class %}{% endblock body_class %}">
+        <div class="ksbh-shell">
+            <nav class="ksbh-topbar">
+                <div class="ksbh-topbar__inner">
+                    <div class="ksbh-topbar__brand">
+                        <a href="/" class="ksbh-wordmark">ksbh</a>
+                        <div class="ksbh-topbar__nav ksbh-topbar__nav--primary">
+                            <a href="/docs" class="ksbh-tab ksbh-tab--active">Docs</a>
+                        </div>
+                    </div>
+                    <div class="ksbh-topbar__nav ksbh-topbar__nav--secondary">
+                        <a href="https://github.com/nu-wa/ksbh" class="ksbh-tab">GitHub</a>
+                        <a href="https://codeberg.org/kekra/ksbh" class="ksbh-tab">Codeberg</a>
+                    </div>
+                </div>
+            </nav>
+
+            <div class="ksbh-main">
+                <main class="{% block main_class %}ksbh-main__content{% endblock main_class %}">
+                    {% block body %}{% endblock body %}
+                </main>
+            </div>
+
+            <footer class="ksbh-footer">
+                <div class="ksbh-footer__inner">
+                    <div class="ksbh-footer__links ksbh-footer__links--primary">
+                        <a href="/docs">Docs</a>
+                    </div>
+                    <div class="ksbh-footer__links ksbh-footer__links--secondary">
+                        <a href="https://github.com/nu-wa/ksbh">GitHub</a>
+                        <a href="https://codeberg.org/kekra/ksbh">Codeberg</a>
+                    </div>
+                </div>
+            </footer>
+        </div>
+    </body>
+    <script>
+        document.addEventListener("DOMContentLoaded", () => {
+            const scrollRoot = document.querySelector(".js-doc-scroll");
+            const toc = document.querySelector(".js-toc");
+            if (!scrollRoot || !toc) return;
+
+            const links = Array.from(toc.querySelectorAll(".js-toc-link"));
+            const targets = links
+                .map((link) => {
+                    const href = link.getAttribute("href") || "";
+                    if (!href.includes("#")) return null;
+                    const id = href.slice(href.indexOf("#") + 1);
+                    if (!id) return null;
+                    const target = document.getElementById(id);
+                    if (!target) return null;
+                    return { link, target };
+                })
+                .filter(Boolean);
+
+            if (!targets.length) return;
+
+            const setActive = (activeLink) => {
+                links.forEach((link) => {
+                    link.classList.remove("toc-link-active");
+                    if (link === activeLink) {
+                        link.classList.add("toc-link-active");
+                    }
+                });
+            };
+
+            const updateActive = () => {
+                const rootTop = scrollRoot.getBoundingClientRect().top;
+                let current = targets[0];
+
+                for (const item of targets) {
+                    const top = item.target.getBoundingClientRect().top - rootTop;
+                    if (top <= 120) {
+                        current = item;
+                    } else {
+                        break;
+                    }
+                }
+
+                setActive(current.link);
+            };
+
+            scrollRoot.addEventListener("scroll", updateActive, { passive: true });
+            window.addEventListener("hashchange", updateActive);
+            updateActive();
+        });
+    </script>
+</html>

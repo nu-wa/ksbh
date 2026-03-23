@@ -154,14 +154,21 @@ jobs:
                   DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME || env.DOCKERHUB_USERNAME }}
                   DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN || env.DOCKERHUB_TOKEN }}
                   DOCKERHUB_REPOSITORY: ${{ vars.DOCKERHUB_REPOSITORY || env.DOCKERHUB_REPOSITORY }}
+                  HARBOR_HOST: ${{ vars.HARBOR_HOST || env.HARBOR_HOST }}
+                  HARBOR_USERNAME: ${{ secrets.HARBOR_USERNAME || env.HARBOR_USERNAME }}
+                  HARBOR_PASSWORD: ${{ secrets.HARBOR_PASSWORD || env.HARBOR_PASSWORD }}
                   LOCAL_REF_NAME: ${{ forge.ref_name || env.FORGEJO_REF_NAME || env.LOCAL_REF_NAME }}
                   LOCAL_SHA: ${{ forge.sha || env.FORGEJO_SHA || env.LOCAL_SHA }}
               run: |
                   set -euo pipefail
                   export PATH="$HOME/.local/bin:$PATH"
                   chmod +x mise-tasks/build-release-image
+                  chmod +x mise-tasks/build-docs-site-image
+                  chmod +x mise-tasks/build-charts-site-image
 
                   image_repository="${DOCKERHUB_REPOSITORY:-${DOCKERHUB_USERNAME}/ksbh}"
+                  docs_image_repository="${HARBOR_HOST}/registry/ksbh-docs"
+                  charts_image_repository="${HARBOR_HOST}/registry/ksbh-charts"
 
                   if [ "${LOCAL_REF_NAME}" = "main" ]; then
                     primary_tag="$(grep -m1 '^version = "' crates/ksbh-bin/Cargo.toml | sed -E 's/^version = "([^"]+)"$/\1/')"
@@ -172,15 +179,26 @@ jobs:
                   fi
 
                   echo "${DOCKERHUB_TOKEN}" | docker login --username "${DOCKERHUB_USERNAME}" --password-stdin
+                  echo "${HARBOR_PASSWORD}" | docker login "${HARBOR_HOST}" --username "${HARBOR_USERNAME}" --password-stdin
 
                   export KSBH_RELEASE_IMAGE="${image_repository}:${primary_tag}"
+                  export KSBH_DOCS_SITE_IMAGE="${docs_image_repository}:${primary_tag}"
+                  export KSBH_CHARTS_SITE_IMAGE="${charts_image_repository}:${primary_tag}"
                   mise install
                   mise run build-release-image
+                  mise run build-docs-site-image
+                  mise run build-charts-site-image
                   docker push "${image_repository}:${primary_tag}"
+                  docker push "${docs_image_repository}:${primary_tag}"
+                  docker push "${charts_image_repository}:${primary_tag}"
 
                   if [ -n "${extra_tag}" ]; then
                     docker tag "${image_repository}:${primary_tag}" "${image_repository}:${extra_tag}"
+                    docker tag "${docs_image_repository}:${primary_tag}" "${docs_image_repository}:${extra_tag}"
+                    docker tag "${charts_image_repository}:${primary_tag}" "${charts_image_repository}:${extra_tag}"
                     docker push "${image_repository}:${extra_tag}"
+                    docker push "${docs_image_repository}:${extra_tag}"
+                    docker push "${charts_image_repository}:${extra_tag}"
                   fi
 
     helm-chart-artifacts:

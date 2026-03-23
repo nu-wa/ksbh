@@ -1,0 +1,88 @@
+#!/usr/bin/env bash
+#MISE description="Build static Helm repository content into dist/helm-repo"
+#MISE alias="bhr"
+#MISE tools={helm="latest"}
+#MISE sources=["charts/ksbh/Chart.yaml", "charts/ksbh/values.yaml", "charts/ksbh/crds/**/*.yaml", "charts/ksbh/templates/**/*.yaml", "charts/ksbh/templates/**/*.tpl", "charts/ksbh/templates/**/*.txt"]
+#MISE outputs=["dist/helm-repo/index.yaml", "dist/helm-repo/index.html", "dist/helm-repo/*.tgz"]
+
+set -euo pipefail
+. "$(dirname "$0")/lib.sh"
+
+require_helm
+
+repo_dir="${KSBH_HELM_REPO_DIR:-dist/helm-repo}"
+repo_url="${KSBH_HELM_REPO_URL:-https://charts.ksbh.rs}"
+
+mise run build-css >/dev/null
+
+rm -rf "${repo_dir}"
+mkdir -p "${repo_dir}"
+
+packaged_chart="$(
+  helm package charts/ksbh --destination "${repo_dir}" \
+    | awk '/Successfully packaged chart and saved it to:/ { print $NF }'
+)"
+
+if [ -z "${packaged_chart}" ]; then
+  echo "failed to determine packaged chart path" >&2
+  exit 1
+fi
+
+helm repo index "${repo_dir}" --url "${repo_url}"
+
+chart_file="$(basename "${packaged_chart}")"
+
+mkdir -p "${repo_dir}/css"
+cp crates/ksbh-ui/static/css/style.css "${repo_dir}/css/style.css"
+cp -R docs/static/fonts "${repo_dir}/fonts"
+
+cat > "${repo_dir}/index.html" <<EOF
+<!doctype html>
+<html lang="en" data-theme="ksbh-casbah">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ksbh Helm Repo</title>
+    <link rel="stylesheet" href="/css/style.css" />
+  </head>
+  <body class="ksbh-body">
+    <div class="ksbh-screen">
+      <div class="ksbh-screen__grid"></div>
+      <main class="ksbh-stage">
+        <header class="ksbh-stage__header">
+          <div class="ksbh-stage__kicker">Charts / Static Repo</div>
+          <div class="ksbh-stage__rule"></div>
+        </header>
+        <section class="ksbh-stage__body">
+          <div class="ksbh-stage__main">
+            <h1 class="ksbh-stage__title">charts.ksbh.rs</h1>
+            <p class="ksbh-stage__summary">
+              Helm repository for the ksbh chart, with the packaged release artifact and repository
+              index used by Helm clients.
+            </p>
+            <div class="ksbh-stage__actions">
+              <a href="./index.yaml" class="ksbh-button ksbh-button--primary">Open index.yaml</a>
+              <a href="./${chart_file}" class="ksbh-button">Download Chart</a>
+            </div>
+          </div>
+          <div class="ksbh-stage__side">
+            <article class="ksbh-stage__panel">
+              <div class="ksbh-stage__panel-label">Repository</div>
+              <p><code>helm repo add ksbh ${repo_url}</code></p>
+              <p><code>helm repo update</code></p>
+            </article>
+            <article class="ksbh-stage__panel">
+              <div class="ksbh-stage__panel-label">Artifacts</div>
+              <ul class="ksbh-stage__list">
+                <li><a href="./index.yaml">index.yaml</a></li>
+                <li><a href="./${chart_file}">${chart_file}</a></li>
+                <li><a href="./css/style.css">css/style.css</a></li>
+              </ul>
+            </article>
+          </div>
+        </section>
+      </main>
+    </div>
+  </body>
+</html>
+EOF

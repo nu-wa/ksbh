@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+#MISE description="Build the static Helm repo container image"
+#MISE alias="bcsi"
+#MISE sources=["docker/build/charts-site.Dockerfile", "dist/helm-repo/**/*"]
+
+set -euo pipefail
+. "$(dirname "$0")/lib.sh"
+
+require_docker
+
+mise run build-helm-repo
+
+image_name="${KSBH_CHARTS_SITE_IMAGE:-ksbh-charts-site:local}"
+
+DOCKER_BUILDKIT=1 docker build \
+  --file docker/build/charts-site.Dockerfile \
+  --tag "${image_name}" \
+  .

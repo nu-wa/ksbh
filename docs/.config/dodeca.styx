@@ -1,0 +1,6 @@
+content content
+output public
+
+syntax_highlight {
+    dark_theme catppuccin-mocha
+}

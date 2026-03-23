@@ -86,7 +86,7 @@ impl FileConfigProvider {
     async fn load_and_apply_config(
         &self,
         router: &::ksbh_core::routing::RouterWriter,
-        _certs: &::ksbh_core::certs::CertsWriter,
+        certs: &::ksbh_core::certs::CertsWriter,
     ) -> Result<(), Box<dyn ::std::error::Error>> {
         let config_content = ::std::fs::read_to_string(&self.config_path)?;
         let config: Config = ::serde_yaml::from_str(&config_content)?;
@@ -185,14 +185,27 @@ impl FileConfigProvider {
                 }
             }
 
-            if let Some(ref tls) = ingress.tls
-                && let (Some(cert_file), Some(key_file)) = (&tls.cert_file, &tls.key_file)
-            {
-                tracing::warn!(
-                    "TLS cert loading from files not yet implemented: cert_file={}, key_file={}",
-                    cert_file,
-                    key_file
-                );
+            if let Some(ref tls) = ingress.tls {
+                match (&tls.cert_file, &tls.key_file) {
+                    (Some(cert_file), Some(key_file)) => {
+                        self.load_ingress_tls(certs, ingress, tls, cert_file, key_file)
+                            .await?;
+                    }
+                    (Some(_), None) | (None, Some(_)) => {
+                        tracing::warn!(
+                            "Ingress '{}' TLS config is incomplete; both cert_file and key_file are required",
+                            ingress.name
+                        );
+                    }
+                    (None, None) => {
+                        if tls.secret_name.is_some() {
+                            tracing::warn!(
+                                "Ingress '{}' sets tls.secret_name in file mode, but file provider only loads TLS from cert_file and key_file",
+                                ingress.name
+                            );
+                        }
+                    }
+                }
             }
 
             let module_names: Vec<::std::sync::Arc<str>> = ingress
@@ -232,6 +245,59 @@ impl FileConfigProvider {
             return env_value;
         }
         value.to_string()
+    }
+
+    async fn load_ingress_tls(
+        &self,
+        certs: &::ksbh_core::certs::CertsWriter,
+        ingress: &IngressConfig,
+        tls: &TlsConfig,
+        cert_file: &str,
+        key_file: &str,
+    ) -> Result<(), Box<dyn ::std::error::Error>> {
+        let cert_file = self.resolve_env_var(cert_file);
+        let key_file = self.resolve_env_var(key_file);
+        let cert_pem = ::std::fs::read_to_string(&cert_file)?;
+        let key_pem = ::std::fs::read_to_string(&key_file)?;
+        let cert_name = tls.secret_name.as_deref().unwrap_or(ingress.name.as_str());
+
+        let private_key = ::pingora_core::tls::pkey::PKey::private_key_from_pem(key_pem.as_bytes())
+            .map_err(|e| {
+                ::std::io::Error::other(format!(
+                    "Failed to parse private key for ingress '{}': {}",
+                    ingress.name, e
+                ))
+            })?;
+        let cert_chain = ::pingora_core::tls::x509::X509::stack_from_pem(cert_pem.as_bytes())
+            .map_err(|e| {
+                ::std::io::Error::other(format!(
+                    "Failed to parse certificate chain for ingress '{}': {}",
+                    ingress.name, e
+                ))
+            })?;
+
+        let (mut domains, wildcards) = extract_domains_from_cert(&cert_chain);
+        if domains.is_empty() && wildcards.is_empty() {
+            tracing::warn!(
+                "Ingress '{}' certificate has no SAN DNS names; falling back to ingress host '{}'",
+                ingress.name,
+                ingress.host
+            );
+            domains.push(::ksbh_types::KsbhStr::new(&ingress.host));
+        }
+
+        certs
+            .add_cert(cert_name, private_key, cert_chain, domains, wildcards)
+            .await?;
+
+        tracing::info!(
+            "Loaded TLS certificate for ingress '{}' from cert_file='{}' key_file='{}'",
+            ingress.name,
+            cert_file,
+            key_file
+        );
+
+        Ok(())
     }
 
     async fn watch_config_file(
@@ -304,4 +370,27 @@ impl ::ksbh_core::config_provider::ConfigProvider for FileConfigProvider {
 
         self_arc.watch_config_file(router, certs, shutdown).await;
     }
+}
+
+fn extract_domains_from_cert(
+    certs: &[::pingora_core::tls::x509::X509],
+) -> (Vec<::ksbh_types::KsbhStr>, Vec<::ksbh_types::KsbhStr>) {
+    let mut wildcards: Vec<::ksbh_types::KsbhStr> = Vec::new();
+    let mut domains: Vec<::ksbh_types::KsbhStr> = Vec::new();
+
+    if let Some(leaf) = certs.first()
+        && let Some(sans) = leaf.subject_alt_names()
+    {
+        for san in sans {
+            if let Some(dns_name) = san.dnsname() {
+                if dns_name.starts_with("*.") {
+                    wildcards.push(::ksbh_types::KsbhStr::new(dns_name));
+                } else {
+                    domains.push(::ksbh_types::KsbhStr::new(dns_name));
+                }
+            }
+        }
+    }
+
+    (domains, wildcards)
 }
