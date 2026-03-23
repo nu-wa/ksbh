@@ -2,7 +2,7 @@
 #MISE description="Build the static docs site into docs/public"
 #MISE tools={deno="latest"}
 #MISE dir="./docs"
-#MISE sources=["docs/.config/dodeca.styx", "docs/content/**/*.md", "docs/data/**/*.yaml", "docs/templates/**/*.html", "docs/static/**/*", "docs/deno.json", "docs/package.json", "crates/ksbh-ui/static/css/shared.css"]
+#MISE sources=["docs/.config/dodeca.styx", "docs/content/**/*.md", "docs/data/**/*.yaml", "docs/templates/**/*.html", "docs/static/**/*", "docs/deno.json", "docs/deno.lock", "docs/package.json", "crates/ksbh-ui/static/css/shared.css"]
 #MISE outputs=["docs/public/**/*"]
 
 set -euo pipefail
@@ -16,5 +16,6 @@ if ! command -v ddc >/dev/null 2>&1; then
     | DODECA_VERSION="${dodeca_version}" DODECA_INSTALL_DIR="${HOME}/.local/bin" sh
 fi
 
+deno install --allow-scripts --node-modules-dir=auto
 deno task build:css
 ddc build

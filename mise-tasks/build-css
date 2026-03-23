@@ -2,9 +2,11 @@
 #MISE description="Build shared UI CSS and docs CSS"
 #MISE tools={deno="latest"}
 #MISE dir="./docs"
-#MISE sources=["docs/deno.json", "docs/package.json", "docs/css/base.css", "crates/ksbh-ui/static/css/shared.css"]
+#MISE sources=["docs/deno.json", "docs/deno.lock", "docs/package.json", "docs/css/base.css", "crates/ksbh-ui/static/css/shared.css"]
 
 set -euo pipefail
+
+deno install --allow-scripts --node-modules-dir=auto
 
 deno run -A npm:@tailwindcss/cli \
   -i ../crates/ksbh-ui/static/css/shared.css \
