@@ -4,10 +4,10 @@
 
 This file covers repo-level structure, current workflows, and conventions.
 
-- Repo root: `/home/smspl/dev/rust/ksbh`
-- Rust workspace manifest: `/home/smspl/dev/rust/ksbh/crates/Cargo.toml`
-- Docs site root: `/home/smspl/dev/rust/ksbh/docs`
-- Helm chart root: `/home/smspl/dev/rust/ksbh/charts/ksbh`
+- Repo root: `.`
+- Rust workspace manifest: `crates/Cargo.toml`
+- Docs site root: `docs/`
+- Helm chart root: `charts/ksbh/`
 
 Always read this file first, then the nearest crate- or area-specific `AGENTS.md`.
 

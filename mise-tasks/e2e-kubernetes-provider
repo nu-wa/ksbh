@@ -5,8 +5,10 @@
 #USAGE flag "-k --keep-cluster" help="Keep the kind cluster after the task exits"
 #USAGE flag "-s --skip-build" help="Skip rebuilding the release Docker image"
 
-set -euo pipefail
+set -Eeuo pipefail
 . "$(dirname "$0")/lib.sh"
+
+trap 'echo "e2e-kubernetes-provider failed (line ${BASH_LINENO[0]:-unknown}): ${BASH_COMMAND}" >&2' ERR
 
 require_docker
 require_kind
@@ -23,6 +25,13 @@ if ! command -v npm >/dev/null 2>&1; then
   echo "npm is not installed or not in PATH" >&2
   exit 1
 fi
+
+if ! command -v cargo >/dev/null 2>&1; then
+  echo "cargo is not installed or not in PATH" >&2
+  exit 1
+fi
+
+repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 
 resolve_ci_host() {
   if [ -n "${KSBH_CI_HOST:-}" ]; then
@@ -48,7 +57,9 @@ resolve_ci_host() {
     fi
   fi
 
-  ip route show default 2>/dev/null | awk '/default/ { print $3; exit }'
+  if command -v ip >/dev/null 2>&1; then
+    ip route show default 2>/dev/null | awk '/default/ { print $3; exit }' || true
+  fi
 }
 
 cleanup() {
@@ -289,7 +300,7 @@ export KSBH_E2E_BROWSER_BASE_URL="http://${browser_host}:18080"
 
 echo "running Rust kubernetes e2e tests"
 cargo test \
-  --manifest-path /home/smspl/dev/rust/ksbh/crates/Cargo.toml \
+  --manifest-path "${repo_root}/crates/Cargo.toml" \
   -p tests \
   --test k8s_baseline_e2e \
   -- \
@@ -298,7 +309,7 @@ cargo test \
   --test-threads=1
 
 cargo test \
-  --manifest-path /home/smspl/dev/rust/ksbh/crates/Cargo.toml \
+  --manifest-path "${repo_root}/crates/Cargo.toml" \
   -p tests \
   --test k8s_ingress_lifecycle_e2e \
   -- \
@@ -307,7 +318,7 @@ cargo test \
   --test-threads=1
 
 cargo test \
-  --manifest-path /home/smspl/dev/rust/ksbh/crates/Cargo.toml \
+  --manifest-path "${repo_root}/crates/Cargo.toml" \
   -p tests \
   --test k8s_static_content_e2e \
   -- \
@@ -316,7 +327,7 @@ cargo test \
   --test-threads=1
 
 cargo test \
-  --manifest-path /home/smspl/dev/rust/ksbh/crates/Cargo.toml \
+  --manifest-path "${repo_root}/crates/Cargo.toml" \
   -p tests \
   --test k8s_robots_txt_e2e \
   -- \
@@ -325,7 +336,7 @@ cargo test \
   --test-threads=1
 
 cargo test \
-  --manifest-path /home/smspl/dev/rust/ksbh/crates/Cargo.toml \
+  --manifest-path "${repo_root}/crates/Cargo.toml" \
   -p tests \
   --test k8s_pow_http_e2e \
   -- \
@@ -387,7 +398,7 @@ wait_for_http_status "http://${browser_host}:18080/get" "401" 90
 
 echo "running Playwright kubernetes PoW browser e2e"
 tests/playwright/node_modules/.bin/playwright test \
-  /home/smspl/dev/rust/ksbh/tests/playwright/k8s-pow-browser.spec.cjs \
+  "${repo_root}/tests/playwright/k8s-pow-browser.spec.cjs" \
   --workers=1
 
 kubectl delete ingress pow-browser-ingress --namespace "${namespace}" --ignore-not-found >/dev/null 2>&1 || true

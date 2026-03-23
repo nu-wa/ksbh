@@ -4,8 +4,8 @@ This directory contains the Rust workspace for KSBH.
 
 ## Manifest
 
-- Workspace root: `/home/smspl/dev/rust/ksbh/crates`
-- Workspace manifest: `/home/smspl/dev/rust/ksbh/crates/Cargo.toml`
+- Workspace root: `crates/`
+- Workspace manifest: `crates/Cargo.toml`
 
 ## Members
 

@@ -12,6 +12,7 @@ RUN apt-get update -y \
     ca-certificates \
     curl \
     zstd \
+    iproute2 \
     git \
     docker.io \
     build-essential \
