@@ -107,11 +107,16 @@ Notable tasks:
 Current Forgejo workflows:
 
 - `.forgejo/workflows/ci.yaml`
+  - `ci-base-image`
+  - `rust-cache-prime`
   - `e2e-binary`
   - `modules-memory-check`
   - `e2e-kubernetes`
   - `docker-build-publish`
   - `helm-chart-artifacts`
+
+The `ci-base-image` job builds and publishes `docker/build/ci.Dockerfile` to Harbor once per workflow run, and downstream jobs run in that image.
+The `rust-cache-prime` job seeds compile artifacts once per workflow run, and downstream jobs reuse split CI caches (`cargo/mise` dependency caches, `crates/target`, and Playwright browser/npm caches) to reduce repeated setup and Rust rebuild time.
 
 Local Forgejo composite actions:
 

@@ -9,11 +9,62 @@ on:
     workflow_dispatch:
 
 jobs:
-    e2e-binary:
-        continue-on-error: ${{ (forge.ref_name || env.FORGEJO_REF_NAME || env.LOCAL_REF_NAME) == 'dev' }}
+    ci-base-image:
         runs-on: docker
         container:
             image: ghcr.io/catthehacker/ubuntu:act-latest
+        permissions:
+            contents: read
+        steps:
+            - name: Check out repository
+              uses: https://data.forgejo.org/actions/checkout@v4
+
+            - name: Ensure docker cli exists
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  if command -v docker >/dev/null 2>&1; then
+                    docker --version
+                    exit 0
+                  fi
+
+                  apt-get update
+                  apt-get install -y docker.io
+                  docker --version
+
+            - name: Build and push CI base image
+              shell: bash
+              env:
+                  HARBOR_HOST: ${{ vars.HARBOR_HOST || env.HARBOR_HOST }}
+                  HARBOR_USERNAME: ${{ secrets.HARBOR_USERNAME || env.HARBOR_USERNAME }}
+                  HARBOR_PASSWORD: ${{ secrets.HARBOR_PASSWORD || env.HARBOR_PASSWORD }}
+                  LOCAL_SHA: ${{ forge.sha || env.FORGEJO_SHA || env.LOCAL_SHA }}
+              run: |
+                  set -euo pipefail
+
+                  if [ -z "${HARBOR_HOST:-}" ]; then
+                    echo "HARBOR_HOST is required to publish the CI base image" >&2
+                    exit 1
+                  fi
+
+                  ci_image_repository="${HARBOR_HOST}/registry/ksbh-ci"
+                  ci_image="${ci_image_repository}:${LOCAL_SHA}"
+
+                  if [ -n "${HARBOR_USERNAME:-}" ] && [ -n "${HARBOR_PASSWORD:-}" ]; then
+                    echo "${HARBOR_PASSWORD}" | docker login "${HARBOR_HOST}" --username "${HARBOR_USERNAME}" --password-stdin
+                  else
+                    echo "HARBOR_USERNAME/HARBOR_PASSWORD not set, relying on preconfigured Docker auth"
+                  fi
+
+                  docker build --pull --file docker/build/ci.Dockerfile --tag "${ci_image}" .
+                  docker push "${ci_image}"
+
+    rust-cache-prime:
+        needs:
+            - ci-base-image
+        runs-on: docker
+        container:
+            image: ${{ (vars.HARBOR_HOST || env.HARBOR_HOST) }}/registry/ksbh-ci:${{ forge.sha || env.FORGEJO_SHA || env.LOCAL_SHA }}
         permissions:
             contents: read
         steps:
@@ -28,15 +79,62 @@ jobs:
                       /root/.cargo/git
                       /root/.local/share/mise
                       /root/.cache/mise
-                      crates/target
-                  key: ci-e2e-binary-${{ runner.os }}-${{ hashFiles('crates/Cargo.lock', 'mise.toml', '.mise.toml', 'mise-tasks/**') }}
+                  key: ci-deps-${{ runner.os }}-${{ hashFiles('crates/Cargo.lock', 'mise.toml', '.mise.toml') }}
                   restore-keys: |
-                      ci-e2e-binary-${{ runner.os }}-
+                      ci-deps-${{ runner.os }}-
 
-            - name: Setup mise
-              uses: ./.forgejo/actions/setup-mise
+            - name: Restore Rust target cache
+              uses: https://data.forgejo.org/actions/cache@v4
               with:
-                  apt-packages: build-essential cmake pkg-config libssl-dev
+                  path: |
+                      crates/target
+                  key: ci-rust-target-${{ runner.os }}-${{ forge.sha || env.FORGEJO_SHA || env.LOCAL_SHA }}
+                  restore-keys: |
+                      ci-rust-target-${{ runner.os }}-
+
+            - name: Prime Rust workspace cache
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  export PATH="$HOME/.local/bin:$PATH"
+                  chmod +x mise-tasks/build
+                  env -u GH_TOKEN -u GITHUB_TOKEN mise install
+                  mise run build
+                  cargo test --manifest-path crates/Cargo.toml -p tests --no-run
+
+    e2e-binary:
+        continue-on-error: ${{ (forge.ref_name || env.FORGEJO_REF_NAME || env.LOCAL_REF_NAME) == 'dev' }}
+        needs:
+            - rust-cache-prime
+        runs-on: docker
+        container:
+            image: ${{ (vars.HARBOR_HOST || env.HARBOR_HOST) }}/registry/ksbh-ci:${{ forge.sha || env.FORGEJO_SHA || env.LOCAL_SHA }}
+        permissions:
+            contents: read
+        steps:
+            - name: Check out repository
+              uses: https://data.forgejo.org/actions/checkout@v4
+
+            - name: Restore CI caches
+              uses: https://data.forgejo.org/actions/cache@v4
+              with:
+                  path: |
+                      /root/.cargo/registry
+                      /root/.cargo/git
+                      /root/.local/share/mise
+                      /root/.cache/mise
+                  key: ci-deps-${{ runner.os }}-${{ hashFiles('crates/Cargo.lock', 'mise.toml', '.mise.toml') }}
+                  restore-keys: |
+                      ci-deps-${{ runner.os }}-
+
+            - name: Restore Rust target cache
+              uses: https://data.forgejo.org/actions/cache@v4
+              with:
+                  path: |
+                      crates/target
+                  key: ci-rust-target-${{ runner.os }}-${{ forge.sha || env.FORGEJO_SHA || env.LOCAL_SHA }}
+                  restore-keys: |
+                      ci-rust-target-${{ runner.os }}-
 
             - name: Run direct-binary e2e task
               uses: ./.forgejo/actions/run-mise-task
@@ -46,9 +144,11 @@ jobs:
 
     modules-memory-check:
         continue-on-error: ${{ (forge.ref_name || env.FORGEJO_REF_NAME || env.LOCAL_REF_NAME) == 'dev' }}
+        needs:
+            - rust-cache-prime
         runs-on: docker
         container:
-            image: ghcr.io/catthehacker/ubuntu:act-latest
+            image: ${{ (vars.HARBOR_HOST || env.HARBOR_HOST) }}/registry/ksbh-ci:${{ forge.sha || env.FORGEJO_SHA || env.LOCAL_SHA }}
         permissions:
             contents: read
         steps:
@@ -63,15 +163,18 @@ jobs:
                       /root/.cargo/git
                       /root/.local/share/mise
                       /root/.cache/mise
-                      crates/target
-                  key: ci-modules-memory-${{ runner.os }}-${{ hashFiles('crates/Cargo.lock', 'mise.toml', '.mise.toml', 'mise-tasks/**', 'docker/build/miri.Dockerfile') }}
+                  key: ci-deps-${{ runner.os }}-${{ hashFiles('crates/Cargo.lock', 'mise.toml', '.mise.toml') }}
                   restore-keys: |
-                      ci-modules-memory-${{ runner.os }}-
+                      ci-deps-${{ runner.os }}-
 
-            - name: Setup mise
-              uses: ./.forgejo/actions/setup-mise
+            - name: Restore Rust target cache
+              uses: https://data.forgejo.org/actions/cache@v4
               with:
-                  apt-packages: build-essential cmake docker.io pkg-config libssl-dev
+                  path: |
+                      crates/target
+                  key: ci-rust-target-${{ runner.os }}-${{ forge.sha || env.FORGEJO_SHA || env.LOCAL_SHA }}
+                  restore-keys: |
+                      ci-rust-target-${{ runner.os }}-
 
             - name: Run native dynamic-module smoke task
               uses: ./.forgejo/actions/run-mise-task
@@ -93,6 +196,8 @@ jobs:
             - e2e-binary
             - modules-memory-check
         runs-on: kind
+        container:
+            image: ${{ (vars.HARBOR_HOST || env.HARBOR_HOST) }}/registry/ksbh-ci:${{ forge.sha || env.FORGEJO_SHA || env.LOCAL_SHA }}
         permissions:
             contents: read
         steps:
@@ -107,15 +212,28 @@ jobs:
                       /root/.cargo/git
                       /root/.local/share/mise
                       /root/.cache/mise
-                      crates/target
-                  key: ci-e2e-kubernetes-${{ runner.os }}-${{ hashFiles('crates/Cargo.lock', 'mise.toml', '.mise.toml', 'mise-tasks/**') }}
+                  key: ci-deps-${{ runner.os }}-${{ hashFiles('crates/Cargo.lock', 'mise.toml', '.mise.toml') }}
                   restore-keys: |
-                      ci-e2e-kubernetes-${{ runner.os }}-
+                      ci-deps-${{ runner.os }}-
 
-            - name: Setup mise
-              uses: ./.forgejo/actions/setup-mise
+            - name: Restore Rust target cache
+              uses: https://data.forgejo.org/actions/cache@v4
               with:
-                  apt-packages: build-essential cmake docker.io pkg-config libssl-dev
+                  path: |
+                      crates/target
+                  key: ci-rust-target-${{ runner.os }}-${{ forge.sha || env.FORGEJO_SHA || env.LOCAL_SHA }}
+                  restore-keys: |
+                      ci-rust-target-${{ runner.os }}-
+
+            - name: Restore Playwright cache
+              uses: https://data.forgejo.org/actions/cache@v4
+              with:
+                  path: |
+                      tests/playwright/node_modules
+                      /root/.cache/ms-playwright
+                  key: ci-playwright-${{ runner.os }}-${{ hashFiles('tests/playwright/package.json', 'tests/playwright/package-lock.json') }}
+                  restore-keys: |
+                      ci-playwright-${{ runner.os }}-
 
             - name: Install Playwright
               uses: ./.forgejo/actions/install-playwright
@@ -145,17 +263,12 @@ jobs:
         if: ${{ forge.event_name != 'pull_request' }}
         runs-on: docker
         container:
-            image: ghcr.io/catthehacker/ubuntu:act-latest
+            image: ${{ (vars.HARBOR_HOST || env.HARBOR_HOST) }}/registry/ksbh-ci:${{ forge.sha || env.FORGEJO_SHA || env.LOCAL_SHA }}
         permissions:
             contents: read
         steps:
             - name: Check out repository
               uses: https://data.forgejo.org/actions/checkout@v4
-
-            - name: Setup mise
-              uses: ./.forgejo/actions/setup-mise
-              with:
-                  apt-packages: docker.io
 
             - name: Build and push image
               shell: bash
@@ -225,15 +338,12 @@ jobs:
         if: ${{ forge.event_name != 'pull_request' }}
         runs-on: docker
         container:
-            image: ghcr.io/catthehacker/ubuntu:act-latest
+            image: ${{ (vars.HARBOR_HOST || env.HARBOR_HOST) }}/registry/ksbh-ci:${{ forge.sha || env.FORGEJO_SHA || env.LOCAL_SHA }}
         permissions:
             contents: read
         steps:
             - name: Check out repository
               uses: https://data.forgejo.org/actions/checkout@v4
-
-            - name: Setup mise
-              uses: ./.forgejo/actions/setup-mise
 
             - name: Run Helm chart lint task
               uses: ./.forgejo/actions/run-mise-task

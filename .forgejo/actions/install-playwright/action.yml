@@ -8,4 +8,4 @@ runs:
       run: |
         set -euo pipefail
         npm install --prefix tests/playwright
-        tests/playwright/node_modules/.bin/playwright install --with-deps chromium
+        tests/playwright/node_modules/.bin/playwright install chromium

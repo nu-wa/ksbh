@@ -23,6 +23,18 @@ runs:
         set -euo pipefail
         export PATH="$HOME/.local/bin:$PATH"
 
+        # Runner mounts /root/.docker as read-only for shared auth.
+        # BuildKit/buildx needs a writable config/state directory.
+        source_docker_config="${DOCKER_CONFIG:-/root/.docker}"
+        writable_docker_config="/tmp/ksbh-docker-config"
+        writable_buildx_config="/tmp/ksbh-docker-buildx"
+        mkdir -p "${writable_docker_config}" "${writable_buildx_config}"
+        if [ -f "${source_docker_config}/config.json" ]; then
+          cp "${source_docker_config}/config.json" "${writable_docker_config}/config.json"
+        fi
+        export DOCKER_CONFIG="${writable_docker_config}"
+        export BUILDX_CONFIG="${writable_buildx_config}"
+
         if [ -n "${{ inputs.chmod-paths }}" ]; then
           chmod +x ${{ inputs.chmod-paths }}
         fi
