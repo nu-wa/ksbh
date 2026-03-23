@@ -69,9 +69,9 @@ app:
     prometheus: "0.0.0.0:8084"
 
   configPaths:
-    config: "/app/ksbh/config.yaml"
+    config: "/app/config/config.yaml"
     modules: "/app/modules"
-    staticContent: "/app/ksbh/config"
+    staticContent: "/app/data/static"
 
   urlPaths:
     modules: "/_ksbh_internal/"
