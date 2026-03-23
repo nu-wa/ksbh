@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #MISE description="Build the static docs site into docs/public"
-#MISE tools={deno="latest",rust="1.92.0"}
+#MISE tools={deno="latest"}
 #MISE dir="./docs"
 #MISE sources=["docs/.config/dodeca.styx", "docs/content/**/*.md", "docs/data/**/*.yaml", "docs/templates/**/*.html", "docs/static/**/*", "docs/deno.json", "docs/package.json", "crates/ksbh-ui/static/css/shared.css"]
 #MISE outputs=["docs/public/**/*"]
@@ -10,26 +10,10 @@ set -euo pipefail
 export PATH="${HOME}/.cargo/bin:${HOME}/.local/bin:${PATH}"
 
 if ! command -v ddc >/dev/null 2>&1; then
-  if ! command -v rustup >/dev/null 2>&1; then
-    echo "rustup is required to install dodeca from source" >&2
-    exit 1
-  fi
-
-  rustup target add wasm32-unknown-unknown
-
-  if ! command -v wasm-bindgen >/dev/null 2>&1; then
-    cargo install --locked wasm-bindgen-cli
-  fi
-
-  dodeca_install_dir="$(mktemp -d)"
-  trap 'rm -rf "${dodeca_install_dir}"' EXIT
-  curl -fsSL https://github.com/bearcove/dodeca/archive/refs/heads/main.tar.gz \
-    | tar -xz -C "${dodeca_install_dir}"
-
-  (
-    cd "${dodeca_install_dir}/dodeca-main"
-    cargo xtask install
-  )
+  dodeca_version="${KSBH_DODECA_VERSION:-v0.13.0}"
+  curl --proto '=https' --tlsv1.2 -fsSL \
+    "https://github.com/bearcove/dodeca/releases/download/${dodeca_version}/dodeca-installer.sh" \
+    | DODECA_VERSION="${dodeca_version}" DODECA_INSTALL_DIR="${HOME}/.local/bin" sh
 fi
 
 deno task build:css
