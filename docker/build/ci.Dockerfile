@@ -5,7 +5,10 @@ FROM ghcr.io/catthehacker/ubuntu:act-latest
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-RUN apt-get update -y && apt-get install -y --no-install-recommends \
+RUN apt-get update -y \
+  && asound_pkg="libasound2" \
+  && if apt-cache show libasound2t64 >/dev/null 2>&1; then asound_pkg="libasound2t64"; fi \
+  && apt-get install -y --no-install-recommends \
     ca-certificates \
     curl \
     zstd \
@@ -30,7 +33,7 @@ RUN apt-get update -y && apt-get install -y --no-install-recommends \
     libxfixes3 \
     libxrandr2 \
     libgbm1 \
-    libasound2 \
+    "${asound_pkg}" \
     libatspi2.0-0 \
     libxshmfence1 \
     fonts-liberation \
