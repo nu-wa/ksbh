@@ -92,11 +92,11 @@ jobs:
         needs:
             - e2e-binary
             - modules-memory-check
-        runs-on: docker
-        container:
-            image: ghcr.io/catthehacker/ubuntu:act-latest
+        runs-on: kind
         permissions:
             contents: read
+        env:
+            PATH: "${HOME}/.local/bin:${PATH}"
         steps:
             - name: Check out repository
               uses: https://data.forgejo.org/actions/checkout@v4
@@ -114,13 +114,19 @@ jobs:
                   restore-keys: |
                       ci-e2e-kubernetes-${{ runner.os }}-
 
-            - name: Setup mise
-              uses: ./.forgejo/actions/setup-mise
-              with:
-                  apt-packages: build-essential cmake docker.io pkg-config libssl-dev
+
+            - name: Verify host mise
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  mise --version
 
             - name: Install Playwright
-              uses: ./.forgejo/actions/install-playwright
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  npm install --prefix tests/playwright
+                  tests/playwright/node_modules/.bin/playwright install chromium
 
             - name: Install kind
               shell: bash
