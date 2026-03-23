@@ -42,6 +42,16 @@ jobs:
               run: |
                   set -euo pipefail
 
+                  source_docker_config="${DOCKER_CONFIG:-/root/.docker}"
+                  writable_docker_config="/tmp/ksbh-docker-config"
+                  writable_buildx_config="/tmp/ksbh-docker-buildx"
+                  mkdir -p "${writable_docker_config}" "${writable_buildx_config}"
+                  if [ -f "${source_docker_config}/config.json" ]; then
+                    cp "${source_docker_config}/config.json" "${writable_docker_config}/config.json"
+                  fi
+                  export DOCKER_CONFIG="${writable_docker_config}"
+                  export BUILDX_CONFIG="${writable_buildx_config}"
+
                   if [ -z "${HARBOR_HOST:-}" ]; then
                     echo "HARBOR_HOST is required to publish the CI base image" >&2
                     exit 1
@@ -284,6 +294,17 @@ jobs:
               run: |
                   set -euo pipefail
                   export PATH="$HOME/.local/bin:$PATH"
+
+                  source_docker_config="${DOCKER_CONFIG:-/root/.docker}"
+                  writable_docker_config="/tmp/ksbh-docker-config"
+                  writable_buildx_config="/tmp/ksbh-docker-buildx"
+                  mkdir -p "${writable_docker_config}" "${writable_buildx_config}"
+                  if [ -f "${source_docker_config}/config.json" ]; then
+                    cp "${source_docker_config}/config.json" "${writable_docker_config}/config.json"
+                  fi
+                  export DOCKER_CONFIG="${writable_docker_config}"
+                  export BUILDX_CONFIG="${writable_buildx_config}"
+
                   chmod +x mise-tasks/build-release-image
                   chmod +x mise-tasks/build-docs-site-image
                   chmod +x mise-tasks/build-charts-site-image
