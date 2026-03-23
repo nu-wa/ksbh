@@ -95,8 +95,6 @@ jobs:
         runs-on: kind
         permissions:
             contents: read
-        env:
-            PATH: "${HOME}/.local/bin:${PATH}"
         steps:
             - name: Check out repository
               uses: https://data.forgejo.org/actions/checkout@v4
@@ -114,19 +112,13 @@ jobs:
                   restore-keys: |
                       ci-e2e-kubernetes-${{ runner.os }}-
 
-
-            - name: Verify host mise
-              shell: bash
-              run: |
-                  set -euo pipefail
-                  mise --version
+            - name: Setup mise
+              uses: ./.forgejo/actions/setup-mise
+              with:
+                  apt-packages: build-essential cmake docker.io pkg-config libssl-dev
 
             - name: Install Playwright
-              shell: bash
-              run: |
-                  set -euo pipefail
-                  npm install --prefix tests/playwright
-                  tests/playwright/node_modules/.bin/playwright install chromium
+              uses: ./.forgejo/actions/install-playwright
 
             - name: Install kind
               shell: bash
@@ -195,8 +187,17 @@ jobs:
                     extra_tag="latest-dev"
                   fi
 
-                  echo "${DOCKERHUB_TOKEN}" | docker login --username "${DOCKERHUB_USERNAME}" --password-stdin
-                  echo "${HARBOR_PASSWORD}" | docker login "${HARBOR_HOST}" --username "${HARBOR_USERNAME}" --password-stdin
+                  if [ -n "${DOCKERHUB_USERNAME:-}" ] && [ -n "${DOCKERHUB_TOKEN:-}" ]; then
+                    echo "${DOCKERHUB_TOKEN}" | docker login --username "${DOCKERHUB_USERNAME}" --password-stdin
+                  else
+                    echo "DOCKERHUB_USERNAME/DOCKERHUB_TOKEN not set, relying on preconfigured Docker auth"
+                  fi
+
+                  if [ -n "${HARBOR_HOST:-}" ] && [ -n "${HARBOR_USERNAME:-}" ] && [ -n "${HARBOR_PASSWORD:-}" ]; then
+                    echo "${HARBOR_PASSWORD}" | docker login "${HARBOR_HOST}" --username "${HARBOR_USERNAME}" --password-stdin
+                  else
+                    echo "HARBOR_HOST/HARBOR_USERNAME/HARBOR_PASSWORD not set, relying on preconfigured Docker auth"
+                  fi
 
                   export KSBH_RELEASE_IMAGE="${image_repository}:${primary_tag}"
                   export KSBH_DOCS_SITE_IMAGE="${docs_image_repository}:${primary_tag}"
