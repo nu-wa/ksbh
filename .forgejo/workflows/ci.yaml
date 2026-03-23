@@ -110,7 +110,7 @@ jobs:
                   chmod +x mise-tasks/build
                   env -u GH_TOKEN -u GITHUB_TOKEN mise install
                   mise run build
-                  cargo test --manifest-path crates/Cargo.toml -p tests --no-run
+                  mise x rust@1.92.0 -- cargo test --manifest-path crates/Cargo.toml -p tests --no-run
 
     e2e-binary:
         continue-on-error: ${{ (forge.ref_name || env.FORGEJO_REF_NAME || env.LOCAL_REF_NAME) == 'dev' }}
