@@ -12,12 +12,12 @@ require_docker
 image_name="$(release_image_name)"
 
 if [ "${usage_no_cache:-false}" = "true" ]; then
-  DOCKER_BUILDKIT=1 docker build --no-cache \
+  DOCKER_BUILDKIT=1 docker build --load --no-cache \
     --file docker/build/release.Dockerfile \
     --tag "${image_name}" \
     .
 else
-  DOCKER_BUILDKIT=1 docker build \
+  DOCKER_BUILDKIT=1 docker build --load \
     --file docker/build/release.Dockerfile \
     --tag "${image_name}" \
     .

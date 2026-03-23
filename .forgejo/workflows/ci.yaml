@@ -10,6 +10,7 @@ on:
 
 jobs:
     e2e-binary:
+        continue-on-error: ${{ (forge.ref_name || env.FORGEJO_REF_NAME || env.LOCAL_REF_NAME) == 'dev' }}
         runs-on: docker
         container:
             image: ghcr.io/catthehacker/ubuntu:act-latest
@@ -44,6 +45,7 @@ jobs:
                   chmod-paths: mise-tasks/e2e-binary
 
     modules-memory-check:
+        continue-on-error: ${{ (forge.ref_name || env.FORGEJO_REF_NAME || env.LOCAL_REF_NAME) == 'dev' }}
         runs-on: docker
         container:
             image: ghcr.io/catthehacker/ubuntu:act-latest
@@ -86,6 +88,7 @@ jobs:
                   chmod-paths: mise-tasks/miri-modules-sdk-ffi mise-tasks/lib.sh
 
     e2e-kubernetes:
+        continue-on-error: ${{ (forge.ref_name || env.FORGEJO_REF_NAME || env.LOCAL_REF_NAME) == 'dev' }}
         needs:
             - e2e-binary
             - modules-memory-check

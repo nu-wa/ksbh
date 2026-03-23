@@ -13,6 +13,7 @@ mise run build-helm-repo
 image_name="${KSBH_CHARTS_SITE_IMAGE:-ksbh-charts-site:local}"
 
 DOCKER_BUILDKIT=1 docker build \
+  --load \
   --file docker/build/charts-site.Dockerfile \
   --tag "${image_name}" \
   .

@@ -13,6 +13,7 @@ mise run build-docs-site
 image_name="${KSBH_DOCS_SITE_IMAGE:-ksbh-docs-site:local}"
 
 DOCKER_BUILDKIT=1 docker build \
+  --load \
   --file docker/build/docs-site.Dockerfile \
   --tag "${image_name}" \
   .
