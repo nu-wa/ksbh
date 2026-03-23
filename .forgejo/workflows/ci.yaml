@@ -112,6 +112,58 @@ jobs:
                   mise run build
                   mise x rust@1.92.0 -- cargo test --manifest-path crates/Cargo.toml -p tests --no-run
 
+    release-image-build:
+        needs:
+            - ci-base-image
+        runs-on: docker
+        container:
+            image: ${{ (vars.HARBOR_HOST || env.HARBOR_HOST) }}/registry/ksbh-ci:${{ forge.sha || env.FORGEJO_SHA || env.LOCAL_SHA }}
+        permissions:
+            contents: read
+        steps:
+            - name: Check out repository
+              uses: https://data.forgejo.org/actions/checkout@v4
+
+            - name: Build release Docker image
+              uses: ./.forgejo/actions/run-mise-task
+              with:
+                  task: build-release-image
+                  chmod-paths: mise-tasks/build-release-image mise-tasks/lib.sh
+
+    miri-image-build:
+        needs:
+            - ci-base-image
+        runs-on: docker
+        container:
+            image: ${{ (vars.HARBOR_HOST || env.HARBOR_HOST) }}/registry/ksbh-ci:${{ forge.sha || env.FORGEJO_SHA || env.LOCAL_SHA }}
+        permissions:
+            contents: read
+        steps:
+            - name: Check out repository
+              uses: https://data.forgejo.org/actions/checkout@v4
+
+            - name: Build Miri Docker image
+              shell: bash
+              env:
+                  KSBH_MIRI_IMAGE: ksbh:miri
+              run: |
+                  set -euo pipefail
+
+                  source_docker_config="${DOCKER_CONFIG:-/root/.docker}"
+                  writable_docker_config="/tmp/ksbh-docker-config"
+                  writable_buildx_config="/tmp/ksbh-docker-buildx"
+                  mkdir -p "${writable_docker_config}" "${writable_buildx_config}"
+                  if [ -f "${source_docker_config}/config.json" ]; then
+                    cp "${source_docker_config}/config.json" "${writable_docker_config}/config.json"
+                  fi
+                  export DOCKER_CONFIG="${writable_docker_config}"
+                  export BUILDX_CONFIG="${writable_buildx_config}"
+
+                  DOCKER_BUILDKIT=1 docker build --pull --load \
+                    --file docker/build/miri.Dockerfile \
+                    --tag "${KSBH_MIRI_IMAGE}" \
+                    .
+
     e2e-binary:
         continue-on-error: ${{ (forge.ref_name || env.FORGEJO_REF_NAME || env.LOCAL_REF_NAME) == 'dev' }}
         needs:
@@ -156,6 +208,7 @@ jobs:
         continue-on-error: ${{ (forge.ref_name || env.FORGEJO_REF_NAME || env.LOCAL_REF_NAME) == 'dev' }}
         needs:
             - rust-cache-prime
+            - miri-image-build
         runs-on: docker
         container:
             image: ${{ (vars.HARBOR_HOST || env.HARBOR_HOST) }}/registry/ksbh-ci:${{ forge.sha || env.FORGEJO_SHA || env.LOCAL_SHA }}
@@ -198,6 +251,7 @@ jobs:
               uses: ./.forgejo/actions/run-mise-task
               with:
                   task: miri-modules-sdk-ffi
+                  task-args: --skip-build
                   chmod-paths: mise-tasks/miri-modules-sdk-ffi mise-tasks/lib.sh
 
     e2e-kubernetes:
@@ -205,6 +259,7 @@ jobs:
         needs:
             - e2e-binary
             - modules-memory-check
+            - release-image-build
         runs-on: kind
         container:
             image: ${{ (vars.HARBOR_HOST || env.HARBOR_HOST) }}/registry/ksbh-ci:${{ forge.sha || env.FORGEJO_SHA || env.LOCAL_SHA }}
@@ -263,12 +318,11 @@ jobs:
                   KSBH_KIND_API_SERVER_PORT: "16443"
               with:
                   task: e2e
+                  task-args: --skip-build
                   chmod-paths: mise-tasks/e2e mise-tasks/e2e-kubernetes-provider mise-tasks/build-release-image mise-tasks/lib.sh
 
-    docker-build-publish:
+    publish-images:
         needs:
-            - e2e-binary
-            - modules-memory-check
             - e2e-kubernetes
         if: ${{ forge.event_name != 'pull_request' }}
         runs-on: docker
@@ -305,13 +359,13 @@ jobs:
                   export DOCKER_CONFIG="${writable_docker_config}"
                   export BUILDX_CONFIG="${writable_buildx_config}"
 
-                  chmod +x mise-tasks/build-release-image
                   chmod +x mise-tasks/build-docs-site-image
                   chmod +x mise-tasks/build-charts-site-image
 
                   image_repository="${DOCKERHUB_REPOSITORY:-${DOCKERHUB_USERNAME}/ksbh}"
                   docs_image_repository="${HARBOR_HOST}/registry/ksbh-docs"
                   charts_image_repository="${HARBOR_HOST}/registry/ksbh-charts"
+                  source_release_image="${KSBH_RELEASE_IMAGE_LOCAL:-ksbh:release}"
 
                   if [ "${LOCAL_REF_NAME}" = "main" ]; then
                     primary_tag="$(grep -m1 '^version = "' crates/ksbh-bin/Cargo.toml | sed -E 's/^version = "([^"]+)"$/\1/')"
@@ -333,11 +387,16 @@ jobs:
                     echo "HARBOR_HOST/HARBOR_USERNAME/HARBOR_PASSWORD not set, relying on preconfigured Docker auth"
                   fi
 
-                  export KSBH_RELEASE_IMAGE="${image_repository}:${primary_tag}"
                   export KSBH_DOCS_SITE_IMAGE="${docs_image_repository}:${primary_tag}"
                   export KSBH_CHARTS_SITE_IMAGE="${charts_image_repository}:${primary_tag}"
-                  mise install
-                  mise run build-release-image
+
+                  if ! docker image inspect "${source_release_image}" >/dev/null 2>&1; then
+                    echo "expected prebuilt release image '${source_release_image}' not found" >&2
+                    exit 1
+                  fi
+
+                  docker tag "${source_release_image}" "${image_repository}:${primary_tag}"
+                  env -u GH_TOKEN -u GITHUB_TOKEN mise install
                   mise run build-docs-site-image
                   mise run build-charts-site-image
                   docker push "${image_repository}:${primary_tag}"
@@ -355,7 +414,7 @@ jobs:
 
     helm-chart-artifacts:
         needs:
-            - docker-build-publish
+            - publish-images
         if: ${{ forge.event_name != 'pull_request' }}
         runs-on: docker
         container:

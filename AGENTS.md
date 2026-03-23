@@ -109,10 +109,12 @@ Current Forgejo workflows:
 - `.forgejo/workflows/ci.yaml`
   - `ci-base-image`
   - `rust-cache-prime`
+  - `release-image-build`
+  - `miri-image-build`
   - `e2e-binary`
   - `modules-memory-check`
   - `e2e-kubernetes`
-  - `docker-build-publish`
+  - `publish-images`
   - `helm-chart-artifacts`
 
 The `ci-base-image` job builds and publishes `docker/build/ci.Dockerfile` to Harbor once per workflow run, and downstream jobs run in that image.

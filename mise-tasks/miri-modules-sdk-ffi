@@ -4,6 +4,7 @@
 #MISE alias="miri-ffi"
 #MISE sources=["docker/build/miri.Dockerfile", "crates/Cargo.toml", "crates/Cargo.lock", "crates/ksbh-core/**", "crates/ksbh-modules-sdk/**"]
 #USAGE flag "-n --no-cache" help="Build the Miri image without Docker layer cache"
+#USAGE flag "-s --skip-build" help="Skip building the Miri image and run an existing one"
 
 set -euo pipefail
 . "$(dirname "$0")/lib.sh"
@@ -12,16 +13,18 @@ require_docker
 
 image_name="${KSBH_MIRI_IMAGE:-ksbh:miri}"
 
-if [ "${usage_no_cache:-false}" = "true" ]; then
-  DOCKER_BUILDKIT=1 docker build --load --no-cache \
-    --file docker/build/miri.Dockerfile \
-    --tag "${image_name}" \
-    .
-else
-  DOCKER_BUILDKIT=1 docker build --load \
-    --file docker/build/miri.Dockerfile \
-    --tag "${image_name}" \
-    .
+if [ "${usage_skip_build:-false}" != "true" ]; then
+  if [ "${usage_no_cache:-false}" = "true" ]; then
+    DOCKER_BUILDKIT=1 docker build --pull --load --no-cache \
+      --file docker/build/miri.Dockerfile \
+      --tag "${image_name}" \
+      .
+  else
+    DOCKER_BUILDKIT=1 docker build --pull --load \
+      --file docker/build/miri.Dockerfile \
+      --tag "${image_name}" \
+      .
+  fi
 fi
 
 docker run --rm "${image_name}"

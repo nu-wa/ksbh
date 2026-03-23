@@ -1,10 +1,20 @@
 #!/usr/bin/env bash
 #MISE description="Build the static docs site into docs/public"
+#MISE tools={deno="latest",rust="1.92.0"}
 #MISE dir="./docs"
 #MISE sources=["docs/.config/dodeca.styx", "docs/content/**/*.md", "docs/data/**/*.yaml", "docs/templates/**/*.html", "docs/static/**/*", "docs/deno.json", "docs/package.json", "crates/ksbh-ui/static/css/shared.css"]
 #MISE outputs=["docs/public/**/*"]
 
 set -euo pipefail
+
+if ! command -v ddc >/dev/null 2>&1; then
+  cargo install \
+    --git https://github.com/bearcove/dodeca \
+    --branch main \
+    --locked \
+    --root "${HOME}/.local" \
+    --bin ddc
+fi
 
 deno task build:css
 ddc build

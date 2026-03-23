@@ -9,6 +9,10 @@ inputs:
     description: Space-separated paths to chmod +x before running the task
     required: false
     default: ""
+  task-args:
+    description: Optional arguments passed to `mise run <task>`
+    required: false
+    default: ""
 
 runs:
   using: composite
@@ -40,4 +44,9 @@ runs:
         fi
 
         env -u GH_TOKEN -u GITHUB_TOKEN mise install
-        mise run "${{ inputs.task }}"
+        if [ -n "${{ inputs.task-args }}" ]; then
+          # shellcheck disable=SC2086
+          mise run "${{ inputs.task }}" ${{ inputs.task-args }}
+        else
+          mise run "${{ inputs.task }}"
+        fi
