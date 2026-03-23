@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #MISE description="Run local kubernetes-provider e2e orchestration with kind"
 #MISE alias="e2ek"
-#MISE tools={helm="latest",kind="latest",kubectl="latest",node="latest",rust="1.92.0"}
+#MISE tools={helm="latest",kubectl="latest",node="latest",rust="1.92.0"}
 #USAGE flag "-k --keep-cluster" help="Keep the kind cluster after the task exits"
 #USAGE flag "-s --skip-build" help="Skip rebuilding the release Docker image"
 

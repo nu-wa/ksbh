@@ -122,6 +122,14 @@ jobs:
             - name: Install Playwright
               uses: ./.forgejo/actions/install-playwright
 
+            - name: Install kind
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  curl -fsSL -o /usr/local/bin/kind https://kind.sigs.k8s.io/dl/v0.31.0/kind-linux-amd64
+                  chmod +x /usr/local/bin/kind
+                  kind --version
+
             - name: Run kubernetes e2e task
               uses: ./.forgejo/actions/run-mise-task
               env:
