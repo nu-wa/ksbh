@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+#MISE description="Lint the ksbh Helm chart"
+#MISE alias="lhc"
+#MISE tools={helm="latest"}
+#MISE sources=["charts/ksbh/Chart.yaml", "charts/ksbh/values.yaml", "charts/ksbh/crds/**/*.yaml", "charts/ksbh/templates/**/*.yaml", "charts/ksbh/templates/**/*.tpl", "charts/ksbh/templates/**/*.txt"]
+
+set -euo pipefail
+. "$(dirname "$0")/lib.sh"
+
+require_helm
+helm lint charts/ksbh

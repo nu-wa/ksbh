@@ -11,6 +11,29 @@ pub struct IngressModuleConfig {
     pub excluded_modules: Vec<::std::sync::Arc<str>>,
 }
 
+#[derive(Debug, Clone)]
+pub struct RuntimeIngressSnapshot {
+    pub ingress_name: ::std::string::String,
+    pub host: ::std::string::String,
+    pub attached_modules: Vec<::std::string::String>,
+    pub excluded_modules: Vec<::std::string::String>,
+    pub merged_modules: Vec<::std::string::String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct RuntimeModuleSnapshot {
+    pub name: ::std::string::String,
+    pub module_type: crate::modules::ModuleConfigurationType,
+    pub global: bool,
+    pub config_key_count: usize,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct RuntimeStateSnapshot {
+    pub ingresses: Vec<RuntimeIngressSnapshot>,
+    pub modules: Vec<RuntimeModuleSnapshot>,
+}
+
 #[derive(Debug)]
 pub struct Router {
     hosts: scc::HashMap<ksbh_types::KsbhStr, ::std::sync::Arc<Host>>,
@@ -47,6 +70,79 @@ pub struct Host {
 }
 
 impl Router {
+    fn compare_request_match_modules(
+        a: &super::request_match::RequestMatchModule,
+        b: &super::request_match::RequestMatchModule,
+    ) -> ::std::cmp::Ordering {
+        b.mod_spec
+            .weight
+            .cmp(&a.mod_spec.weight)
+            .then_with(|| a.name.as_ref().cmp(b.name.as_ref()))
+    }
+
+    fn sort_request_match_modules(modules: &mut [super::request_match::RequestMatchModule]) {
+        modules.sort_by(Self::compare_request_match_modules);
+    }
+
+    fn build_merged_ingress_modules(
+        &self,
+        ingress_name: &::std::sync::Arc<str>,
+        module_config: &IngressModuleConfig,
+        global_modules: &[super::request_match::RequestMatchModule],
+        module_definitions: &::std::collections::HashMap<
+            ksbh_types::KsbhStr,
+            ::std::sync::Arc<ModuleInnerConfig>,
+        >,
+    ) -> Vec<super::request_match::RequestMatchModule> {
+        let excluded = module_config.excluded_modules.clone();
+        let route_module_names: Vec<&str> =
+            module_config.modules.iter().map(|s| s.as_ref()).collect();
+
+        let mut result: Vec<super::request_match::RequestMatchModule> = global_modules
+            .iter()
+            .filter(|m| {
+                let name = m.name.as_ref();
+                if excluded.iter().any(|e| e.as_ref() == name) {
+                    if self
+                        .global_module_registry
+                        .get_sync(&ksbh_types::KsbhStr::new(name))
+                        .is_none()
+                    {
+                        tracing::warn!(
+                            "Excluded module '{}' not found in global modules for ingress '{}'",
+                            name,
+                            ingress_name
+                        );
+                    }
+                    false
+                } else {
+                    !route_module_names.iter().any(|n| *n == name)
+                }
+            })
+            .cloned()
+            .collect();
+
+        let mut ingress_modules = Vec::new();
+
+        for module_name in &module_config.modules {
+            let key = ksbh_types::KsbhStr::new(module_name.as_ref());
+
+            if let Some(def) = module_definitions.get(&key) {
+                ingress_modules.push(super::request_match::RequestMatchModule {
+                    name: ::std::sync::Arc::new(key.clone()),
+                    mod_spec: def.spec.clone(),
+                    config_kv_slice: def.config_kv_slice.clone(),
+                });
+            }
+        }
+
+        Self::sort_request_match_modules(&mut ingress_modules);
+        result.extend(ingress_modules);
+
+        result
+    }
+
+    /// Creates a new RouterReader/RouterWriter pair for concurrent access.
     pub fn create() -> (RouterReader, RouterWriter) {
         let _self = ::std::sync::Arc::new(Router::default());
 
@@ -111,6 +207,7 @@ impl Router {
             self.module_registry.upsert_sync(key, inner);
         }
 
+        self.record_runtime_state_update("module", "upsert");
         self.reload_ingresses();
     }
 
@@ -120,6 +217,7 @@ impl Router {
         self.module_registry.remove_sync(&key);
         self.global_module_registry.remove_sync(&key);
 
+        self.record_runtime_state_update("module", "delete");
         self.reload_ingresses();
     }
 
@@ -159,6 +257,9 @@ impl Router {
                 ::std::sync::Arc::new(Host { entries }),
             );
         }
+
+        self.record_runtime_state_update("ingress", "upsert");
+        self.refresh_runtime_metrics();
     }
 
     fn delete_ingress(&self, ingress_name: &str) {
@@ -202,6 +303,9 @@ impl Router {
                 );
             }
         }
+
+        self.record_runtime_state_update("ingress", "delete");
+        self.refresh_runtime_metrics();
     }
 
     fn get_ingress_modules(
@@ -213,54 +317,24 @@ impl Router {
             .read_sync(ingress_name, |_, v| v.clone())
             .unwrap_or_default();
 
-        let excluded = module_config.excluded_modules.clone();
-        let route_module_names: Vec<&str> =
-            module_config.modules.iter().map(|s| s.as_ref()).collect();
-
         let global_modules = self.get_global_modules();
-        let mut result: Vec<super::request_match::RequestMatchModule> = global_modules
-            .into_iter()
-            .filter(|m| {
-                let name = m.name.as_ref();
-                if excluded.iter().any(|e| e.as_ref() == name) {
-                    if self
-                        .global_module_registry
-                        .get_sync(&ksbh_types::KsbhStr::new(name))
-                        .is_none()
-                    {
-                        tracing::warn!(
-                            "Excluded module '{}' not found in global modules for ingress '{}'",
-                            name,
-                            ingress_name
-                        );
-                    }
-                    false
-                } else {
-                    !route_module_names.iter().any(|n| *n == name)
-                }
-            })
-            .collect();
+        let mut module_definitions: ::std::collections::HashMap<
+            ksbh_types::KsbhStr,
+            ::std::sync::Arc<ModuleInnerConfig>,
+        > = ::std::collections::HashMap::new();
+        let mut entry = self.module_registry.begin_sync();
 
-        for n in &module_config.modules {
-            let key = ksbh_types::KsbhStr::new(n.as_ref());
-
-            if let Some(def) = self.module_registry.get_sync(&key) {
-                result.push(super::request_match::RequestMatchModule {
-                    name: ::std::sync::Arc::new(def.key().clone()),
-                    mod_spec: def.spec.clone(),
-                    config_kv_slice: def.config_kv_slice.clone(),
-                });
-            }
+        while let Some(occupied_entry) = entry {
+            module_definitions.insert(occupied_entry.key().clone(), occupied_entry.get().clone());
+            entry = occupied_entry.next_sync();
         }
 
-        result.sort_by(|a, b| {
-            b.mod_spec
-                .r#type
-                .get_weight()
-                .cmp(&a.mod_spec.r#type.get_weight())
-        });
-
-        result
+        self.build_merged_ingress_modules(
+            ingress_name,
+            &module_config,
+            &global_modules,
+            &module_definitions,
+        )
     }
 
     fn reload_ingresses(&self) {
@@ -293,52 +367,12 @@ impl Router {
         > = ::std::collections::HashMap::new();
 
         for (ingress_name, module_config) in ingress_configs {
-            let excluded = module_config.excluded_modules.clone();
-            let route_module_names: Vec<&str> =
-                module_config.modules.iter().map(|s| s.as_ref()).collect();
-
-            let mut list: Vec<super::request_match::RequestMatchModule> = global_modules
-                .clone()
-                .into_iter()
-                .filter(|m| {
-                    let name = m.name.as_ref();
-                    if excluded.iter().any(|e| e.as_ref() == name) {
-                        if self
-                            .global_module_registry
-                            .get_sync(&ksbh_types::KsbhStr::new(name))
-                            .is_none()
-                        {
-                            tracing::warn!(
-                                "Excluded module '{}' not found in global modules for ingress '{}'",
-                                name,
-                                ingress_name
-                            );
-                        }
-                        false
-                    } else {
-                        !route_module_names.iter().any(|n| *n == name)
-                    }
-                })
-                .collect();
-
-            for n in &module_config.modules {
-                let k = ksbh_types::KsbhStr::new(n.as_ref());
-
-                if let Some(def) = module_definitions.get(&k) {
-                    list.push(super::request_match::RequestMatchModule {
-                        name: ::std::sync::Arc::new(k.clone()),
-                        mod_spec: def.spec.clone(),
-                        config_kv_slice: def.config_kv_slice.clone(),
-                    });
-                }
-            }
-
-            list.sort_by(|a, b| {
-                b.mod_spec
-                    .r#type
-                    .get_weight()
-                    .cmp(&a.mod_spec.r#type.get_weight())
-            });
+            let list = self.build_merged_ingress_modules(
+                &ingress_name,
+                &module_config,
+                &global_modules,
+                &module_definitions,
+            );
 
             ingress_modules.insert(ingress_name, ::std::sync::Arc::new(list));
         }
@@ -383,6 +417,9 @@ impl Router {
                 }),
             );
         }
+
+        self.record_runtime_state_update("ingress", "reload");
+        self.refresh_runtime_metrics();
     }
 
     fn get_global_modules(&self) -> Vec<super::request_match::RequestMatchModule> {
@@ -400,18 +437,94 @@ impl Router {
             entry = occupied_entry.next_sync();
         }
 
-        result.sort_by(|a, b| {
-            b.mod_spec
-                .r#type
-                .get_weight()
-                .cmp(&a.mod_spec.r#type.get_weight())
-        });
+        Self::sort_request_match_modules(&mut result);
 
         result
+    }
+
+    fn snapshot_runtime_state(&self) -> RuntimeStateSnapshot {
+        let mut snapshot = RuntimeStateSnapshot::default();
+
+        let mut module_entry = self.global_module_registry.begin_sync();
+        while let Some(occupied_entry) = module_entry {
+            let inner = occupied_entry.get();
+            snapshot.modules.push(RuntimeModuleSnapshot {
+                name: occupied_entry.key().to_string(),
+                module_type: inner.spec.r#type.clone(),
+                global: true,
+                config_key_count: inner.config_values.len(),
+            });
+
+            module_entry = occupied_entry.next_sync();
+        }
+
+        let mut module_entry = self.module_registry.begin_sync();
+        while let Some(occupied_entry) = module_entry {
+            let inner = occupied_entry.get();
+            snapshot.modules.push(RuntimeModuleSnapshot {
+                name: occupied_entry.key().to_string(),
+                module_type: inner.spec.r#type.clone(),
+                global: false,
+                config_key_count: inner.config_values.len(),
+            });
+
+            module_entry = occupied_entry.next_sync();
+        }
+
+        let mut host_entry = self.hosts.begin_sync();
+        while let Some(occupied_entry) = host_entry {
+            let host_name = occupied_entry.key().to_string();
+            let host = occupied_entry.get();
+
+            for entry in &host.entries {
+                let ingress_name = entry.ingress.name.to_string();
+                let ingress_config = self
+                    .ingress_module_config
+                    .read_sync(&entry.ingress.name, |_, value| value.clone())
+                    .unwrap_or_default();
+
+                snapshot.ingresses.push(RuntimeIngressSnapshot {
+                    ingress_name,
+                    host: host_name.clone(),
+                    attached_modules: ingress_config
+                        .modules
+                        .iter()
+                        .map(|name| name.to_string())
+                        .collect(),
+                    excluded_modules: ingress_config
+                        .excluded_modules
+                        .iter()
+                        .map(|name| name.to_string())
+                        .collect(),
+                    merged_modules: entry
+                        .ingress
+                        .merged_modules
+                        .iter()
+                        .map(|module| module.name.to_string())
+                        .collect(),
+                });
+            }
+
+            host_entry = occupied_entry.next_sync();
+        }
+
+        snapshot
+    }
+
+    fn record_runtime_state_update(&self, kind: &str, action: &str) {
+        crate::metrics::prom::RUNTIME_STATE_UPDATES_TOTAL
+            .with_label_values(&[kind, action])
+            .inc();
+    }
+
+    fn refresh_runtime_metrics(&self) {
+        crate::metrics::runtime_state::observe_runtime_snapshot(&self.snapshot_runtime_state());
     }
 }
 
 impl RouterReader {
+    /// Main routing decision method. Finds the best matching route for an HTTP request
+    /// based on host and path, returning the backend service and attached modules.
     pub fn find_route(
         &self,
         http_request: &ksbh_types::requests::http_request::HttpRequest,
@@ -419,8 +532,13 @@ impl RouterReader {
         self.router.find_route(http_request)
     }
 
+    /// Returns the list of global module configurations that apply to all ingresses.
     pub fn get_global_modules_configs(&self) -> Vec<super::request_match::RequestMatchModule> {
         self.router.get_global_modules()
+    }
+
+    pub fn snapshot_runtime_state(&self) -> RuntimeStateSnapshot {
+        self.router.snapshot_runtime_state()
     }
 }
 
@@ -451,11 +569,203 @@ impl From<&::std::sync::Arc<Router>> for RouterWriter {
     }
 }
 
+#[cfg(test)]
+#[allow(clippy::items_after_test_module)]
+mod tests {
+    #[test]
+    fn runtime_snapshot_tracks_modules_and_ingresses() {
+        let (reader, writer) = super::Router::create();
+
+        let mut module_config = hashbrown::HashMap::new();
+        module_config.insert(
+            ksbh_types::KsbhStr::new("content"),
+            ksbh_types::KsbhStr::new("hello"),
+        );
+
+        writer.upsert_module(
+            "robots-test",
+            false,
+            ::std::sync::Arc::new(module_config),
+            crate::modules::ModuleConfigurationSpec {
+                name: "robots-test".to_string(),
+                r#type: crate::modules::ModuleConfigurationType::RobotsDotTXT,
+                weight: 100,
+                global: false,
+                requires_proper_request: false,
+                secret_ref: None,
+                requires_body: false,
+            },
+        );
+
+        let mut host_paths = crate::routing::HostPaths::default();
+        host_paths.prefix.push((
+            ksbh_types::KsbhStr::new("/"),
+            crate::routing::ServiceBackendType::Static,
+        ));
+
+        writer.insert_ingress(
+            "ingress-a",
+            vec![(::std::sync::Arc::from("example.local"), host_paths)],
+            super::IngressModuleConfig {
+                modules: vec![::std::sync::Arc::from("robots-test")],
+                excluded_modules: Vec::new(),
+            },
+        );
+
+        let snapshot = reader.snapshot_runtime_state();
+
+        assert_eq!(snapshot.modules.len(), 1);
+        assert_eq!(snapshot.modules[0].name, "robots-test");
+        assert_eq!(snapshot.ingresses.len(), 1);
+        assert_eq!(snapshot.ingresses[0].ingress_name, "ingress-a");
+        assert_eq!(snapshot.ingresses[0].host, "example.local");
+        assert_eq!(snapshot.ingresses[0].attached_modules, vec!["robots-test"]);
+        assert_eq!(snapshot.ingresses[0].merged_modules, vec!["robots-test"]);
+    }
+
+    #[test]
+    fn merged_modules_keep_global_and_ingress_scopes_separate() {
+        let (_reader, writer) = super::Router::create();
+
+        writer.upsert_module(
+            "global-low",
+            true,
+            ::std::sync::Arc::new(hashbrown::HashMap::new()),
+            crate::modules::ModuleConfigurationSpec {
+                name: "global-low".to_string(),
+                r#type: crate::modules::ModuleConfigurationType::Custom("global-low".to_string()),
+                weight: 10,
+                global: true,
+                requires_proper_request: false,
+                secret_ref: None,
+                requires_body: false,
+            },
+        );
+        writer.upsert_module(
+            "global-high",
+            true,
+            ::std::sync::Arc::new(hashbrown::HashMap::new()),
+            crate::modules::ModuleConfigurationSpec {
+                name: "global-high".to_string(),
+                r#type: crate::modules::ModuleConfigurationType::Custom("global-high".to_string()),
+                weight: 100,
+                global: true,
+                requires_proper_request: false,
+                secret_ref: None,
+                requires_body: false,
+            },
+        );
+        writer.upsert_module(
+            "ingress-high",
+            false,
+            ::std::sync::Arc::new(hashbrown::HashMap::new()),
+            crate::modules::ModuleConfigurationSpec {
+                name: "ingress-high".to_string(),
+                r#type: crate::modules::ModuleConfigurationType::Custom("ingress-high".to_string()),
+                weight: 1000,
+                global: false,
+                requires_proper_request: false,
+                secret_ref: None,
+                requires_body: false,
+            },
+        );
+        writer.upsert_module(
+            "ingress-low",
+            false,
+            ::std::sync::Arc::new(hashbrown::HashMap::new()),
+            crate::modules::ModuleConfigurationSpec {
+                name: "ingress-low".to_string(),
+                r#type: crate::modules::ModuleConfigurationType::Custom("ingress-low".to_string()),
+                weight: 1,
+                global: false,
+                requires_proper_request: false,
+                secret_ref: None,
+                requires_body: false,
+            },
+        );
+
+        let mut host_paths = crate::routing::HostPaths::default();
+        host_paths.prefix.push((
+            ksbh_types::KsbhStr::new("/"),
+            crate::routing::ServiceBackendType::Static,
+        ));
+
+        writer.insert_ingress(
+            "ingress-a",
+            vec![(::std::sync::Arc::from("example.local"), host_paths)],
+            super::IngressModuleConfig {
+                modules: vec![
+                    ::std::sync::Arc::from("ingress-low"),
+                    ::std::sync::Arc::from("ingress-high"),
+                ],
+                excluded_modules: Vec::new(),
+            },
+        );
+
+        let modules = writer
+            .router
+            .get_ingress_modules(&::std::sync::Arc::from("ingress-a"));
+        let module_names: Vec<_> = modules
+            .iter()
+            .map(|module| module.name.to_string())
+            .collect();
+
+        assert_eq!(
+            module_names,
+            vec!["global-high", "global-low", "ingress-high", "ingress-low"]
+        );
+    }
+
+    #[test]
+    fn equal_weights_are_tiebroken_by_name() {
+        let (_reader, writer) = super::Router::create();
+
+        writer.upsert_module(
+            "beta",
+            true,
+            ::std::sync::Arc::new(hashbrown::HashMap::new()),
+            crate::modules::ModuleConfigurationSpec {
+                name: "beta".to_string(),
+                r#type: crate::modules::ModuleConfigurationType::Custom("beta".to_string()),
+                weight: 5,
+                global: true,
+                requires_proper_request: false,
+                secret_ref: None,
+                requires_body: false,
+            },
+        );
+        writer.upsert_module(
+            "alpha",
+            true,
+            ::std::sync::Arc::new(hashbrown::HashMap::new()),
+            crate::modules::ModuleConfigurationSpec {
+                name: "alpha".to_string(),
+                r#type: crate::modules::ModuleConfigurationType::Custom("alpha".to_string()),
+                weight: 5,
+                global: true,
+                requires_proper_request: false,
+                secret_ref: None,
+                requires_body: false,
+            },
+        );
+
+        let modules = writer.router.get_global_modules();
+        let module_names: Vec<_> = modules
+            .iter()
+            .map(|module| module.name.to_string())
+            .collect();
+
+        assert_eq!(module_names, vec!["alpha", "beta"]);
+    }
+}
+
 impl RouterWriter {
     pub fn delete_module_config(&self, name: &str) {
         self.router.delete_module_config(name);
     }
 
+    /// Registers or updates a module configuration.
+    /// If `global` is true, the module applies to all ingresses.
     pub fn upsert_module(
         &self,
         name: &str,
@@ -466,6 +776,7 @@ impl RouterWriter {
         self.router.upsert_module(name, global, config, spec);
     }
 
+    /// Registers an ingress with its associated hosts and path configurations.
     pub fn insert_ingress(
         &self,
         ingress_name: &str,

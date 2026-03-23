@@ -3,7 +3,9 @@ resolver = "3"
 members = [
   "ksbh-bin",
   "ksbh-core",
+  "ksbh-ui",
   "ksbh-modules-sdk",
+  "ksbh-modules/test-modules/dynamic-ffi-smoke",
   "ksbh-modules/http_to_https",
   "ksbh-modules/oidc",
   "ksbh-modules/proof-of-work",

@@ -1,58 +1,60 @@
 # Crates Workspace
 
-This directory contains the Cargo workspace for the KSBH project.
+This directory contains the Rust workspace for KSBH.
 
-## Workspace Location
+## Manifest
 
-**Important**: The Cargo workspace root is in `crates/`, NOT in the project root.
-All cargo commands must use the `-p <crate-name>` flag to target specific crates.
+- Workspace root: `/home/smspl/dev/rust/ksbh/crates`
+- Workspace manifest: `/home/smspl/dev/rust/ksbh/crates/Cargo.toml`
 
-## Crates
+## Members
 
-| Crate | Description |
-|-------|-------------|
-| `ksbh-bin` | Main binary entry point |
-| `ksbh-core` | Core library with proxy logic, modules, routing, storage |
-| `ksbh-modules-sdk` | SDK for building FFI plugin modules |
-| `ksbh-types` | Shared type definitions |
-| `ksbh-config-providers-file` | File-based configuration provider |
-| `ksbh-config-providers-kubernetes` | Kubernetes-based configuration provider |
-| `ksbh-modules/http_to_https` | HTTP to HTTPS redirect module |
-| `ksbh-modules/oidc` | OpenID Connect authentication module |
-| `ksbh-modules/proof-of-work` | PoW challenge module |
-| `ksbh-modules/rate-limit` | Rate limiting module |
-| `ksbh-modules/robots-txt` | robots.txt handling module |
-| `tests` | Integration tests |
+Directory paths and package names are not always the same.
 
-## Cargo Commands
+| Directory | Cargo package |
+| --- | --- |
+| `ksbh-bin` | `ksbh` |
+| `ksbh-core` | `ksbh-core` |
+| `ksbh-ui` | `ksbh-ui` |
+| `ksbh-modules-sdk` | `ksbh-modules-sdk` |
+| `ksbh-types` | `ksbh-types` |
+| `ksbh-config-providers/file` | `ksbh-config-providers-file` |
+| `ksbh-config-providers/kubernetes` | `ksbh-config-providers-kubernetes` |
+| `ksbh-modules/http_to_https` | `http_to_https` |
+| `ksbh-modules/oidc` | `oidc` |
+| `ksbh-modules/proof-of-work` | `proof-of-work` |
+| `ksbh-modules/rate-limit` | `rate-limit` |
+| `ksbh-modules/robots-txt` | `robots-txt` |
+| `tests` | `tests` |
 
-Always use `-p` flag:
+## Cargo Usage
+
+Use `-p <package>` by default when targeting one crate:
 
 ```bash
-# Build a specific crate
-cargo build -p ksbh-core
-
-# Test a specific crate
-cargo test -p ksbh-core
-
-# Run clippy on a specific crate
-cargo clippy -p ksbh-core -- -D warnings
-
-# Build all crates
-cargo build
+cargo build -p ksbh-core --manifest-path crates/Cargo.toml
+cargo test -p ksbh --manifest-path crates/Cargo.toml
+cargo clippy -p ksbh-core --manifest-path crates/Cargo.toml -- -D warnings
 ```
 
-## Reading This Documentation
+Workspace-wide commands are fine when appropriate:
 
-- **Root AGENTS.md**: General conventions and project overview
-- **This file**: Workspace structure and cargo commands
-- **Crate-specific AGENTS.md**: Details for each crate (e.g., `ksbh-core/AGENTS.md`)
-- **Module AGENTS.md**: Details for each module (e.g., `ksbh-modules/oidc/AGENTS.md`)
+```bash
+cargo build --manifest-path crates/Cargo.toml
+cargo fmt --all --manifest-path crates/Cargo.toml
+```
+
+## Reading Order
+
+- Root `AGENTS.md` for repo-wide workflow
+- This file for workspace/package naming
+- Crate-local `AGENTS.md` for implementation details
+- Module-local `AGENTS.md` under `ksbh-modules/*` when working on a module crate
 
 ## Conventions
 
-Follow the general conventions in the root `AGENTS.md`, particularly:
-- No `use` imports - use full paths
-- No `unwrap()`/`expect()` in production
-- Return `Result` by default
-- Run verification (check, clippy, fmt) before considering task complete
+Follow the root conventions, especially:
+
+- full-path Rust references instead of `use`
+- no production `unwrap()`/`expect()`
+- verification only when the change type requires it

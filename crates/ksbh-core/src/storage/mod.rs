@@ -3,6 +3,7 @@ pub mod redis_hashmap;
 
 pub const CONNECTION_RETRIES: u8 = 5;
 
+/// Public interface for Redis connection providers.
 pub trait RedisProvider: Send + Sync {
     fn get_connection(&self) -> Result<Box<dyn redis::ConnectionLike + Send>, redis::RedisError>;
 }
@@ -45,12 +46,16 @@ impl MockProvider {
 }
 
 impl Storage {
+    /// Creates a Storage instance with no Redis provider ( Redis operations will fail).
     pub fn empty() -> Self {
         Self {
             redis_provider: None,
         }
     }
 
+    /// Creates a Storage instance with a Redis client provider.
+    ///
+    /// Retries connection up to 5 times with 5-second intervals.
     pub async fn new_with_redis_client_provider(
         redis_url: &str,
     ) -> Result<Self, Box<dyn ::std::error::Error>> {
@@ -99,6 +104,7 @@ impl Storage {
         }
     }
 
+    /// Returns a Redis connection if a provider is configured.
     pub fn get_redis(&self) -> Result<Box<dyn redis::ConnectionLike + Send>, redis::RedisError> {
         match &self.redis_provider {
             Some(provider) => provider.get_connection(),

@@ -20,3 +20,4 @@ urlencoding = { workspace = true }
 # KSBH
 ksbh-modules-sdk = { path = "../../ksbh-modules-sdk/" }
 ksbh-core = { path = "../../ksbh-core/" }
+ksbh-ui = { path = "../../ksbh-ui/" }

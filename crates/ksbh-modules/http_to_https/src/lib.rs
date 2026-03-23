@@ -1,3 +1,11 @@
+//! HTTP to HTTPS redirect module.
+//!
+//! Intercepts HTTP requests and issues a 301 redirect to HTTPS equivalent.
+//! A request is considered "secure" if:
+//! - Scheme is `https`
+//! - Port is 443
+//! - URI starts with `https://` or `wss://`
+
 pub fn process(
     ctx: ksbh_modules_sdk::RequestContext,
 ) -> Result<ksbh_modules_sdk::ModuleResult, ksbh_modules_sdk::ModuleError> {

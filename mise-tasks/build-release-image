@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+#MISE description="Build the release Docker image"
+#MISE alias="bri"
+#MISE sources=["docker/build/release.Dockerfile", "crates/Cargo.toml", "crates/Cargo.lock", "crates/**/Cargo.toml", "crates/**/src/**/*.rs"]
+#USAGE flag "-n --no-cache" help="Build the image without Docker layer cache"
+
+set -euo pipefail
+. "$(dirname "$0")/lib.sh"
+
+require_docker
+
+image_name="$(release_image_name)"
+
+if [ "${usage_no_cache:-false}" = "true" ]; then
+  DOCKER_BUILDKIT=1 docker build --no-cache \
+    --file docker/build/release.Dockerfile \
+    --tag "${image_name}" \
+    .
+else
+  DOCKER_BUILDKIT=1 docker build \
+    --file docker/build/release.Dockerfile \
+    --tag "${image_name}" \
+    .
+fi

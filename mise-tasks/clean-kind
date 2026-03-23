@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+#MISE description="Delete the local kind cluster"
+#MISE alias="kd"
+#MISE tools={kind="latest"}
+
+set -euo pipefail
+. "$(dirname "$0")/lib.sh"
+
+require_docker
+require_kind
+delete_kind_cluster

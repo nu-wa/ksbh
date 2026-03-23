@@ -1,3 +1,11 @@
+//! OpenID Connect authentication module.
+//!
+//! Full OIDC authorization code flow with PKCE support.
+//! Checks session validity via `oidc_complete` timestamp.
+//! Handles token refresh.
+//! Stores flow state in namespaced session storage.
+//! CSRF/state expiry after 5 minutes.
+
 const DEFAULT_SESSION_TTL_SECS: u64 = 3600;
 const FLOW_STATE_TTL_SECS: u64 = 300;
 const FIVE_MINUTES: i64 = 300;

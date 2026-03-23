@@ -1,0 +1,31 @@
+name: run-mise-task
+description: Ensure task scripts are executable, install mise tools, and run one mise task
+
+inputs:
+  task:
+    description: Mise task name to run
+    required: true
+  chmod-paths:
+    description: Space-separated paths to chmod +x before running the task
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        MISE_QUIET: "true"
+        MISE_TASK_OUTPUT: interleave
+        MISE_YES: "true"
+        NO_COLOR: "1"
+      run: |
+        set -euo pipefail
+        export PATH="$HOME/.local/bin:$PATH"
+
+        if [ -n "${{ inputs.chmod-paths }}" ]; then
+          chmod +x ${{ inputs.chmod-paths }}
+        fi
+
+        mise install
+        mise run "${{ inputs.task }}"

@@ -1,139 +1,252 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <title>Security Check</title>
-  <style>
-    body { margin: 0; height: 100vh; display: flex; flex-direction: column; justify-content: center; align-items: center; background-color: #0d0d0d; color: #e0e0e0; font-family: 'Segoe UI', system-ui, sans-serif; }
-    .container { width: 420px; text-align: center; padding: 40px; border: 1px solid #222; border-radius: 12px; background: #141414; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
-    #status { margin-bottom: 20px; font-size: 1.2rem; font-weight: 500; min-height: 1.5em; }
-    #loading-bar { width: 100%; height: 10px; background-color: #222; border-radius: 5px; overflow: hidden; margin-bottom: 12px; border: 1px solid #333; }
-    #loading-progress { width: 0%; height: 100%; background-color: #00ff41; transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1); box-shadow: 0 0 15px rgba(0, 255, 65, 0.3); }
-    .stats { font-size: 0.85rem; color: #777; display: flex; justify-content: space-between; margin-top: 10px; font-family: monospace; }
-    .highlight { color: #00ff41; font-weight: bold; }
-  </style>
-</head>
-<body>
+{% extends "layouts/minimal.html" %}
 
-  <div class="container">
-    <div id="status">Starting Security Challenge...</div>
-    
-    <div id="loading-bar">
-      <div id="loading-progress"></div>
-    </div>
+{% block title %}Security Check - ksbh{% endblock %}
 
-    <div class="stats">
-      <span id="zero-count">0 / {{ difficulty }} zeroes found</span>
-      <span id="hash-rate">0 H/s</span>
-    </div>
-  </div>
+{% block body %}
+<section class="ksbh-screen" data-difficulty="{{ difficulty }}">
+    <div class="ksbh-screen__grid" aria-hidden="true"></div>
+    <section class="ksbh-stage ksbh-stage--pow">
+        <div class="ksbh-stage__header">
+            <div class="ksbh-stage__kicker">Proof Of Work Challenge</div>
+            <div class="ksbh-stage__rule"></div>
+        </div>
 
-  <form id="powForm" method="POST" action="{{ url }}">
-    <input type="hidden" name="challenge" value="{{ challenge }}">
-    <input type="hidden" name="nonce" id="nonce" value="0">
-    <input type="hidden" name="redirect_to" value="{{ redirect_to }}">
-  </form>
+        <div class="ksbh-stage__body">
+            <div class="ksbh-stage__main">
+                <h1 class="ksbh-stage__title">Verifying You're Human</h1>
+                <p class="ksbh-stage__summary">
+                    This should only take a few seconds.
+                </p>
 
-  <script>
-    const progressBar = document.getElementById("loading-progress");
-    const statusText = document.getElementById("status");
-    const zeroText = document.getElementById("zero-count");
-    const rateText = document.getElementById("hash-rate");
+                <div class="ksbh-stage__panel ksbh-stage__panel--feature">
+                    <div class="ksbh-stage__panel-label">Status</div>
+                    <div class="ksbh-stage__status-text" id="status">Starting Security Challenge...</div>
+                    <div class="ksbh-pow__progress-shell">
+                        <div class="ksbh-pow__progress-bar">
+                            <div class="ksbh-pow__progress-fill" id="loading-progress"></div>
+                        </div>
+                        <div class="ksbh-pow__stats">
+                            <span id="zero-count">0 / {{ difficulty }} zeroes found</span>
+                            <span id="hash-rate">0 H/s</span>
+                        </div>
+                    </div>
+                    <div class="ksbh-stage__frame-badge ksbh-stage__frame-badge--panel">
+                        <span class="ksbh-stage__status-dot"></span>
+                        <span>Difficulty {{ difficulty }}</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
 
-    const config = {
-      challenge: "{{ challenge }}",
-      difficulty: parseInt("{{ difficulty }}") || 4
-    };
+    <form id="powForm" method="POST" action="{{ url }}">
+        <input type="hidden" name="challenge" value="{{ challenge }}">
+        <input type="hidden" name="nonce" id="nonce" value="0">
+    </form>
+</section>
 
-    const workerCode = `
-      self.onmessage = async function(e) {
-        const { challenge, difficulty } = e.data;
-        const encoder = new TextEncoder();
-        let maxZeroes = 0;
-        let nonce = 0;
-        let lastReport = performance.now();
-        let hashesSinceReport = 0;
+<script>
+    (() => {
+      const root = document.querySelector(".ksbh-screen");
+      const progressBar = document.getElementById("loading-progress");
+      const statusText = document.getElementById("status");
+      const zeroText = document.getElementById("zero-count");
+      const rateText = document.getElementById("hash-rate");
+      const nonceInput = document.getElementById("nonce");
+      const challengeInput = document.querySelector('input[name="challenge"]');
+      const form = document.getElementById("powForm");
 
-        try {
-          while (true) {
-            const data = encoder.encode(challenge + nonce);
+      if (!root || !progressBar || !statusText || !zeroText || !rateText || !nonceInput || !challengeInput || !form) {
+        return;
+      }
+
+      const config = {
+        challenge: challengeInput.value,
+        difficulty: parseInt(root.dataset.difficulty || "", 10) || 4
+      };
+
+      const workerCode = `
+        function rightRotate(value, amount) {
+          return (value >>> amount) | (value << (32 - amount));
+        }
+
+        function sha256Fallback(ascii) {
+          const mathPow = Math.pow;
+          const maxWord = mathPow(2, 32);
+          const lengthProperty = "length";
+          let i;
+          let j;
+          let result = "";
+
+          const words = [];
+          const asciiBitLength = ascii[lengthProperty] * 8;
+
+          const hash = [];
+          const k = [];
+          let primeCounter = 0;
+          const isComposite = {};
+
+          for (let candidate = 2; primeCounter < 64; candidate++) {
+            if (!isComposite[candidate]) {
+              for (i = 0; i < 313; i += candidate) {
+                isComposite[i] = candidate;
+              }
+              hash[primeCounter] = (mathPow(candidate, 0.5) * maxWord) | 0;
+              k[primeCounter++] = (mathPow(candidate, 1 / 3) * maxWord) | 0;
+            }
+          }
+
+          ascii += "\\x80";
+          while ((ascii[lengthProperty] % 64) - 56) {
+            ascii += "\\x00";
+          }
+
+          for (i = 0; i < ascii[lengthProperty]; i++) {
+            j = ascii.charCodeAt(i);
+            words[i >> 2] |= j << (((3 - i) % 4) * 8);
+          }
+
+          words[words[lengthProperty]] = (asciiBitLength / maxWord) | 0;
+          words[words[lengthProperty]] = asciiBitLength;
+
+          for (j = 0; j < words[lengthProperty]; ) {
+            const w = words.slice(j, (j += 16));
+            const oldHash = hash.slice(0);
+
+            for (i = 0; i < 64; i++) {
+              const w15 = w[i - 15];
+              const w2 = w[i - 2];
+              const a = hash[0];
+              const e = hash[4];
+              const temp1 =
+                hash[7] +
+                (rightRotate(e, 6) ^ rightRotate(e, 11) ^ rightRotate(e, 25)) +
+                ((e & hash[5]) ^ (~e & hash[6])) +
+                k[i] +
+                (w[i] =
+                  i < 16
+                    ? w[i]
+                    : (w[i - 16] +
+                        (rightRotate(w15, 7) ^ rightRotate(w15, 18) ^ (w15 >>> 3)) +
+                        w[i - 7] +
+                        (rightRotate(w2, 17) ^ rightRotate(w2, 19) ^ (w2 >>> 10))) |
+                      0);
+              const temp2 =
+                (rightRotate(a, 2) ^ rightRotate(a, 13) ^ rightRotate(a, 22)) +
+                ((a & hash[1]) ^ (a & hash[2]) ^ (hash[1] & hash[2]));
+
+              hash.unshift((temp1 + temp2) | 0);
+              hash[4] = (hash[4] + temp1) | 0;
+              hash.pop();
+            }
+
+            for (i = 0; i < 8; i++) {
+              hash[i] = (hash[i] + oldHash[i]) | 0;
+            }
+          }
+
+          for (i = 0; i < 8; i++) {
+            for (j = 3; j + 1; j--) {
+              const byte = (hash[i] >> (j * 8)) & 255;
+              result += ((byte < 16) ? 0 : "") + byte.toString(16);
+            }
+          }
+
+          return result;
+        }
+
+        async function hashChallenge(input) {
+          if (globalThis.crypto && globalThis.crypto.subtle) {
+            const encoder = new TextEncoder();
+            const data = encoder.encode(input);
             const hashBuffer = await crypto.subtle.digest("SHA-256", data);
-            const hashArray = new Uint8Array(hashBuffer);
-            
-            let currentZeroes = 0;
-            for (let i = 0; i < hashArray.length; i++) {
-              const byte = hashArray[i];
-              if (byte === 0) {
-                currentZeroes += 2;
-              } else if (byte < 16) {
-                currentZeroes += 1;
-                break;
-              } else {
+            return Array.from(new Uint8Array(hashBuffer))
+              .map((byte) => byte.toString(16).padStart(2, "0"))
+              .join("");
+          }
+
+          return sha256Fallback(input);
+        }
+
+        self.onmessage = async function(e) {
+          const { challenge, difficulty } = e.data;
+          let maxZeroes = 0;
+          let nonce = 0;
+          let lastReport = performance.now();
+          let hashesSinceReport = 0;
+
+          try {
+            while (true) {
+              const hash = await hashChallenge(challenge + nonce);
+              let currentZeroes = 0;
+              for (let i = 0; i < hash.length; i++) {
+                if (hash[i] === "0") {
+                  currentZeroes += 1;
+                } else {
+                  break;
+                }
+              }
+
+              hashesSinceReport++;
+
+              const now = performance.now();
+              if (currentZeroes > maxZeroes || now - lastReport > 800) {
+                if (currentZeroes > maxZeroes) maxZeroes = currentZeroes;
+                const hps = Math.floor((hashesSinceReport / (now - lastReport)) * 1000);
+
+                self.postMessage({
+                  type: "progress",
+                  zeroes: Math.min(maxZeroes, difficulty),
+                  hps: hps
+                });
+
+                lastReport = now;
+                hashesSinceReport = 0;
+              }
+
+              if (currentZeroes >= difficulty) {
+                self.postMessage({ type: "done", nonce, zeroes: currentZeroes });
                 break;
               }
+              nonce++;
             }
-
-            hashesSinceReport++;
-
-            const now = performance.now();
-            if (currentZeroes > maxZeroes || now - lastReport > 800) {
-              if (currentZeroes > maxZeroes) maxZeroes = currentZeroes;
-              const hps = Math.floor((hashesSinceReport / (now - lastReport)) * 1000);
-              
-              self.postMessage({
-                type: 'progress',
-                zeroes: Math.min(maxZeroes, difficulty), 
-                hps: hps
-              });
-
-              lastReport = now;
-              hashesSinceReport = 0;
-            }
-
-            if (currentZeroes >= difficulty) {
-              self.postMessage({ type: 'done', nonce, zeroes: currentZeroes });
-              break;
-            }
-            nonce++;
+          } catch (err) {
+            self.postMessage({ type: "error", message: err.message });
           }
-        } catch (err) {
-          self.postMessage({ type: 'error', message: err.message });
+        };
+      `;
+
+      const workerUrl = URL.createObjectURL(new Blob([workerCode], { type: "application/javascript" }));
+      const worker = new Worker(workerUrl);
+
+      worker.onmessage = function(e) {
+        const { type, zeroes, hps, nonce } = e.data;
+
+        if (type === "progress") {
+          const progressPercent = Math.min((zeroes / config.difficulty) * 100, 100);
+          progressBar.style.width = progressPercent + "%";
+          zeroText.textContent = zeroes + " / " + config.difficulty + " zeroes found";
+          if (hps) rateText.textContent = hps.toLocaleString() + " H/s";
+          statusText.textContent = "Crunching Hashes...";
+        } else if (type === "done") {
+          progressBar.style.width = "100%";
+          zeroText.textContent = config.difficulty + " / " + config.difficulty + " zeroes found";
+          statusText.textContent = config.difficulty + " zeroes found.";
+          nonceInput.value = nonce;
+
+          setTimeout(() => {
+            form.submit();
+          }, 600);
+        } else if (type === "error") {
+          statusText.textContent = "Challenge worker error. Please refresh.";
         }
       };
-    `;
 
-    const blob = new Blob([workerCode], { type: "application/javascript" });
-    const worker = new Worker(URL.createObjectURL(blob));
-
-    worker.onmessage = function(e) {
-      const { type, zeroes, hps, nonce, message } = e.data;
-
-      if (type === 'progress') {
-        const progressPercent = Math.min((zeroes / config.difficulty) * 100, 100);
-        progressBar.style.width = progressPercent + "%";
-        zeroText.innerHTML = zeroes + " / " + config.difficulty + " zeroes found";
-        if (hps) rateText.innerText = hps.toLocaleString() + " H/s";
-        statusText.innerText = "Crunching Hashes...";
-      } 
-      
-      else if (type === 'done') {
-        progressBar.style.width = "100%";
-        zeroText.innerHTML = config.difficulty + " / " + config.difficulty + " zeroes found";
-        statusText.innerHTML = '<span class="highlight">**' + config.difficulty + '**</span> zeroes found!';
-        document.getElementById("nonce").value = nonce;
-        
-        setTimeout(() => {
-          document.getElementById("powForm").submit();
-        }, 600);
-      }
-
-      else if (type === 'error') {
-        statusText.style.color = "#ff4444";
-        statusText.innerText = "Hardware acceleration error. Please refresh.";
-      }
-    };
-
-    worker.postMessage(config);
-  </script>
-</body>
-</html>
+      worker.postMessage(config);
+      window.addEventListener("beforeunload", () => {
+        worker.terminate();
+        URL.revokeObjectURL(workerUrl);
+      }, { once: true });
+    })();
+</script>
+{% endblock %}

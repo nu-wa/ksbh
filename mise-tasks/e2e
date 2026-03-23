@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+#MISE description="Run the default local e2e orchestration"
+#MISE alias="e2e"
+#MISE tools={helm="latest",kind="latest",kubectl="latest",node="latest",rust="1.92.0"}
+#USAGE flag "-k --keep-cluster" help="Keep the kind cluster after the task exits"
+#USAGE flag "-s --skip-build" help="Skip rebuilding the release Docker image"
+
+set -euo pipefail
+
+"$(dirname "$0")/e2e-kubernetes-provider" "$@"

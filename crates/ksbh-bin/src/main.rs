@@ -64,5 +64,10 @@ fn main() -> anyhow::Result<()> {
     let _ = &*ksbh_core::metrics::prom::HTTP_RESPONSE_TIME_SECONDS;
     let _ = &*ksbh_core::metrics::prom::PLUGIN_EXEC_TIME;
     let _ = &*ksbh_core::metrics::prom::MODULE_EXEC_TIME;
+    let _ = &*ksbh_core::metrics::prom::RUNTIME_ACTIVE_INGRESSES;
+    let _ = &*ksbh_core::metrics::prom::RUNTIME_ACTIVE_HOSTS;
+    let _ = &*ksbh_core::metrics::prom::RUNTIME_ACTIVE_GLOBAL_MODULES;
+    let _ = &*ksbh_core::metrics::prom::RUNTIME_ACTIVE_NON_GLOBAL_MODULES;
+    let _ = &*ksbh_core::metrics::prom::RUNTIME_STATE_UPDATES_TOTAL;
     server::start_pingora(config, storage, _guard)
 }

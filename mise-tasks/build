@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+#MISE description="Build ksbh"
+#MISE alias="b"
+#MISE dir="./crates"
+#MISE sources=["crates/Cargo.toml", "crates/**/src/**/*.rs"]
+#MISE tools={rust="1.92.0"}
+#USAGE flag "-c --clean" help="Clean the build directory before building"
+#USAGE flag "-r --release" help="Build with the release profile"
+#USAGE flag "-u --user <user>" help="The user to build for"
+#USAGE complete "user" run="mycli users"
+
+set -e
+
+if [ "${usage_clean:-false}" = "true" ]; then
+  cargo clean
+fi
+
+if [ "${usage_release:-false}" = "true" ]; then
+  cargo build --release
+else
+  cargo build
+fi

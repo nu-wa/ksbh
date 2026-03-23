@@ -1,58 +1,50 @@
 # ksbh-config-providers-kubernetes
 
-Kubernetes-based configuration provider for KSBH.
+Kubernetes-backed config provider for KSBH.
 
 ## Purpose
 
-This crate provides configuration loading from Kubernetes Custom Resources:
-- Loads `ModuleConfiguration` CRD resources
-- Watches for configuration changes via Kubernetes API
-- Supports cluster-scoped configuration
+This provider reconciles runtime config from Kubernetes resources.
 
-## Implementation
+Current responsibilities include:
 
-Implements the `ConfigProvider` trait from `ksbh_core`:
+- cluster-scoped `ModuleConfiguration` resources
+- namespaced `Ingress` resources
+- related `Service` and `Secret` watchers used during ingress reconciliation
+
+`ModuleConfiguration.spec` includes explicit execution metadata such as `weight`; do not assume module `type` defines runtime order.
+
+## Current API
+
+It implements the current `ksbh_core::config_provider::ConfigProvider` trait:
 
 ```rust
 #[async_trait::async_trait]
 pub trait ConfigProvider: Send + Sync {
-    async fn get_config(&self) -> Result<ProxyConfig, ConfigError>;
-    async fn watch_config(&self) -> Result<Receiver<ProxyConfig>, ConfigError>;
+    async fn start(
+        &self,
+        router: RouterWriter,
+        certs: CertsWriter,
+        shutdown: tokio::sync::watch::Receiver<bool>,
+    );
 }
 ```
 
-## Key Dependencies
+Do not document the old `get_config` / `watch_config` API here.
 
-- `ksbh-core`: Core types and ConfigProvider trait
-- `kube`: Kubernetes client
-- `k8s-openapi`: Kubernetes API types
-- `ksbh-types`: Shared types
+## Important Files
 
-## Kubernetes CRD
+- `src/lib.rs`
+- `src/ingress.rs`
 
-Uses the `ModuleConfiguration` Custom Resource:
+## Notes
 
-```rust
-#[derive(serde::Serialize, serde::Deserialize, kube::CustomResource, schemars::JsonSchema)]
-#[kube(
-    group = "modules.ksbh.rs",
-    version = "v1",
-    kind = "ModuleConfiguration",
-    namespaced = false
-)]
-pub struct ModuleConfigurationSpec {
-    pub name: String,
-    pub r#type: ModuleConfigurationType,
-    // ...
-}
-```
+- `ModuleConfiguration` is cluster-scoped.
+- `Ingress`, `Service`, and `Secret` reconciliation is namespaced.
+- This crate is not just a CRD watcher; ingress reconciliation is a core part of its behavior.
 
 ## Build
 
 ```bash
-cargo build -p ksbh-config-providers-kubernetes
+cargo build -p ksbh-config-providers-kubernetes --manifest-path crates/Cargo.toml
 ```
-
-## Conventions
-
-Follow the general conventions in the root `AGENTS.md`.

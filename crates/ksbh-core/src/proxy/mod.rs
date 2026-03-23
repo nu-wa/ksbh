@@ -5,10 +5,14 @@ pub use service::ProxyService;
 
 /// A [`ProxyConfiguration`](ProxyConfiguration) represents a configuration for a hostname.
 ///
-/// Plugins and modules will be called in order that they're defined in the configuration file. For
-/// example for an [Ingress]() with the annotation: `ksbh.app/plugins: "a, b, c"`, the order
-/// will be `a->b->c->backend`.
+/// Modules execute in two phases:
+/// global modules first, sorted by descending weight, then ingress modules sorted by descending
+/// weight for the matched ingress.
 #[derive(Debug)]
+/// Context passed through the entire proxy request lifecycle.
+///
+/// Contains configuration, parsed request data, module metrics, session state, and
+/// the accumulated metrics key used for Redis-based score tracking.
 pub struct ProxyContext {
     pub config: ::std::sync::Arc<crate::config::Config>,
     pub modules_metrics: Vec<crate::metrics::module_metric::ModuleMetric>,
@@ -47,6 +51,10 @@ impl ProxyContext {
 }
 
 #[derive(Debug, Clone)]
+/// Fully validated request information after routing has matched a backend.
+///
+/// Unlike `PartialRequestInformation`, this struct includes the resolved routing
+/// destination (`req_match`), the session identifier, and a shared config Arc.
 pub struct ValidRequestInformation {
     pub host: smol_str::SmolStr,
     pub path: ksbh_types::KsbhStr,
@@ -64,6 +72,10 @@ pub struct PartialRequestInformation {
 }
 
 #[derive(Debug, Hash, Clone, PartialEq, Eq, PartialOrd, Ord)]
+/// Client identification with IP address and mandatory user-agent string.
+///
+/// Unlike `PartialClientInformation`, the user-agent is guaranteed to be present.
+/// Implements `Hash` and `Borrow<IpAddr>` for use as a map key.
 pub struct ClientInformation {
     pub ip: ::std::net::IpAddr,
     pub user_agent: smol_str::SmolStr,

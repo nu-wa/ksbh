@@ -2,6 +2,7 @@
 
 pub mod module_metric;
 pub mod prom;
+pub mod runtime_state;
 
 pub use prometheus;
 
@@ -208,6 +209,10 @@ impl RequestMetrics {
         }
     }
 
+    /// Computes a weighted score based on HTTP status, request duration, and module execution times.
+    ///
+    /// The algorithm weights errors (5xx: 5pts, 4xx: 10pts), response time (req_time * 10),
+    /// and each module's execution time (exec_time * 10), summing them into a single cost metric.
     pub fn calculate_score(&self) -> i64 {
         let status = self.status_code.as_u16();
 
@@ -312,6 +317,9 @@ impl Metrics {
         Self { scores: store }
     }
 
+    /// Creates a paired MetricsWriter and MetricsReader sharing the same underlying Metrics instance.
+    ///
+    /// The writer is used to record requests; the reader retrieves accumulated scores.
     pub fn create(
         store: ::std::sync::Arc<
             crate::storage::redis_hashmap::RedisHashMap<
@@ -330,6 +338,10 @@ impl Metrics {
         )
     }
 
+    /// Logs a request by updating the session score in Redis and recording Prometheus metrics.
+    ///
+    /// The score is accumulated per session: each request adds `calculate_score()` points.
+    /// Higher scores indicate more "expensive" requests (slow, errors, heavy module processing).
     pub async fn log_request(&self, http_request: RequestMetrics) {
         let total_score = http_request.calculate_score();
         let session_id = http_request.request_information.session_id;

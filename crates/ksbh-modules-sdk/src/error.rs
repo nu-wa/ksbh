@@ -1,8 +1,19 @@
+/// Error type for module request processing.
+///
+/// Variants:
+/// - `Response`: Return an HTTP error response to the client with the given status and message
+/// - `Critical`: An unexpected error that cannot be represented as an HTTP response
+///   (e.g., I/O errors, connection failures). These are logged but result in HTTP 500.
 pub enum ModuleError {
+    /// Return an HTTP error response with the specified status code.
     Response {
+        /// HTTP status code (e.g., 400, 401, 403, 404, 429, 500).
         status: http::StatusCode,
+        /// Error message to include in the response body.
         message: String,
     },
+    /// A critical error that cannot be represented as an HTTP response.
+    /// The error is logged and results in HTTP 500.
     Critical(Box<dyn ::std::error::Error + Send + Sync>),
 }
 

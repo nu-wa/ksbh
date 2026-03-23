@@ -1,0 +1,11 @@
+name: install-playwright
+description: Install the local Playwright package and Chromium browser
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: |
+        set -euo pipefail
+        npm install --prefix tests/playwright
+        tests/playwright/node_modules/.bin/playwright install --with-deps chromium

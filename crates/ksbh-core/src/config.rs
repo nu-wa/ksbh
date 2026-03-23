@@ -1,3 +1,4 @@
+/// Root configuration for the KSBH proxy server.
 #[derive(Debug, Clone, serde::Deserialize)]
 pub struct Config {
     #[serde(default)]
@@ -23,13 +24,15 @@ pub struct Config {
 
 #[derive(Debug, Clone, serde::Deserialize)]
 pub struct ConfigConstants {
-    #[serde(default)]
+    #[serde(default = "default_tcp_fastopen_queue_size")]
     pub tcp_fastopen_queue_size: usize,
-    #[serde(default)]
+    #[serde(default = "default_cookie_name")]
     pub cookie_name: String,
-    #[serde(default)]
+    #[serde(default = "default_cookie_secure")]
+    pub cookie_secure: bool,
+    #[serde(default = "default_proxy_header_name")]
     pub proxy_header_name: String,
-    #[serde(default)]
+    #[serde(default = "default_proxy_header_value")]
     pub proxy_header_value: String,
 }
 
@@ -38,6 +41,7 @@ impl Default for ConfigConstants {
         Self {
             tcp_fastopen_queue_size: 12,
             cookie_name: "ksbh".to_string(),
+            cookie_secure: true,
             proxy_header_name: "Server".to_string(),
             proxy_header_value: "ksbh".to_string(),
         }
@@ -136,9 +140,9 @@ pub struct ConfigFilePaths {
 impl Default for ConfigFilePaths {
     fn default() -> Self {
         Self {
-            config: "/app/ksbh/config".into(),
-            static_content: "/app/ksbh/config".into(),
-            modules: "/app/ksbh/modules".into(),
+            config: "/app/config/config.yaml".into(),
+            static_content: "/app/data/static".into(),
+            modules: "/app/modules".into(),
         }
     }
 }
@@ -177,6 +181,7 @@ impl Default for ConfigPerformance {
     }
 }
 
+/// Errors that can occur during configuration loading and validation.
 #[derive(Debug)]
 pub enum ConfigError {
     ValidationError(&'static str),
@@ -215,9 +220,14 @@ impl From<Box<dyn ::std::error::Error + 'static>> for ConfigError {
 }
 
 impl Config {
+    /// Loads configuration from YAML file and environment variables.
+    ///
+    /// Precedence (highest to lowest): environment variables (prefix `KSBH__`),
+    /// YAML file at path specified by `KSBH__CONFIG_PATHS__CONFIG` or default
+    /// `/app/config/config.yaml`.
     pub fn load() -> Result<Self, ConfigError> {
         let config_file_path = crate::utils::get_env_prefer_file("KSBH__CONFIG_PATHS__CONFIG")
-            .unwrap_or("/app/ksbh/config.yaml".to_string());
+            .unwrap_or("/app/config/config.yaml".to_string());
 
         let cfg = config::Config::builder()
             .add_source(config::File::with_name(&config_file_path).required(false))
@@ -274,6 +284,9 @@ impl Config {
         Ok(())
     }
 
+    /// Converts to a Pingora server configuration.
+    ///
+    /// Used to initialize the Pingora server with KSBH-specific settings.
     pub fn to_server_conf(&self) -> pingora_core::server::configuration::ServerConf {
         pingora_core::server::configuration::ServerConf {
             daemon: false,
@@ -284,6 +297,26 @@ impl Config {
 
 fn default_threads() -> usize {
     8
+}
+
+fn default_tcp_fastopen_queue_size() -> usize {
+    12
+}
+
+fn default_cookie_name() -> String {
+    "ksbh".to_string()
+}
+
+fn default_cookie_secure() -> bool {
+    true
+}
+
+fn default_proxy_header_name() -> String {
+    "Server".to_string()
+}
+
+fn default_proxy_header_value() -> String {
+    "ksbh".to_string()
 }
 
 fn default_ports_app() -> ksbh_types::Ports {

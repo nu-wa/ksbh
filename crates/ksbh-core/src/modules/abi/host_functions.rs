@@ -199,10 +199,8 @@ pub unsafe extern "C" fn host_session_set(
     let data_vec = data_slice.to_vec();
 
     store.set_sync(key.clone(), data_vec.clone());
-    if store.set_redis_sync(key, data_vec) {
-        return true;
-    }
-    false
+    let _ = store.set_redis_sync(key, data_vec);
+    true
 }
 
 pub unsafe extern "C" fn host_session_set_with_ttl(
@@ -261,10 +259,8 @@ pub unsafe extern "C" fn host_session_set_with_ttl(
     let data_vec = data_slice.to_vec();
 
     store.set_with_ttl_sync(key.clone(), data_vec.clone(), ttl);
-    if store.set_redis_sync_with_ttl(key, data_vec, ttl) {
-        return true;
-    }
-    false
+    let _ = store.set_redis_sync_with_ttl(key, data_vec, ttl);
+    true
 }
 
 pub unsafe extern "C" fn host_session_free(
@@ -312,12 +308,13 @@ pub unsafe extern "C" fn host_metrics_good_boy(
     let session_uuid = uuid::Uuid::from_bytes(uuid_array);
     let key = crate::storage::module_session_key::ModuleSessionKey::user_session(session_uuid);
 
-    if let Some(score_bytes) = store.get_hot_sync(&key)
+    if let Some(score_bytes) = store.get_hot_or_cold_sync(&key)
         && let Ok(score) = rmp_serde::from_slice::<crate::metrics::AtomicU64Wrapper>(&score_bytes)
     {
         let new_value = crate::metrics::AtomicU64Wrapper::new(score.load().saturating_sub(50));
         if let Ok(encoded) = rmp_serde::to_vec(&new_value) {
-            let _ = store.set_sync(key, encoded);
+            let _ = store.set_sync(key.clone(), encoded.clone());
+            let _ = store.set_redis_sync(key, encoded);
             return true;
         }
     }
@@ -347,7 +344,7 @@ pub unsafe extern "C" fn host_metrics_get_score(
     let key = crate::storage::module_session_key::ModuleSessionKey::user_session(session_uuid);
 
     store
-        .get_hot_sync(&key)
+        .get_hot_or_cold_sync(&key)
         .and_then(|score_bytes| {
             rmp_serde::from_slice::<crate::metrics::AtomicU64Wrapper>(&score_bytes)
                 .ok()

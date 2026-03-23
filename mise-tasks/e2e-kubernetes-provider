@@ -1,0 +1,395 @@
+#!/usr/bin/env bash
+#MISE description="Run local kubernetes-provider e2e orchestration with kind"
+#MISE alias="e2ek"
+#MISE tools={helm="latest",kind="latest",kubectl="latest",node="latest",rust="1.92.0"}
+#USAGE flag "-k --keep-cluster" help="Keep the kind cluster after the task exits"
+#USAGE flag "-s --skip-build" help="Skip rebuilding the release Docker image"
+
+set -euo pipefail
+. "$(dirname "$0")/lib.sh"
+
+require_docker
+require_kind
+require_helm
+require_kubectl
+require_curl
+
+if ! command -v node >/dev/null 2>&1; then
+  echo "node is not installed or not in PATH" >&2
+  exit 1
+fi
+
+if ! command -v npm >/dev/null 2>&1; then
+  echo "npm is not installed or not in PATH" >&2
+  exit 1
+fi
+
+resolve_ci_host() {
+  if [ -n "${KSBH_CI_HOST:-}" ]; then
+    echo "${KSBH_CI_HOST}"
+    return 0
+  fi
+
+  if getent hosts docker >/dev/null 2>&1; then
+    echo "docker"
+    return 0
+  fi
+
+  if getent hosts host.docker.internal >/dev/null 2>&1; then
+    echo "host.docker.internal"
+    return 0
+  fi
+
+  if [ -n "${DOCKER_HOST:-}" ]; then
+    docker_host="$(echo "${DOCKER_HOST}" | sed -E 's#^[^:]+://([^:/]+).*$#\1#')"
+    if [ -n "${docker_host}" ] && [ "${docker_host}" != "${DOCKER_HOST}" ]; then
+      echo "${docker_host}"
+      return 0
+    fi
+  fi
+
+  ip route show default 2>/dev/null | awk '/default/ { print $3; exit }'
+}
+
+cleanup() {
+  if [ -n "${browser_host_ip:-}" ]; then
+    sed -i "\#^${browser_host_ip}[[:space:]]\\+${browser_host}\$#d" /etc/hosts >/dev/null 2>&1 || true
+  fi
+
+  if command -v kubectl >/dev/null 2>&1 && [ -n "${namespace:-}" ]; then
+    ksbh_pod_name="$(
+      kubectl get pods \
+        --namespace "${namespace}" \
+        --selector "app.kubernetes.io/instance=${release_name}" \
+        -o jsonpath='{.items[0].metadata.name}' \
+        2>/dev/null || true
+    )"
+
+    if [ -n "${ksbh_pod_name}" ]; then
+      echo "ksbh pod logs (${ksbh_pod_name}, tail=100):"
+      kubectl logs --namespace "${namespace}" "${ksbh_pod_name}" --tail=100 || true
+    fi
+  fi
+
+  if [ "${usage_keep_cluster:-false}" = "true" ]; then
+    echo "keeping kind cluster '$(kind_cluster_name)'"
+    return 0
+  fi
+
+  delete_kind_cluster
+
+  if [ -n "${temp_kubeconfig:-}" ] && [ -f "${temp_kubeconfig}" ]; then
+    rm -f "${temp_kubeconfig}"
+  fi
+}
+
+trap cleanup EXIT
+
+cluster_name="$(kind_cluster_name)"
+namespace="$(e2e_namespace)"
+release_name="$(e2e_release_name)"
+image_name="$(release_image_name)"
+image_repository="$(release_image_repository)"
+image_tag="$(release_image_tag)"
+pvc_name="${release_name}-data"
+ci_host="$(resolve_ci_host)"
+e2e_host="${KSBH_E2E_HOST:-${ci_host:-127.0.0.1}}"
+kind_api_server_host="${KSBH_KIND_API_SERVER_HOST:-${ci_host:-}}"
+kind_api_server_port="${KSBH_KIND_API_SERVER_PORT:-16443}"
+temp_kubeconfig=""
+browser_host="app.test.local"
+browser_host_ip=""
+
+ensure_kind_cluster
+
+if [ -n "${kind_api_server_host}" ]; then
+  temp_kubeconfig="$(mktemp)"
+  kind get kubeconfig --name "${cluster_name}" \
+    | sed -E \
+      -e "s#https://(0\\.0\\.0\\.0|127\\.0\\.0\\.1|localhost):[0-9]+#https://${kind_api_server_host}:${kind_api_server_port}#g" \
+      -e '/certificate-authority-data:/d' \
+      -e '/server:/a\
+    insecure-skip-tls-verify: true' \
+    > "${temp_kubeconfig}"
+  export KUBECONFIG="${temp_kubeconfig}"
+fi
+
+if getent hosts "${e2e_host}" >/dev/null 2>&1; then
+  browser_host_ip="$(getent hosts "${e2e_host}" | awk 'NR==1 { print $1 }')"
+elif printf '%s' "${e2e_host}" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'; then
+  browser_host_ip="${e2e_host}"
+fi
+
+if [ -n "${browser_host_ip}" ]; then
+  echo "${browser_host_ip} ${browser_host}" >> /etc/hosts
+else
+  echo "failed to resolve an IP address for browser host mapping from '${e2e_host}'" >&2
+  exit 1
+fi
+
+if [ "${usage_skip_build:-false}" != "true" ]; then
+  "$(dirname "$0")/build-release-image"
+fi
+
+kind load docker-image "${image_name}" --name "${cluster_name}"
+
+kubectl apply -f - <<EOF
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: ${release_name}-data
+spec:
+  capacity:
+    storage: 10Gi
+  accessModes:
+    - ReadWriteMany
+  storageClassName: ""
+  persistentVolumeReclaimPolicy: Delete
+  hostPath:
+    path: /tmp/${release_name}-data
+    type: DirectoryOrCreate
+  claimRef:
+    namespace: ${namespace}
+    name: ${pvc_name}
+EOF
+
+helm upgrade --install "${release_name}" charts/ksbh \
+  --namespace "${namespace}" \
+  --create-namespace \
+  --set configProvider.mode=kubernetes \
+  --set image.repository="${image_repository}" \
+  --set image.tag="${image_tag}" \
+  --set image.pullPolicy=IfNotPresent \
+  --set-string configEnv.KSBH__CONSTANTS__COOKIE_SECURE=false \
+  --set-string configEnv.KSBH__CONFIG_PATHS__STATIC_CONTENT=/app/data/static \
+  --set persistence.enabled=true \
+  --set persistence.claimName="${pvc_name}" \
+  --set persistence.mountPath=/app/data \
+  --set-string persistence.storageClassName= \
+  --set service.type=NodePort \
+  --set service.nodePorts.http=30080 \
+  --set service.nodePorts.https=30443 \
+  --set service.nodePorts.profiling=30083 \
+  --set service.nodePorts.prometheus=30084
+
+kubectl rollout status "deployment/${release_name}" \
+  --namespace "${namespace}" \
+  --timeout=180s
+
+kubectl wait \
+  --namespace "${namespace}" \
+  --for=condition=Ready \
+  pod \
+  --selector='app.kubernetes.io/instance='"${release_name}" \
+  --timeout=180s
+
+kubectl apply --namespace "${namespace}" -f - <<EOF
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: e2e-httpbin
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: e2e-httpbin
+  template:
+    metadata:
+      labels:
+        app: e2e-httpbin
+    spec:
+      containers:
+        - name: httpbin
+          image: mccutchen/go-httpbin:v2.15.0
+          ports:
+            - containerPort: 8080
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: e2e-httpbin
+spec:
+  selector:
+    app: e2e-httpbin
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8080
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: e2e-static-example-local
+spec:
+  ingressClassName: ksbh
+  rules:
+    - host: static.example.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              resource:
+                apiGroup: service-resource.ksbh.rs
+                kind: static
+                name: static
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: e2e-static-writer
+spec:
+  backoffLimit: 0
+  template:
+    spec:
+      restartPolicy: Never
+      volumes:
+        - name: shared-data
+          persistentVolumeClaim:
+            claimName: ${pvc_name}
+      containers:
+        - name: writer
+          image: busybox:1.36
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              mkdir -p /data/static
+              mkdir -p /data/static/static.example.local
+              cat >/data/static/index.html <<'EOT'
+              hello from rwx static content
+              EOT
+              cat >/data/static/static.example.local/index.html <<'EOT'
+              hello from rwx static content
+              EOT
+          volumeMounts:
+            - name: shared-data
+              mountPath: /data
+EOF
+
+kubectl rollout status "deployment/e2e-httpbin" \
+  --namespace "${namespace}" \
+  --timeout=180s
+
+kubectl wait \
+  --namespace "${namespace}" \
+  --for=condition=complete \
+  job/e2e-static-writer \
+  --timeout=180s
+
+wait_for_http_status "http://${e2e_host}:18080/" "200" 90 "static.example.local"
+wait_for_http_status "http://${e2e_host}:18084/metrics" "200" 60
+
+export KSBH_E2E_HTTP_ADDR="http://${e2e_host}:18080"
+export KSBH_E2E_HTTPS_ADDR="https://${e2e_host}:18443"
+export KSBH_E2E_PROFILING_ADDR="http://${e2e_host}:18083"
+export KSBH_E2E_METRICS_ADDR="http://${e2e_host}:18084"
+export KSBH_E2E_NAMESPACE="${namespace}"
+export KSBH_E2E_BROWSER_BASE_URL="http://${browser_host}:18080"
+
+echo "running Rust kubernetes e2e tests"
+cargo test \
+  --manifest-path /home/smspl/dev/rust/ksbh/crates/Cargo.toml \
+  -p tests \
+  --test k8s_baseline_e2e \
+  -- \
+  --ignored \
+  --nocapture \
+  --test-threads=1
+
+cargo test \
+  --manifest-path /home/smspl/dev/rust/ksbh/crates/Cargo.toml \
+  -p tests \
+  --test k8s_ingress_lifecycle_e2e \
+  -- \
+  --ignored \
+  --nocapture \
+  --test-threads=1
+
+cargo test \
+  --manifest-path /home/smspl/dev/rust/ksbh/crates/Cargo.toml \
+  -p tests \
+  --test k8s_static_content_e2e \
+  -- \
+  --ignored \
+  --nocapture \
+  --test-threads=1
+
+cargo test \
+  --manifest-path /home/smspl/dev/rust/ksbh/crates/Cargo.toml \
+  -p tests \
+  --test k8s_robots_txt_e2e \
+  -- \
+  --ignored \
+  --nocapture \
+  --test-threads=1
+
+cargo test \
+  --manifest-path /home/smspl/dev/rust/ksbh/crates/Cargo.toml \
+  -p tests \
+  --test k8s_pow_http_e2e \
+  -- \
+  --ignored \
+  --nocapture \
+  --test-threads=1
+
+echo "creating browser PoW fixture"
+kubectl delete ingress pow-browser-ingress --namespace "${namespace}" --ignore-not-found >/dev/null 2>&1 || true
+kubectl delete secret pow-browser-secret --namespace "${namespace}" --ignore-not-found >/dev/null 2>&1 || true
+kubectl delete moduleconfiguration pow-browser --ignore-not-found >/dev/null 2>&1 || true
+
+kubectl apply --namespace "${namespace}" -f - <<EOF
+apiVersion: v1
+kind: Secret
+metadata:
+  name: pow-browser-secret
+type: Opaque
+stringData:
+  secret: fd6b17dbda13c02386460d1419fef345a39e2a08c1fc7f69d894b206cd38a1c1
+  difficulty: "1"
+---
+apiVersion: modules.ksbh.rs/v1
+kind: ModuleConfiguration
+metadata:
+  name: pow-browser
+spec:
+  name: pow-browser
+  type: POW
+  global: false
+  requiresProperRequest: false
+  requiresBody: true
+  secretRef:
+    name: pow-browser-secret
+    namespace: ${namespace}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: pow-browser-ingress
+  annotations:
+    ksbh.rs/modules: pow-browser
+spec:
+  ingressClassName: ksbh
+  rules:
+    - host: ${browser_host}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: e2e-httpbin
+                port:
+                  number: 80
+EOF
+
+wait_for_http_status "http://${browser_host}:18080/get" "401" 90
+
+echo "running Playwright kubernetes PoW browser e2e"
+tests/playwright/node_modules/.bin/playwright test \
+  /home/smspl/dev/rust/ksbh/tests/playwright/k8s-pow-browser.spec.cjs \
+  --workers=1
+
+kubectl delete ingress pow-browser-ingress --namespace "${namespace}" --ignore-not-found >/dev/null 2>&1 || true
+kubectl delete secret pow-browser-secret --namespace "${namespace}" --ignore-not-found >/dev/null 2>&1 || true
+kubectl delete moduleconfiguration pow-browser --ignore-not-found >/dev/null 2>&1 || true

@@ -1,0 +1,124 @@
+#!/usr/bin/env bash
+#MISE description="Run a local proof-of-work demo in Docker"
+#MISE sources=["docker/build/release.Dockerfile", "crates/Cargo.toml"]
+#MISE tools={docker="*"}
+
+set -euo pipefail
+. "$(dirname "$0")/lib.sh"
+
+require_docker
+
+repo_root="$(cd "$(dirname "$0")/.." && pwd)"
+config_dir="$(mktemp -d)"
+compose_file="${config_dir}/docker-compose.yml"
+routing_yaml="${config_dir}/routing.yaml"
+static_dir="${config_dir}/static"
+image_name="$(release_image_name)"
+host_name="${KSBH_POW_HOST:-local.pow.test.local}"
+difficulty="${KSBH_POW_DIFFICULTY:-4}"
+
+mkdir -p "${static_dir}"
+
+cleanup() {
+  echo "Cleaning up..."
+  cd "${config_dir}" && docker compose down --remove-orphans 2>/dev/null || true
+  rm -rf "${config_dir}"
+}
+trap cleanup EXIT
+
+cat > "${routing_yaml}" << EOF
+modules:
+  - name: pow
+    type: POW
+    weight: 100
+    global: true
+    requires_body: true
+    config:
+      difficulty: "${difficulty}"
+
+ingresses:
+  - name: pow-demo
+    host: "${host_name}"
+    paths:
+      - path: /
+        type: prefix
+        backend: static
+EOF
+
+cat > "${static_dir}/index.html" <<EOF
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>pow demo</title>
+    <style>
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        background: #111;
+        color: #fff;
+        font-family: monospace;
+      }
+      main {
+        border: 2px solid #fff;
+        padding: 1.5rem;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>proof-of-work demo reached backend</h1>
+      <p>host: ${host_name}</p>
+      <p>difficulty: ${difficulty}</p>
+    </main>
+  </body>
+</html>
+EOF
+
+cookie_key="$(openssl rand -hex 32)"
+
+cat > "${compose_file}" << EOF
+services:
+  ksbh:
+    image: ${image_name}
+    ports:
+      - "18080:18080"
+      - "18443:18443"
+    environment:
+      - DEBUG_LEVEL=debug
+      - KSBH__CONFIG_PATHS__CONFIG=/app/config/routing.yaml
+      - KSBH__CONFIG_PATHS__MODULES=/app/modules
+      - KSBH__CONFIG_PATHS__STATIC_CONTENT=/app/static
+      - KSBH__LISTEN_ADDRESSES__HTTP=0.0.0.0:18080
+      - KSBH__LISTEN_ADDRESSES__HTTPS=0.0.0.0:18443
+      - KSBH__COOKIE_KEY=${cookie_key}
+      - KSBH__CONSTANTS__COOKIE_SECURE=false
+    volumes:
+      - ${config_dir}:/app/config:ro
+      - ${static_dir}:/app/static:ro
+EOF
+
+echo "Building release image ${image_name}..."
+cd "$repo_root" && DOCKER_BUILDKIT=1 docker build -f docker/build/release.Dockerfile -t "${image_name}" .
+
+cd "${config_dir}"
+docker compose up -d
+
+echo ""
+echo "POW demo is up."
+echo ""
+echo "Browser:"
+echo "  http://${host_name}:18080/"
+echo ""
+echo "curl:"
+echo "  curl -i http://${host_name}:18080/"
+echo ""
+echo "Logs:"
+echo "  cd ${config_dir} && docker compose logs -f ksbh"
+echo ""
+echo "Press Ctrl-C to stop."
+
+docker compose logs -f ksbh

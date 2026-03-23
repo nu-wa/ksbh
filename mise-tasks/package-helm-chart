@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+#MISE description="Package the ksbh Helm chart into a tar.gz archive"
+#MISE alias="phc"
+#MISE tools={helm="latest"}
+#MISE sources=["charts/ksbh/Chart.yaml", "charts/ksbh/values.yaml", "charts/ksbh/crds/**/*.yaml", "charts/ksbh/templates/**/*.yaml", "charts/ksbh/templates/**/*.tpl", "charts/ksbh/templates/**/*.txt"]
+#MISE outputs=["dist/helm/*.tar.gz"]
+
+set -euo pipefail
+. "$(dirname "$0")/lib.sh"
+
+require_helm
+
+output_dir="${KSBH_HELM_CHART_OUTPUT_DIR:-dist/helm}"
+mkdir -p "${output_dir}"
+
+packaged_chart="$(
+  helm package charts/ksbh --destination "${output_dir}" \
+    | awk '/Successfully packaged chart and saved it to:/ { print $NF }'
+)"
+
+if [ -z "${packaged_chart}" ]; then
+  echo "failed to determine packaged chart path" >&2
+  exit 1
+fi
+
+tar_gz_chart="${packaged_chart%.tgz}.tar.gz"
+
+if [ "${tar_gz_chart}" != "${packaged_chart}" ]; then
+  mv "${packaged_chart}" "${tar_gz_chart}"
+fi
+
+printf '%s\n' "${tar_gz_chart}"

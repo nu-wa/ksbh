@@ -1,3 +1,7 @@
+/// Handle for reading and writing module-specific session data.
+///
+/// Session data is namespaced by module name and stored per-session (identified by session ID).
+/// Data persists across requests and can have optional TTL expiration.
 pub struct SessionHandle {
     session_id: [u8; 16],
     module_name: smol_str::SmolStr,
@@ -8,6 +12,7 @@ pub struct SessionHandle {
 }
 
 impl SessionHandle {
+    /// Creates a SessionHandle from FFI function pointers.
     pub fn from_ffi(
         session_id: [u8; 16],
         module_name: smol_str::SmolStr,
@@ -25,9 +30,15 @@ impl SessionHandle {
             free,
         }
     }
+
+    /// Returns the 16-byte session identifier.
     pub fn session_id(&self) -> [u8; 16] {
         self.session_id
     }
+
+    /// Retrieves session data for the given key.
+    ///
+    /// Returns `None` if no data exists for the key.
     pub fn get(&self, key: &str) -> Option<Vec<u8>> {
         let mut out_ptr: *const u8 = std::ptr::null();
         let mut out_len: usize = 0;
@@ -56,6 +67,10 @@ impl SessionHandle {
         };
         Some(data)
     }
+    /// Stores session data for the given key.
+    ///
+    /// Returns `true` if the data was stored successfully.
+    /// Data persists indefinitely (no TTL) unless `set_with_ttl` is used.
     pub fn set(&self, key: &str, data: &[u8]) -> bool {
         unsafe {
             (self.set)(
@@ -69,6 +84,11 @@ impl SessionHandle {
             )
         }
     }
+
+    /// Stores session data with a TTL (time-to-live) in seconds.
+    ///
+    /// Returns `true` if the data was stored successfully.
+    /// After `ttl_secs` seconds, the data will expire and `get` will return `None`.
     pub fn set_with_ttl(&self, key: &str, data: &[u8], ttl_secs: u64) -> bool {
         unsafe {
             (self.set_ttl)(

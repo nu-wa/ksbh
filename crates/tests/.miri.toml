@@ -1,0 +1,10 @@
+# Miri configuration for ksbh tests
+
+# Ignore build artifacts
+ignore = ["target", "*.so", "*.rlib"]
+
+# Allow external crates (system libraries)
+# We'll see what errors come up
+
+# Don't warn about stacked borrows (for now, until we verify)
+# warn = ["stacked_borrows"]

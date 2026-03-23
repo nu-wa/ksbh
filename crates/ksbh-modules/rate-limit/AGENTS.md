@@ -1,29 +1,28 @@
 # rate-limit Module
 
-Request rate limiting module.
+Score-based rate limiting module.
 
-## Purpose
+## Package
 
-Metrics-based rate limiting using score thresholds. Reads `score_threshold` from config (default: 100). Uses `ctx.metrics.get_score()` to get client's current score. Returns HTTP 429 with `Retry-After` and `X-Score` headers when threshold exceeded.
+- Directory: `crates/ksbh-modules/rate-limit`
+- Cargo package: `rate-limit`
 
-## Implementation
+## Current Behavior
 
-- **Crate type**: `cdylib` (dynamic library)
-- **Interface**: FFI using the ABI defined in `ksbh_core/src/modules/abi/`
-- **Loaded by**: ksbh-core at runtime via dynamic library loading
+`src/lib.rs` currently:
 
-## Key Dependencies
+- reads `score_threshold` from config, defaulting to `100`
+- uses `ctx.metrics_key`
+- calls `ctx.metrics.get_score(metrics_key)`
+- returns HTTP `429` with `Retry-After` and `X-Score` when the threshold is exceeded
 
-- `ksbh-core`: Core types and FFI interface
-- `ksbh-types`: Shared types
-- `uuid`: Client identification
+## Notes
+
+- Crate type: `cdylib`
+- Uses `bytes`, `http`, `tracing`, `ksbh-modules-sdk`, and `ksbh-core`
 
 ## Build
 
 ```bash
-cargo build -p rate-limit
+cargo build -p rate-limit --manifest-path crates/Cargo.toml
 ```
-
-## Conventions
-
-Follow the general conventions in the root `AGENTS.md`.

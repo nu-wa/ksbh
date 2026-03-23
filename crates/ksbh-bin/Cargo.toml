@@ -19,6 +19,7 @@ jemalloc_pprof = { version = "0.8.1", optional = true }
 ksbh-config-providers-file = { path = "../ksbh-config-providers/file" }
 ksbh-config-providers-kubernetes = { path = "../ksbh-config-providers/kubernetes" }
 ksbh-core = { path = "../ksbh-core" }
+ksbh-ui = { path = "../ksbh-ui" }
 ksbh-types = { workspace = true }
 memmap2 = "0.9.9"
 mime_guess = "2.0.5"

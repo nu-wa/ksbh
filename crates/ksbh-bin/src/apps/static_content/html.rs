@@ -1,23 +1,18 @@
 #[derive(askama::Template)]
-#[template(path = "400.html")]
-pub(super) struct Template400;
+#[template(path = "pages/error.html")]
+pub(super) struct ErrorTemplate<'a> {
+    pub inline_css: &'a str,
+    pub status_code: &'a str,
+    pub title: &'a str,
+}
 
-#[derive(askama::Template)]
-#[template(path = "401.html")]
-pub(super) struct Template401;
-
-#[derive(askama::Template)]
-#[template(path = "403.html")]
-pub(super) struct Template403;
-
-#[derive(askama::Template)]
-#[template(path = "404.html")]
-pub(super) struct Template404;
-
-#[derive(askama::Template)]
-#[template(path = "500.html")]
-pub(super) struct Template500;
-
-#[derive(askama::Template)]
-#[template(path = "502.html")]
-pub(super) struct Template502;
+impl<'a> ErrorTemplate<'a> {
+    pub(super) fn new(status_code: &'a str, title: &'a str, message: &'a str) -> Self {
+        let _ = message;
+        Self {
+            inline_css: ksbh_ui::SHARED_CSS,
+            status_code,
+            title,
+        }
+    }
+}

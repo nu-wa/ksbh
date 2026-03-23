@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+#MISE description="Run local e2e tests with kind using the file config provider"
+#MISE alias="e2ef"
+#MISE tools={kind="latest"}
+
+set -euo pipefail
+. "$(dirname "$0")/lib.sh"
+
+require_docker
+require_kind
+
+cleanup() {
+  delete_kind_cluster
+}
+
+trap cleanup EXIT
+
+ensure_kind_cluster
+
+echo "TODO: build docker images for file-provider e2e"
+echo "TODO: run file-provider e2e checks (curl, oha, or Rust integration tests)"

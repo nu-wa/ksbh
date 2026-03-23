@@ -1,5 +1,11 @@
+//! File-based configuration provider for KSBH.
+//!
+//! Loads proxy configuration from YAML files and watches for changes,
+//! hot-reloading configuration without restart.
+
 pub use serde::{Deserialize, Serialize};
 
+/// Configuration provider that loads from YAML files.
 pub struct FileConfigProvider {
     config_path: ::std::path::PathBuf,
 }
@@ -10,6 +16,7 @@ impl FileConfigProvider {
     }
 }
 
+/// Root YAML configuration structure containing modules and ingresses.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
     #[serde(default)]
@@ -18,16 +25,21 @@ pub struct Config {
     pub ingresses: Vec<IngressConfig>,
 }
 
+/// Module configuration specifying name, type, and settings.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ModuleConfig {
     pub name: String,
     pub r#type: String,
+    pub weight: i32,
     #[serde(default)]
     pub global: bool,
+    #[serde(default)]
+    pub requires_body: bool,
     #[serde(default)]
     pub config: ::std::collections::HashMap<::std::string::String, ::std::string::String>,
 }
 
+/// Ingress configuration defining routing rules for a host.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IngressConfig {
     pub name: String,
@@ -118,10 +130,11 @@ impl FileConfigProvider {
             let spec = ::ksbh_core::modules::ModuleConfigurationSpec {
                 name: module.name.clone(),
                 r#type: module_type,
+                weight: module.weight,
                 global: module.global,
                 requires_proper_request: true,
                 secret_ref: None,
-                requires_body: false,
+                requires_body: module.requires_body,
             };
 
             router.upsert_module(

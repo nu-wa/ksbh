@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+#MISE description="Run direct-binary ksbh integration tests"
+#MISE tools={rust="1.92.0"}
+
+set -euo pipefail
+
+repo_root="$(cd "$(dirname "$0")/.." && pwd)"
+
+cd "$repo_root"
+
+echo "building ksbh binary for direct-binary e2e"
+cargo build --manifest-path crates/Cargo.toml -p ksbh
+
+export KSBH_E2E_BIN="$repo_root/crates/target/debug/ksbh"
+
+echo "running direct-binary integration tests"
+cargo test \
+  --manifest-path crates/Cargo.toml \
+  -p tests \
+  --test binary_baseline_e2e \
+  --test binary_static_content_e2e \
+  -- \
+  --nocapture \
+  --test-threads=1

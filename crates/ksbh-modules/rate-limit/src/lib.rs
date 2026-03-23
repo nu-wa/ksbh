@@ -1,3 +1,9 @@
+//! Rate limiting module using score thresholds.
+//!
+//! Reads `score_threshold` from module config (default: 100).
+//! Compares client's current score from metrics against the threshold.
+//! Returns HTTP 429 with `Retry-After` and `X-Score` headers if exceeded.
+
 pub fn process(
     ctx: ksbh_modules_sdk::RequestContext,
 ) -> Result<ksbh_modules_sdk::ModuleResult, ksbh_modules_sdk::ModuleError> {

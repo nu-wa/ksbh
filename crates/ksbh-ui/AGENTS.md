@@ -1,0 +1,25 @@
+# ksbh-ui
+
+Shared UI crate for KSBH.
+
+## Purpose
+
+This crate owns reusable UI assets and Askama template fragments shared across the workspace.
+
+Current responsibilities include:
+
+- shared Askama layouts under `templates/`
+- shared CSS source under `static/css/`
+- shared runtime-inline CSS exported from `src/lib.rs`
+
+## Notes
+
+- `templates/` is intended for reusable layouts/components, not crate-specific application pages.
+- Askama consumers in other crates should point to this crate through crate-local `askama.toml` files.
+- `static/css/shared.css` is the shared source of truth for the current visual system.
+
+## Build
+
+```bash
+cargo build -p ksbh-ui --manifest-path crates/Cargo.toml
+```

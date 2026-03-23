@@ -1,10 +1,11 @@
 pub mod error;
 
-// A "parsed" request from a [pingora session](https://docs.rs/pingora-proxy/latest/pingora_proxy/struct.Session.html#method.req_header),
-// wich itself has underlying data coming from [`http::request::Parts`](https://docs.rs/http/1.1.0/http/request/struct.Parts.html).
-//
-// For now we copy the underlying references and do some parsing on it, so it can be used in plugins/modules in the most simplest way.
-// Maybe one day I'll use references to avoid over-copying data
+/// A "parsed" HTTP request with owned data for use in plugins/modules.
+///
+/// Parsed from a [pingora session](https://docs.rs/pingora-proxy/latest/pingora_proxy/struct.Session.html#method.req_header),
+/// which itself has underlying data coming from [`http::request::Parts`](https://docs.rs/http/1.1.0/http/request/struct.Parts.html).
+///
+/// All string data is copied into owned [`KsbhStr`](crate::KsbhStr) for FFI compatibility.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct HttpRequest {
     pub uri: crate::KsbhStr,
@@ -17,6 +18,10 @@ pub struct HttpRequest {
     pub method: crate::prelude::HttpMethod,
 }
 
+/// A borrowed view of an HTTP request for non-owning contexts.
+///
+/// Contains borrowed string references (`&'a str`) instead of owned data,
+/// useful for in-process request processing without FFI boundaries.
 #[derive(Debug)]
 pub struct HttpRequestView<'a> {
     pub uri: String,

@@ -32,18 +32,7 @@ pub enum ModuleConfigurationType {
     Custom(String),
 }
 
-impl ModuleConfigurationType {
-    pub fn get_weight(&self) -> usize {
-        match self {
-            Self::RateLimit => usize::MIN,
-            Self::POW => 1,
-            Self::OIDC => 2,
-            Self::Custom(_) => 3,
-            Self::RobotsDotTXT => usize::MAX - 1,
-            Self::HttpToHttps => usize::MAX,
-        }
-    }
-}
+impl ModuleConfigurationType {}
 
 #[derive(
     serde::Serialize,
@@ -66,6 +55,7 @@ pub struct ModuleConfigurationSpec {
     pub name: String,
     #[serde(rename = "type")]
     pub r#type: ModuleConfigurationType,
+    pub weight: i32,
     #[schemars(default)]
     pub global: bool,
     #[serde(default = "default_true")]

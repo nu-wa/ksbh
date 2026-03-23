@@ -1,28 +1,30 @@
 # robots-txt Module
 
-robots.txt handling module.
+robots.txt serving module.
 
-## Purpose
+## Package
 
-Serves static robots.txt content from configuration. Simply returns the `content` field from module config as `text/plain` when path is `/robots.txt` and method is GET. Does NOT parse or respect crawler directives.
+- Directory: `crates/ksbh-modules/robots-txt`
+- Cargo package: `robots-txt`
 
-## Implementation
+## Current Behavior
 
-- **Crate type**: `cdylib` (dynamic library)
-- **Interface**: FFI using the ABI defined in `ksbh_core/src/modules/abi/`
-- **Loaded by**: ksbh-core at runtime via dynamic library loading
+`src/lib.rs` currently:
 
-## Key Dependencies
+- matches `GET /robots.txt`
+- reads `content` from module config
+- returns `text/plain`
+- otherwise returns `Pass`
 
-- `ksbh-core`: Core types and FFI interface
-- `ksbh-types`: Shared types
+It serves configured content; it does not interpret crawler directives itself.
+
+## Notes
+
+- Crate type: `cdylib`
+- Uses `bytes`, `http`, `tracing`, `ksbh-modules-sdk`, and `ksbh-core`
 
 ## Build
 
 ```bash
-cargo build -p robots-txt
+cargo build -p robots-txt --manifest-path crates/Cargo.toml
 ```
-
-## Conventions
-
-Follow the general conventions in the root `AGENTS.md`.

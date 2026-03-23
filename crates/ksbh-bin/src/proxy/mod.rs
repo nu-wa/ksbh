@@ -69,7 +69,7 @@ impl<'a> ksbh_types::prelude::ProxyProviderSession for PingoraSessionWrapper<'a>
         &mut self,
     ) -> Result<Option<bytes::Bytes>, ksbh_types::prelude::ProxyProviderError> {
         // If request has no body, `self.session.read_request_body` will timeout.
-        if self.session.is_body_empty() || self.session.body_bytes_read() == 0 {
+        if self.session.is_body_empty() {
             return Ok(None);
         }
 

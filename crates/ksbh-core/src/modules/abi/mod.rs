@@ -69,25 +69,38 @@ pub type MetricsGoodBoyFn =
 pub type MetricsGetScoreFn =
     unsafe extern "C" fn(metrics_key: *const u8, metrics_key_len: usize) -> u64;
 
+/// FFI enum for built-in module types.
 #[repr(C)]
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum ModuleTypeCode {
+    /// OpenID Connect authentication module
     OIDC = 0,
+    /// Proof-of-work challenge module
     POW = 1,
+    /// Rate limiting module
     RateLimit = 2,
+    /// HTTP to HTTPS redirect module
     HttpToHttps = 3,
+    /// robots.txt handling module
     RobotsDotTXT = 4,
+    /// Custom module with user-defined type string
     Custom = 5,
 }
 
+/// FFI struct representing a module type, supporting both built-in and custom types.
 #[repr(C)]
 #[derive(Clone)]
 pub struct ModuleType {
+    /// Built-in module type code
     pub code: ModuleTypeCode,
+    /// Pointer to custom type string (used when `code` is `Custom`)
     pub custom_ptr: *const u8,
+    /// Length of custom type string
     pub custom_len: usize,
 }
 
+/// FFI entry point function type for module request filtering.
+/// Modules must export a function with this signature named `request_filter`.
 pub type ModuleEntryFn =
     unsafe extern "C" fn(ctx: *const ModuleContext<'_>) -> *const ModuleResponse;
 
@@ -100,6 +113,8 @@ pub type ModuleResponseFreeFn = unsafe extern "C" fn(
 
 pub type ModuleGetTypeFn = unsafe extern "C" fn() -> ModuleType;
 
+/// Session access for modules.
+/// Provides methods to read/write session-scoped data and access request information.
 pub struct ModuleSession<'a> {
     ctx: &'a ModuleContext<'a>,
 }
@@ -135,6 +150,8 @@ impl<'a> ModuleSession<'a> {
         None
     }
 
+    /// Retrieves session data for the given module and key.
+    /// Returns `None` if no data exists or if the session has expired.
     pub fn get_session_data(&self, module_name: &str, data_key: &str) -> Option<Vec<u8>> {
         let mut out_ptr: *const u8 = ::std::ptr::null();
         let mut out_len: usize = 0;
@@ -163,6 +180,8 @@ impl<'a> ModuleSession<'a> {
         Some(data)
     }
 
+    /// Stores session data for the given module and key.
+    /// Returns `true` on success, `false` on failure.
     pub fn set_session_data(&self, module_name: &str, data_key: &str, data: &[u8]) -> bool {
         unsafe {
             (self.ctx.session_set_fn)(
@@ -177,6 +196,8 @@ impl<'a> ModuleSession<'a> {
         }
     }
 
+    /// Stores session data with a TTL (time-to-live) expiration.
+    /// Returns `true` on success, `false` on failure.
     pub fn set_session_data_with_ttl(
         &self,
         module_name: &str,

@@ -1,7 +1,11 @@
+/// Errors that can occur when interacting with module host.
 #[derive(Debug, PartialEq)]
 pub enum ModuleHostError {
+    /// Requested module is not loaded
     ModuleNotFound,
+    /// Module returned an error
     ModuleError(String),
+    /// Internal host error
     InternalError(String),
 }
 
@@ -21,6 +25,8 @@ impl ::std::fmt::Display for ModuleHostError {
     }
 }
 
+/// Hosts loaded modules and dispatches requests to them.
+/// Manages module lifecycle, session storage, and response handling.
 pub struct ModuleHost {
     modules: scc::HashMap<
         crate::modules::ModuleConfigurationType,
@@ -87,6 +93,8 @@ impl ModuleHost {
         Ok(())
     }
 
+    /// Async FFI call to module request_filter entry point.
+    /// Builds module context, invokes the module, and writes response to session.
     pub async fn call_module(
         &self,
         req_ctx: &super::module_request_context::ModuleRequestContext<'_>,
@@ -140,6 +148,17 @@ impl ModuleHost {
                 kv.value_str().parse::<http::header::HeaderValue>(),
             ) {
                 http_response = http_response.header(name, value);
+            }
+        }
+
+        if !body.is_empty() {
+            let has_content_length = http_response
+                .headers_ref()
+                .is_some_and(|headers| headers.contains_key(http::header::CONTENT_LENGTH));
+
+            if !has_content_length {
+                http_response =
+                    http_response.header(http::header::CONTENT_LENGTH, body.len().to_string());
             }
         }
 

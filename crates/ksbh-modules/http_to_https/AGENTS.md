@@ -1,28 +1,36 @@
 # http_to_https Module
 
-KSBH plugin module that redirects HTTP requests to HTTPS.
+HTTP-to-HTTPS redirect module.
 
-## Purpose
+## Package
 
-This module intercepts HTTP requests and issues a 301 redirect to the HTTPS equivalent.
+- Directory: `crates/ksbh-modules/http_to_https`
+- Cargo package: `http_to_https`
 
-## Implementation
+## Current Entry Point
 
-- **Crate type**: `cdylib` (dynamic library)
-- **Interface**: FFI using the ABI defined in `ksbh_core/src/modules/abi/`
-- **Loaded by**: ksbh-core at runtime via dynamic library loading
+`src/lib.rs` exports:
 
-## Key Dependencies
+```rust
+pub fn process(
+    ctx: ksbh_modules_sdk::RequestContext,
+) -> Result<ksbh_modules_sdk::ModuleResult, ksbh_modules_sdk::ModuleError>
+```
 
-- `ksbh-core`: Core types and FFI interface
-- `ksbh-types`: Shared types
+It is registered with:
+
+```rust
+ksbh_modules_sdk::types::ModuleType::HttpToHttps
+```
+
+## Notes
+
+- Crate type: `cdylib`
+- Built on top of `ksbh-modules-sdk`
+- Redirects insecure requests with HTTP 301
 
 ## Build
 
 ```bash
-cargo build -p http_to_https
+cargo build -p http_to_https --manifest-path crates/Cargo.toml
 ```
-
-## Conventions
-
-Follow the general conventions in the root `AGENTS.md`.

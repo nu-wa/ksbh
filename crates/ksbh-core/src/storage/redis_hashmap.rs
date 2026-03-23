@@ -1,5 +1,9 @@
 //! A very naive attempt at keeping some values in memory and storing them into Redis after memory TTL expires.
 
+/// Hot/cold cache with Redis persistence.
+///
+/// - Hot cache: in-memory with TTL (default 1 hour)
+/// - Cold cache: Redis with separate TTL (default 24 hours)
 #[derive(Clone)]
 pub struct RedisHashMap<K, V> {
     ttl: tokio::time::Duration,
@@ -8,6 +12,7 @@ pub struct RedisHashMap<K, V> {
     redis_connection: Option<::std::sync::Arc<super::Storage>>,
 }
 
+/// A value stored in the hot cache with expiration time.
 #[derive(Debug, Clone)]
 pub struct StoredValue<V> {
     expires: tokio::time::Instant,
@@ -45,6 +50,10 @@ where
         + 'static
         + ::std::fmt::Debug,
 {
+    /// Creates a new RedisHashMap.
+    ///
+    /// - `ttl`: Hot cache TTL (defaults to 1 hour)
+    /// - `redis_ttl`: Cold cache TTL for Redis persistence (defaults to 24 hours)
     pub fn new(
         ttl: Option<tokio::time::Duration>,
         redis_ttl: Option<tokio::time::Duration>,
@@ -87,6 +96,9 @@ where
         None
     }
 
+    /// Synchronously checks hot cache first, then cold (Redis) cache.
+    ///
+    /// If found in cold cache, promotes value to hot cache.
     pub fn get_hot_or_cold_sync(&self, key: &K) -> Option<V> {
         if let Some(v) = self.get_hot_sync(key) {
             return Some(v);
@@ -471,6 +483,9 @@ where
         }
     }
 
+    /// Spawns a background task that periodically persists expired hot values to Redis.
+    ///
+    /// Runs until the returned JoinHandle is dropped.
     pub async fn watch(&self, interval: tokio::time::Duration) -> tokio::task::JoinHandle<()> {
         let redis_conn = self.redis_connection.clone();
         let redis_ttl = self.redis_ttl;

@@ -1,159 +1,103 @@
 # ksbh-modules-sdk
 
-SDK for building FFI modules for the KSBH reverse proxy.
+High-level SDK for writing KSBH FFI modules.
 
 ## Purpose
 
-This crate provides a convenient API for building dynamically-loaded modules:
+This crate wraps the raw ABI from `ksbh-core/src/modules/abi/` with a Rust-facing API for module authors.
 
-- **Context helpers**: Safe wrappers around `ModuleContext`
-- **Session access**: Methods to read/write session data
-- **Logging**: Host function for module logging
-- **FFI utilities**: Type-safe helpers for FFI boundary
-- **Error types**: Module-specific error handling
+## Source Layout
 
-## Relationship to ksbh-core
+- `src/context.rs`
+- `src/error.rs`
+- `src/ffi/mod.rs`
+- `src/logger.rs`
+- `src/metrics.rs`
+- `src/result.rs`
+- `src/session.rs`
+- `src/types.rs`
 
-The SDK sits on top of the ABI defined in `ksbh_core::modules::abi`:
+## Public Surface
 
-- `ksbh-core/abi`: Raw C-compatible types and FFI definitions
-- `ksbh-modules-sdk`: Higher-level Rust API wrapping the FFI
+Primary exports:
 
-## Using the SDK
+- `ksbh_modules_sdk::RequestContext`
+- `ksbh_modules_sdk::RequestInfo`
+- `ksbh_modules_sdk::ModuleResult`
+- `ksbh_modules_sdk::ModuleError`
+- `ksbh_modules_sdk::MetricsHandle`
 
-Add as a dependency in your module:
+## Module Pattern
 
-```toml
-[dependencies]
-ksbh-modules-sdk = { path = "../../ksbh-modules-sdk/" }
-```
-
-## Key Components
-
-- `context.rs`: `ModuleContext` wrapper with safe accessors
-- `session.rs`: Session data read/write helpers
-- `logger.rs`: Logging host function wrapper
-- `error.rs`: Error types and helper constructors
-- `metrics.rs`: Metrics reporting via host functions
-- `types.rs`: Common types (headers, cookies, etc.)
-- `result.rs`: `ModuleResult` type for error handling
-- `ffi/mod.rs`: FFI boundary utilities
-
-## Module Implementation Pattern
-
-Use the `register_module!` macro which handles all FFI boilerplate:
+Normal modules implement a handler with this shape:
 
 ```rust
-fn handle_request(
-    mut ctx: ksbh_modules_sdk::RequestContext<'_>,
-) -> ksbh_modules_sdk::ModuleResult {
-    // Access request info
-    let path = ctx.request().path();
-    
-    // Process request and return Pass to continue, or Stop with response
-    if some_condition {
-        let response = http::Response::builder()
-            .status(401)
-            .body(bytes::Bytes::new())
-            .unwrap();
-        ksbh_modules_sdk::ModuleResult::Stop(response)
-    } else {
-        ksbh_modules_sdk::ModuleResult::Pass
-    }
+pub fn process(
+    ctx: ksbh_modules_sdk::RequestContext,
+) -> Result<ksbh_modules_sdk::ModuleResult, ksbh_modules_sdk::ModuleError> {
+    Ok(ksbh_modules_sdk::ModuleResult::Pass)
 }
 
 ksbh_modules_sdk::register_module!(
-    handle_request, 
-    ksbh_core::modules::abi::ModuleTypeCode::Custom
+    process,
+    ksbh_modules_sdk::types::ModuleType::HttpToHttps
 );
 ```
 
-### Key SDK Types
+The macro exports:
 
-- `ksbh_modules_sdk::RequestContext`: Safe wrapper around the raw module context
-- `ksbh_modules_sdk::ModuleResult::Pass`: Continue request processing
-- `ksbh_modules_sdk::ModuleResult::Stop(Response)`: Stop processing and return response
-- `ksbh_modules_sdk::RequestInfo`: Access to request path, headers, etc.
+- `get_module_type`
+- `request_filter`
 
-### Error Handling
+The crate also exports `free_response`.
 
-The SDK provides `ModuleError` for error handling with convenience constructors:
+## Error Helpers
 
-```rust
-use ksbh_modules_sdk::ModuleError;
+Useful constructors from `src/error.rs`:
 
-// Return 400 Bad Request
-return Err(ModuleError::bad_request("Invalid request"));
+- `ModuleError::bad_request(...)`
+- `ModuleError::unauthorized(...)`
+- `ModuleError::forbidden(...)`
+- `ModuleError::not_found(...)`
+- `ModuleError::internal_error(...)`
+- `ModuleError::too_many_requests(...)`
+- `ModuleError::critical(...)`
 
-// Return 401 Unauthorized
-return Err(ModuleError::unauthorized("Missing credentials"));
+These accept `impl Into<String>` for message-based constructors.
 
-// Return 403 Forbidden
-return Err(ModuleError::forbidden("Access denied"));
+## Metrics
 
-// Return 404 Not Found
-return Err(ModuleError::not_found("Resource not found"));
+`RequestContext` exposes a `metrics` field of type `MetricsHandle`.
 
-// Return 500 Internal Server Error
-return Err(ModuleError::internal_error("Something went wrong"));
-```
+Current methods:
 
-Available constructors:
-- `ModuleError::bad_request(msg: &str) -> Self`
-- `ModuleError::unauthorized(msg: &str) -> Self`
-- `ModuleError::forbidden(msg: &str) -> Self`
-- `ModuleError::not_found(msg: &str) -> Self`
-- `ModuleError::internal(msg: &str) -> Self` (alias for `internal_error`)
-- `ModuleError::too_many_requests(msg: &str) -> Self`
-- `ModuleError::critical(err: E) -> Self` for critical errors
+- `ctx.metrics.good_boy(metrics_key)`
+- `ctx.metrics.get_score(metrics_key)`
 
-### Metrics
+Both require a metrics key argument.
 
-The SDK provides `MetricsHandle` for reporting metrics to the host:
+## Notes
 
-```rust
-let ctx: ksbh_modules_sdk::RequestContext = /* ... */;
-
-// Reduce score by 50 (for good behavior like completing a challenge)
-let success = ctx.metrics().good_boy(b"challenge:completed");
-
-// Get current score
-let score = ctx.metrics().get_score(b"user:123");
-```
-
-Methods:
-- `metrics.good_boy(metrics_key: &[u8]) -> bool` - Reduce score by 50, returns true if successful
-- `metrics.get_score(metrics_key: &[u8]) -> u64` - Get current score for the key
-
-### Logging Macros
-
-Convenience macros for logging via the host:
-
-```rust
-log_error!(ctx.logger(), "Failed to process request: {}", error);
-log_warn!(ctx.logger(), "Rate limit approaching: {}", current);
-log_info!(ctx.logger(), "Request processed: {}", path);
-log_debug!(ctx.logger(), "Debug info: {:?}", data);
-```
-
-Available macros:
-- `log_error!(logger, message)` - Log at error level
-- `log_warn!(logger, message)` - Log at warning level
-- `log_info!(logger, message)` - Log at info level
-- `log_debug!(logger, message)` - Log at debug level
-
-### FFI Functions
-
-The SDK exports the following FFI functions that the host calls:
-
-- `free_response` - FFI function for freeing responses allocated by modules. The SDK manages memory internally, so this is currently a no-op but must be exported for the host to call.
+- The SDK examples in this file should avoid `unwrap()` in production-style snippets.
+- Prefer documenting the current public fields and helpers from `RequestContext`, not imaginary accessor-heavy APIs.
+- `register_module!` now keeps `ModuleType::Custom(...)` names in stable storage for `get_module_type()`, so dynamically loaded custom modules do not return dangling pointers to temporary strings.
 
 ## Build
 
 ```bash
-cargo build -p ksbh-modules-sdk
+cargo build -p ksbh-modules-sdk --manifest-path crates/Cargo.toml
 ```
 
-## Conventions
+## FFI Smoke Testing
 
-Follow the general conventions in the root `AGENTS.md`.
+- The crate now has an in-process FFI smoke test at `tests/ffi_miri.rs`.
+- That test exercises:
+  - `register_module!`
+  - `request_filter`
+  - `convert_context`
+  - session callbacks
+  - metrics callbacks
+  - response allocation
+- It also covers custom-type export stability, `Pass`, error-to-response conversion, and repeated allocation/free cycles.
+- It is designed to run under Miri through `mise run miri-modules-sdk-ffi`.
+- This is the intended Miri target for SDK/ABI coverage; do not describe the release-image dynamic `.so` loading path as Miri-covered.

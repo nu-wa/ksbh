@@ -1,8 +1,13 @@
+/// Errors that can occur during proxy provider operations.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProxyProviderError {
+    /// Internal error with detailed description
     InternalErrorDetailed(String),
+    /// Generic internal error
     InternalError,
+    /// Parsing failed with details
     ParsingError(String),
+    /// No matching route found
     RouteNotFound,
 }
 
@@ -47,15 +52,21 @@ impl From<Box<pingora::Error>> for ProxyProviderError {
     }
 }
 
+/// Decision made by a proxy provider on how to handle a request.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProxyDecision {
+    /// Module handled the request and wrote a response
     ModuleReplied,
+    /// Continue normal proxy processing
     ContinueProcessing,
+    /// Stop processing with the given status and body
     StopProcessing(http::StatusCode, bytes::Bytes),
 }
 
+/// Represents an upstream peer to proxy requests to.
 #[derive(Debug)]
 pub struct UpstreamPeer {
+    /// The address of the upstream peer
     pub address: String,
 }
 
@@ -75,6 +86,7 @@ impl ::std::fmt::Display for ProxyDecision {
 
 pub type ProxyProviderResult = Result<ProxyDecision, ProxyProviderError>;
 
+/// Session abstraction for proxy provider operations.
 #[async_trait::async_trait]
 pub trait ProxyProviderSession: Send + Sync {
     fn headers(&self) -> http::request::Parts;
@@ -95,8 +107,10 @@ pub trait ProxyProviderSession: Send + Sync {
     async fn read_request_body(&mut self) -> Result<Option<bytes::Bytes>, ProxyProviderError>;
 }
 
+/// Trait for implementing a proxy provider that can filter requests and responses.
 #[async_trait::async_trait]
 pub trait ProxyProvider: Send + Sync {
+    /// Context created per-request for tracking state
     type ProxyContext: Send + ::std::fmt::Debug;
 
     fn new_context(&self) -> Self::ProxyContext;

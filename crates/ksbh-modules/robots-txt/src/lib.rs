@@ -1,3 +1,9 @@
+//! robots.txt serving module.
+//!
+//! Serves static robots.txt content from the `content` config field.
+//! Only responds to GET requests on `/robots.txt` path.
+//! Returns Pass for all other requests.
+
 pub fn process(
     ctx: ksbh_modules_sdk::RequestContext,
 ) -> Result<ksbh_modules_sdk::ModuleResult, ksbh_modules_sdk::ModuleError> {

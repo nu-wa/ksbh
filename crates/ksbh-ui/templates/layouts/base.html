@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en" data-theme="ksbh-casbah">
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>{% block title %}ksbh{% endblock %}</title>
+        <style>
+            {{ inline_css|safe }}
+        </style>
+    </head>
+    <body class="ksbh-body">
+        <div class="ksbh-shell">
+            {% include "components/topbar.html" %}
+            <div class="ksbh-main">
+                <main class="ksbh-main__content ksbh-main__content--index">
+                    {% block body %}{% endblock %}
+                </main>
+            </div>
+            {% include "components/footer.html" %}
+        </div>
+    </body>
+</html>

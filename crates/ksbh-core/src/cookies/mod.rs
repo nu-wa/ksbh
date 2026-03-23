@@ -2,6 +2,7 @@
 pub struct CookieSettings {
     pub key: cookie::Key,
     pub name: ::std::string::String,
+    pub secure: bool,
 }
 
 impl CookieSettings {
@@ -19,6 +20,7 @@ impl CookieSettings {
         Ok(Self {
             key,
             name: config.constants.cookie_name.clone(),
+            secure: config.constants.cookie_secure,
         })
     }
 }
@@ -144,7 +146,7 @@ impl ProxyCookie {
 
         jar.private_mut(&cookie_settings.key).add(
             cookie::CookieBuilder::new(cookie_settings.name.clone(), value)
-                .secure(true)
+                .secure(cookie_settings.secure)
                 .max_age(cookie::time::Duration::hours(24))
                 .http_only(true)
                 .same_site(cookie::SameSite::Lax)

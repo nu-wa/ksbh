@@ -173,9 +173,9 @@ impl ModuleRegistry {
 
         res.sort_by(|a, b| {
             b.mod_spec
-                .r#type
-                .get_weight()
-                .cmp(&a.mod_spec.r#type.get_weight())
+                .weight
+                .cmp(&a.mod_spec.weight)
+                .then_with(|| a.name.as_ref().cmp(b.name.as_ref()))
         });
 
         res

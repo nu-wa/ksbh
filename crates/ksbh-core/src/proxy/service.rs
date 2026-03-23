@@ -1,3 +1,8 @@
+/// The main proxy service implementation combining routing, modules, storage, and metrics.
+///
+/// This struct implements the `ProxyProvider` trait from ksbh-types and orchestrates
+/// the request lifecycle: request filtering, upstream peer resolution, header
+/// manipulation, response filtering, and metrics collection.
 #[allow(dead_code)]
 pub struct ProxyService {
     #[allow(dead_code)]

@@ -2,36 +2,22 @@
 
 OpenID Connect authentication module.
 
-## Purpose
+## Package
 
-This module provides OIDC authentication:
-- Full OIDC authorization code flow with PKCE
-- Does NOT do JWT validation directly - uses OIDC tokens via openidconnect crate
-- Session cookie management with encrypted session data
-- Uses MessagePack (rmp-serde) for session storage, not Redis directly
+- Directory: `crates/ksbh-modules/oidc`
+- Cargo package: `oidc`
 
-## Implementation
+## Notes
 
-- **Crate type**: `cdylib` (dynamic library)
-- **Interface**: FFI using the ABI defined in `ksbh_core/src/modules/abi/`
-- **Loaded by**: ksbh-core at runtime via dynamic library loading
-
-## Key Dependencies
-
-- `ksbh-core`: Core types and FFI interface
-- `ksbh-types`: Shared types
-- `jsonwebtoken`: JWT handling (for JWT claims parsing, not validation)
-- `openidconnect`: OIDC protocol
-- `reqwest`: HTTP calls to OIDC provider
-- `rmp-serde`: MessagePack for session storage
-- `base64`: Token encoding
+- Crate type: `cdylib`
+- Uses `openidconnect`, `reqwest`, `jsonwebtoken`, `rmp-serde`, `serde`, and `scc`
+- Uses blocking `reqwest` / `openidconnect` clients
+- Stores module state in namespaced session storage, not in the host-owned proxy cookie
+- Caches provider metadata and related auth state inside the module runtime
+- Avoid claiming broad JWT validation behavior unless you verified it in source
 
 ## Build
 
 ```bash
-cargo build -p oidc
+cargo build -p oidc --manifest-path crates/Cargo.toml
 ```
-
-## Conventions
-
-Follow the general conventions in the root `AGENTS.md`.

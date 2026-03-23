@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+#MISE description="Start a local kind cluster"
+#MISE alias="kr"
+#MISE tools={kind="latest"}
+
+set -euo pipefail
+. "$(dirname "$0")/lib.sh"
+
+require_docker
+require_kind
+ensure_kind_cluster

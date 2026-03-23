@@ -1,0 +1,29 @@
+{% extends "layouts/minimal.html" %}
+
+{% block title %}{{ status_code }} - ksbh{% endblock %}
+
+{% block body %}
+<section class="ksbh-screen">
+    <div class="ksbh-screen__grid" aria-hidden="true"></div>
+    <section class="ksbh-stage">
+        <div class="ksbh-stage__header">
+            <div class="ksbh-stage__kicker">Static Http Response</div>
+            <div class="ksbh-stage__rule"></div>
+        </div>
+
+        <div class="ksbh-stage__body">
+            <div class="ksbh-stage__main">
+                <div class="ksbh-stage__code">{{ status_code }}</div>
+                <h1 class="ksbh-stage__title">{{ title }}</h1>
+            </div>
+
+            <aside class="ksbh-stage__side">
+                <div class="ksbh-stage__status">
+                    <span class="ksbh-stage__status-dot"></span>
+                    <span>{{ status_code }} / {{ title }}</span>
+                </div>
+            </aside>
+        </div>
+    </section>
+</section>
+{% endblock %}

@@ -1,28 +1,27 @@
 # ksbh-types
 
-Shared type definitions used across the KSBH workspace.
+Shared lightweight types and traits used across the workspace.
 
-## Purpose
+## Current Contents
 
-This crate contains common types and traits used by all other crates:
-- Session trait abstractions
-- Configuration types
-- Protocol definitions
-- Serialization primitives
+This crate is narrower than a general “all shared config/protocol types” bucket.
 
-## Key Dependencies
+- `src/ksbh_str.rs` for `KsbhStr`
+- `src/providers/` for proxy/provider traits
+- `src/requests/` for HTTP request/response-related types
+- `PublicConfig`
+- `Ports`
+- `ArcHashMap`
+- `prelude` re-exports
 
-- `http`: HTTP types
-- `smol_str`: Efficient string type
-- `pingora`: HTTP framework types
-- `serde`: Serialization
+## Notes
+
+- `ArcHashMap` currently aliases `arc_swap::ArcSwap<::std::collections::HashMap<...>>`.
+- The crate has a `test-util` feature.
+- Do not describe this crate as owning all configuration or protocol primitives for the repo.
 
 ## Build
 
 ```bash
-cargo build -p ksbh-types
+cargo build -p ksbh-types --manifest-path crates/Cargo.toml
 ```
-
-## Conventions
-
-Follow the general conventions in the root `AGENTS.md`.

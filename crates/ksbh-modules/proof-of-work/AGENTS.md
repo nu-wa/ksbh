@@ -2,36 +2,21 @@
 
 Proof-of-work challenge module for bot mitigation.
 
-## Purpose
+## Package
 
-This module implements PoW challenges:
-- Hash-based challenge generation
-- Client-side proof verification
-- Anti-bot protection
+- Directory: `crates/ksbh-modules/proof-of-work`
+- Cargo package: `proof-of-work`
 
-## Implementation
+## Notes
 
-- **Crate type**: `cdylib` (dynamic library)
-- **Interface**: FFI using the ABI defined in `ksbh_core/src/modules/abi/`
-- **Loaded by**: ksbh-core at runtime via dynamic library loading
-
-## Key Dependencies
-
-- `ksbh-core`: Core types and FFI interface
-- `ksbh-types`: Shared types
-- `blake3`: Hashing
-- `sha2`: Hashing
-- `askama`: Template rendering
-- `urlencoding`: URL encoding
-- `uuid`: Session ID generation
-- `hex`: Hex encoding
+- Crate type: `cdylib`
+- Uses `askama`, `blake3`, `sha2`, `hex`, `serde`, `bytes`, `http`, `tracing`, and `urlencoding`
+- Template assets live under `templates/`, reusable layouts come from `../../ksbh-ui/templates` via `askama.toml`, and supporting code lives in `src/templates.rs`
+- Stores completion state in module session storage rather than the proxy cookie
+- The module currently treats too-short or invalid secrets as deployer misconfiguration and warns/passes instead of failing closed
 
 ## Build
 
 ```bash
-cargo build -p proof-of-work
+cargo build -p proof-of-work --manifest-path crates/Cargo.toml
 ```
-
-## Conventions
-
-Follow the general conventions in the root `AGENTS.md`.

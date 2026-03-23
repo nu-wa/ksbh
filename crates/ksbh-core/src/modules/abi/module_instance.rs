@@ -1,9 +1,14 @@
+/// Errors that can occur when loading or invoking a module instance.
 #[derive(Debug)]
 pub enum ModuleInstanceError {
+    /// Failed to load the dynamic library
     FailedToLoad(String),
+    /// Required FFI function is missing from the module
     MissingFunction(&'static str),
 }
 
+/// Loaded module instance representing a dynamically-loaded library.
+/// Contains FFI function pointers and module metadata.
 #[derive(Debug)]
 pub struct ModuleInstance {
     _lib: libloading::Library,
@@ -14,6 +19,8 @@ pub struct ModuleInstance {
 }
 
 impl ModuleInstance {
+    /// Loads a module from the given dynamic library path.
+    /// Validates required FFI functions exist and retrieves module type.
     pub fn load<P: AsRef<::std::path::Path>>(path: P) -> Result<Self, ModuleInstanceError> {
         let path_ref = path.as_ref();
 
@@ -58,6 +65,8 @@ impl ModuleInstance {
         })
     }
 
+    /// Calls the module's `request_filter` entry point with the given context.
+    /// Returns a raw pointer to the module response; caller must use `free_response`.
     pub fn call_request_filter(
         &self,
         ctx: &mut super::ModuleContext<'_>,
