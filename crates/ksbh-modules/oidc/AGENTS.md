@@ -14,6 +14,7 @@ OpenID Connect authentication module.
 - Uses blocking `reqwest` / `openidconnect` clients
 - Stores module state in namespaced session storage, not in the host-owned proxy cookie
 - Caches provider metadata and related auth state inside the module runtime
+- Treats websocket authentication checks as real websocket upgrade handshakes (not any generic `Upgrade` header)
 - Avoid claiming broad JWT validation behavior unless you verified it in source
 
 ## Build

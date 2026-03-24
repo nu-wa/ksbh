@@ -359,6 +359,10 @@ fn write_error(
     ))
 }
 
+fn is_unauthenticated_websocket_upgrade(headers: &http::HeaderMap, session_valid: bool) -> bool {
+    !session_valid && ksbh_modules_sdk::is_websocket_upgrade_request(headers)
+}
+
 pub fn process(
     ctx: ksbh_modules_sdk::RequestContext,
 ) -> Result<ksbh_modules_sdk::ModuleResult, ksbh_modules_sdk::ModuleError> {
@@ -423,7 +427,7 @@ pub fn process(
         .map(|oidc_complete| now < oidc_complete + session_ttl_secs)
         .unwrap_or(false);
 
-    if ctx.headers.get("Upgrade").is_some() && !session_valid {
+    if is_unauthenticated_websocket_upgrade(&ctx.headers, session_valid) {
         return write_error(http::StatusCode::UNAUTHORIZED, "OIDC required");
     }
 
@@ -537,3 +541,43 @@ pub fn process(
 }
 
 ksbh_modules_sdk::register_module!(process, ksbh_modules_sdk::types::ModuleType::Oidc);
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn unauthenticated_upgrade_requires_websocket_handshake() {
+        let mut headers = http::HeaderMap::new();
+        headers.insert(http::header::UPGRADE, http::HeaderValue::from_static("h2c"));
+        assert!(!super::is_unauthenticated_websocket_upgrade(
+            &headers, false
+        ));
+    }
+
+    #[test]
+    fn unauthenticated_valid_websocket_handshake_is_blocked() {
+        let mut headers = http::HeaderMap::new();
+        headers.insert(
+            http::header::UPGRADE,
+            http::HeaderValue::from_static("websocket"),
+        );
+        headers.insert(
+            http::header::CONNECTION,
+            http::HeaderValue::from_static("Upgrade"),
+        );
+        assert!(super::is_unauthenticated_websocket_upgrade(&headers, false));
+    }
+
+    #[test]
+    fn authenticated_websocket_handshake_is_not_blocked() {
+        let mut headers = http::HeaderMap::new();
+        headers.insert(
+            http::header::UPGRADE,
+            http::HeaderValue::from_static("websocket"),
+        );
+        headers.insert(
+            http::header::CONNECTION,
+            http::HeaderValue::from_static("Upgrade"),
+        );
+        assert!(!super::is_unauthenticated_websocket_upgrade(&headers, true));
+    }
+}

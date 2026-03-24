@@ -26,6 +26,7 @@ Primary exports:
 - `ksbh_modules_sdk::ModuleResult`
 - `ksbh_modules_sdk::ModuleError`
 - `ksbh_modules_sdk::MetricsHandle`
+- `ksbh_modules_sdk::is_websocket_upgrade_request(headers)`
 
 ## Module Pattern
 

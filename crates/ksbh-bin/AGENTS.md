@@ -39,6 +39,7 @@ Current top-level source files:
 - Profiling is enabled by the default `profiling` feature.
 - Release/runtime packaging includes module crates, but request-time module loading still happens through `ksbh-core`.
 - Shared Askama layouts and shared inline CSS now come from `../ksbh-ui` via `askama.toml` and the `ksbh-ui` crate.
+- The internal static content app supports `GET` and `HEAD`; unsupported methods on static endpoints return `405` with `Allow: GET, HEAD`.
 
 ## Services
 

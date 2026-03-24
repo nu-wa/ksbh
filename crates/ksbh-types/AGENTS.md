@@ -18,6 +18,7 @@ This crate is narrower than a general “all shared config/protocol types” buc
 
 - `ArcHashMap` currently aliases `arc_swap::ArcSwap<::std::collections::HashMap<...>>`.
 - The crate has a `test-util` feature.
+- HTTP request parsing now treats websocket mode as a real upgrade handshake (`Upgrade: websocket` plus `Connection: upgrade` or `Sec-WebSocket-Key`).
 - Do not describe this crate as owning all configuration or protocol primitives for the repo.
 
 ## Build

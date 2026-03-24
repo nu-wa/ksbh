@@ -27,17 +27,6 @@ fn header_has_token(
         .unwrap_or(false)
 }
 
-fn is_websocket_upgrade(headers: &http::HeaderMap) -> bool {
-    let upgrade_is_websocket = header_has_token(headers, http::header::UPGRADE, "websocket");
-    if !upgrade_is_websocket {
-        return false;
-    }
-
-    let connection_has_upgrade = header_has_token(headers, http::header::CONNECTION, "upgrade");
-    let has_websocket_key = headers.contains_key("Sec-WebSocket-Key");
-    connection_has_upgrade || has_websocket_key
-}
-
 fn is_secure_request(request: &ksbh_modules_sdk::RequestInfo, headers: &http::HeaderMap) -> bool {
     let scheme = request.scheme.as_str();
     let uri = request.uri.as_str();
@@ -70,7 +59,7 @@ fn build_redirect_url(uri: &str, host: &str) -> String {
 pub fn process(
     ctx: ksbh_modules_sdk::RequestContext,
 ) -> Result<ksbh_modules_sdk::ModuleResult, ksbh_modules_sdk::ModuleError> {
-    if is_websocket_upgrade(&ctx.headers) {
+    if ksbh_modules_sdk::is_websocket_upgrade_request(&ctx.headers) {
         return Ok(ksbh_modules_sdk::ModuleResult::Pass);
     }
 
@@ -123,7 +112,7 @@ mod tests {
             http::HeaderValue::from_static("keep-alive, Upgrade"),
         );
 
-        assert!(super::is_websocket_upgrade(&headers));
+        assert!(ksbh_modules_sdk::is_websocket_upgrade_request(&headers));
     }
 
     #[test]
@@ -138,7 +127,7 @@ mod tests {
             http::HeaderValue::from_static("dGhlIHNhbXBsZSBub25jZQ=="),
         );
 
-        assert!(super::is_websocket_upgrade(&headers));
+        assert!(ksbh_modules_sdk::is_websocket_upgrade_request(&headers));
     }
 
     #[test]
@@ -153,7 +142,7 @@ mod tests {
             http::HeaderValue::from_static("dGhlIHNhbXBsZSBub25jZQ=="),
         );
 
-        assert!(!super::is_websocket_upgrade(&headers));
+        assert!(!ksbh_modules_sdk::is_websocket_upgrade_request(&headers));
     }
 
     #[test]

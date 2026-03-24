@@ -49,6 +49,36 @@ pub use ffi::OwnedResponse;
 pub use metrics::MetricsHandle;
 pub use result::ModuleResult;
 
+fn header_has_token(
+    headers: &http::HeaderMap,
+    name: impl http::header::AsHeaderName,
+    token: &str,
+) -> bool {
+    headers
+        .get(name)
+        .and_then(|value| value.to_str().ok())
+        .map(|value| {
+            value
+                .split(',')
+                .any(|part| part.trim().eq_ignore_ascii_case(token))
+        })
+        .unwrap_or(false)
+}
+
+/// Returns whether request headers represent a WebSocket upgrade handshake.
+///
+/// A request is considered a WebSocket upgrade when:
+/// - `Upgrade` includes `websocket`
+/// - and either `Connection` includes `upgrade` or `Sec-WebSocket-Key` is present
+pub fn is_websocket_upgrade_request(headers: &http::HeaderMap) -> bool {
+    if !header_has_token(headers, http::header::UPGRADE, "websocket") {
+        return false;
+    }
+
+    header_has_token(headers, http::header::CONNECTION, "upgrade")
+        || headers.contains_key("Sec-WebSocket-Key")
+}
+
 /// Free a response allocated by the module.
 ///
 /// This function should be called to free responses returned by `request_filter`
@@ -200,4 +230,49 @@ macro_rules! log_debug {
     ($logger:expr, $($arg:tt)*) => {
         $logger.log_with_format(3, ::std::format_args!($($arg)*))
     };
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn websocket_upgrade_requires_upgrade_websocket_header() {
+        let mut headers = http::HeaderMap::new();
+        headers.insert(
+            http::header::CONNECTION,
+            http::HeaderValue::from_static("upgrade"),
+        );
+        headers.insert(
+            "Sec-WebSocket-Key",
+            http::HeaderValue::from_static("dGhlIHNhbXBsZSBub25jZQ=="),
+        );
+        assert!(!super::is_websocket_upgrade_request(&headers));
+    }
+
+    #[test]
+    fn websocket_upgrade_detected_with_connection_upgrade() {
+        let mut headers = http::HeaderMap::new();
+        headers.insert(
+            http::header::UPGRADE,
+            http::HeaderValue::from_static("websocket"),
+        );
+        headers.insert(
+            http::header::CONNECTION,
+            http::HeaderValue::from_static("keep-alive, Upgrade"),
+        );
+        assert!(super::is_websocket_upgrade_request(&headers));
+    }
+
+    #[test]
+    fn websocket_upgrade_detected_with_sec_websocket_key() {
+        let mut headers = http::HeaderMap::new();
+        headers.insert(
+            http::header::UPGRADE,
+            http::HeaderValue::from_static("websocket"),
+        );
+        headers.insert(
+            "Sec-WebSocket-Key",
+            http::HeaderValue::from_static("dGhlIHNhbXBsZSBub25jZQ=="),
+        );
+        assert!(super::is_websocket_upgrade_request(&headers));
+    }
 }

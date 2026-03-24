@@ -63,7 +63,7 @@ impl StaticHttpApp {
         config: ::std::sync::Arc<ksbh_core::Config>,
     ) -> Result<Self, errors::StaticHttpAppError> {
         use askama::Template;
-        let templates = scc::HashMap::with_capacity(6);
+        let templates = scc::HashMap::with_capacity(7);
 
         templates.upsert_sync(
             "400",
@@ -86,6 +86,15 @@ impl StaticHttpApp {
         templates.upsert_sync(
             "403",
             html::ErrorTemplate::new("403", "Forbidden", "The request was understood, but this resource is not available to the current client.").render()?,
+        );
+        templates.upsert_sync(
+            "405",
+            html::ErrorTemplate::new(
+                "405",
+                "Method Not Allowed",
+                "This static endpoint only accepts GET and HEAD requests.",
+            )
+            .render()?,
         );
         templates.upsert_sync(
             "404",
@@ -125,49 +134,98 @@ impl StaticHttpApp {
     async fn send_400(
         &self,
         session: pingora::protocols::http::ServerSession,
+        head_only: bool,
     ) -> Option<pingora::apps::ReusedHttpStream> {
-        self.send_error_page(session, "400", http::StatusCode::BAD_REQUEST)
+        self.send_error_page(session, "400", http::StatusCode::BAD_REQUEST, head_only)
             .await
     }
 
     async fn send_401(
         &self,
         session: pingora::protocols::http::ServerSession,
+        head_only: bool,
     ) -> Option<pingora::apps::ReusedHttpStream> {
-        self.send_error_page(session, "401", http::StatusCode::UNAUTHORIZED)
+        self.send_error_page(session, "401", http::StatusCode::UNAUTHORIZED, head_only)
             .await
     }
 
     async fn send_403(
         &self,
         session: pingora::protocols::http::ServerSession,
+        head_only: bool,
     ) -> Option<pingora::apps::ReusedHttpStream> {
-        self.send_error_page(session, "403", http::StatusCode::FORBIDDEN)
+        self.send_error_page(session, "403", http::StatusCode::FORBIDDEN, head_only)
             .await
     }
 
     async fn send_404(
         &self,
         session: pingora::protocols::http::ServerSession,
+        head_only: bool,
     ) -> Option<pingora::apps::ReusedHttpStream> {
-        self.send_error_page(session, "404", http::StatusCode::NOT_FOUND)
+        self.send_error_page(session, "404", http::StatusCode::NOT_FOUND, head_only)
             .await
     }
 
     async fn send_500(
         &self,
         session: pingora::protocols::http::ServerSession,
+        head_only: bool,
     ) -> Option<pingora::apps::ReusedHttpStream> {
-        self.send_error_page(session, "500", http::StatusCode::INTERNAL_SERVER_ERROR)
-            .await
+        self.send_error_page(
+            session,
+            "500",
+            http::StatusCode::INTERNAL_SERVER_ERROR,
+            head_only,
+        )
+        .await
     }
 
     async fn send_502(
         &self,
         session: pingora::protocols::http::ServerSession,
+        head_only: bool,
     ) -> Option<pingora::apps::ReusedHttpStream> {
-        self.send_error_page(session, "502", http::StatusCode::BAD_GATEWAY)
+        self.send_error_page(session, "502", http::StatusCode::BAD_GATEWAY, head_only)
             .await
+    }
+
+    async fn send_405(
+        &self,
+        mut session: pingora::protocols::http::ServerSession,
+        head_only: bool,
+    ) -> Option<pingora::apps::ReusedHttpStream> {
+        let body = bytes::Bytes::copy_from_slice(self.templates.get_sync("405")?.as_bytes());
+        let mut response_header =
+            pingora::http::ResponseHeader::build(http::StatusCode::METHOD_NOT_ALLOWED, None)
+                .ok()?;
+
+        response_header
+            .insert_header(http::header::CONTENT_LENGTH, body.len())
+            .ok()?;
+        response_header
+            .insert_header(http::header::CONTENT_TYPE, "text/html")
+            .ok()?;
+        response_header
+            .insert_header(http::header::ALLOW, "GET, HEAD")
+            .ok()?;
+
+        session
+            .write_response_header(Box::new(response_header))
+            .await
+            .ok()?;
+
+        if head_only {
+            session
+                .write_response_body(bytes::Bytes::new(), true)
+                .await
+                .ok()?;
+            return None;
+        }
+
+        session.write_response_body(body, true).await.ok()?;
+
+        None
     }
 
     async fn send_error_page(
@@ -175,6 +233,7 @@ impl StaticHttpApp {
         mut session: pingora::protocols::http::ServerSession,
         page: &str,
         code: http::StatusCode,
+        head_only: bool,
     ) -> Option<pingora::apps::ReusedHttpStream> {
         let body = bytes::Bytes::copy_from_slice(self.templates.get_sync(page)?.as_bytes());
         let mut response_header = pingora::http::ResponseHeader::build(code, None).ok()?;
@@ -191,6 +250,14 @@ impl StaticHttpApp {
             .await
             .ok()?;
 
+        if head_only {
+            session
+                .write_response_body(bytes::Bytes::new(), true)
+                .await
+                .ok()?;
+            return None;
+        }
+
         session.write_response_body(body, true).await.ok()?;
 
         None
@@ -203,16 +270,17 @@ impl StaticHttpApp {
         host: &str,
         request_path_param: Option<&str>,
         file_param: Option<&str>,
+        head_only: bool,
     ) -> Option<pingora::apps::ReusedHttpStream> {
         let file_path = if let Some(file_param) = file_param {
             let decoded = match urlencoding::decode(file_param) {
                 Ok(value) => value,
-                Err(_) => return self.send_400(session).await,
+                Err(_) => return self.send_400(session, head_only).await,
             };
 
             match get_clean_file_path(&self.config.config_paths.static_content, &decoded) {
                 Some(path) => path,
-                None => return self.send_404(session).await,
+                None => return self.send_404(session, head_only).await,
             }
         } else {
             match resolve_static_file_path(
@@ -221,13 +289,13 @@ impl StaticHttpApp {
                 request_path_param,
             ) {
                 Some(path) => path,
-                None => return self.send_404(session).await,
+                None => return self.send_404(session, head_only).await,
             }
         };
 
         let file_meta = match self.file_cache.get(&file_path).await {
             Some(meta) => meta,
-            None => return self.send_404(session).await,
+            None => return self.send_404(session, head_only).await,
         };
 
         if let Some(if_none) = session.get_header("if-none-match")
@@ -338,6 +406,14 @@ impl StaticHttpApp {
             .write_response_header(Box::new(response_header))
             .await
             .ok()?;
+
+        if head_only {
+            session
+                .write_response_body(bytes::Bytes::new(), true)
+                .await
+                .ok()?;
+            return None;
+        }
 
         let mut offset = start;
 
@@ -488,6 +564,7 @@ impl pingora::apps::HttpServerApp for StaticHttpApp {
 
         // Extract all data we need from HttpRequestView into owned types
         let method_str = http_request_info.method.0;
+        let head_only = method_str == "HEAD";
         let host = http_request_info.host.to_string();
         let path = http_request_info.query.path.to_string();
         let request_path_param = http_request_info
@@ -501,7 +578,7 @@ impl pingora::apps::HttpServerApp for StaticHttpApp {
 
         tracing::debug!("http_request_info: method={:?} path={}", method_str, path);
 
-        if method_str == "GET" {
+        if method_str == "GET" || head_only {
             match path.as_str() {
                 "/healthz" => {
                     let res = b"healthzy";
@@ -521,10 +598,17 @@ impl pingora::apps::HttpServerApp for StaticHttpApp {
                         .await
                         .ok()?;
 
-                    session
-                        .write_response_body(bytes::Bytes::copy_from_slice(res), true)
-                        .await
-                        .ok()?;
+                    if head_only {
+                        session
+                            .write_response_body(bytes::Bytes::new(), true)
+                            .await
+                            .ok()?;
+                    } else {
+                        session
+                            .write_response_body(bytes::Bytes::copy_from_slice(res), true)
+                            .await
+                            .ok()?;
+                    }
 
                     return None;
                 }
@@ -536,31 +620,35 @@ impl pingora::apps::HttpServerApp for StaticHttpApp {
                             host.as_str(),
                             request_path_param.as_deref(),
                             file_param.as_deref(),
+                            head_only,
                         )
                         .await;
                 }
                 "/400" => {
-                    return self.send_400(session).await;
+                    return self.send_400(session, head_only).await;
                 }
                 "/401" => {
-                    return self.send_401(session).await;
+                    return self.send_401(session, head_only).await;
                 }
                 "/403" => {
-                    return self.send_403(session).await;
+                    return self.send_403(session, head_only).await;
                 }
                 "/502" => {
-                    return self.send_502(session).await;
+                    return self.send_502(session, head_only).await;
                 }
                 "/500" => {
-                    return self.send_500(session).await;
+                    return self.send_500(session, head_only).await;
                 }
                 _ => {
-                    return self.send_404(session).await;
+                    return self.send_404(session, head_only).await;
                 }
             };
         }
 
-        self.send_404(session).await
+        match path.as_str() {
+            "/static" | "/healthz" => self.send_405(session, false).await,
+            _ => self.send_404(session, false).await,
+        }
     }
 }
 

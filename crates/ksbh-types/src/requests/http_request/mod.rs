@@ -1,5 +1,92 @@
 pub mod error;
 
+fn header_has_token(
+    headers: &http::HeaderMap,
+    name: impl http::header::AsHeaderName,
+    token: &str,
+) -> bool {
+    headers
+        .get(name)
+        .and_then(|value| value.to_str().ok())
+        .map(|value| {
+            value
+                .split(',')
+                .any(|part| part.trim().eq_ignore_ascii_case(token))
+        })
+        .unwrap_or(false)
+}
+
+fn first_header_token(
+    headers: &http::HeaderMap,
+    name: impl http::header::AsHeaderName,
+) -> Result<Option<String>, http::header::ToStrError> {
+    Ok(headers
+        .get(name)
+        .map(|value| value.to_str())
+        .transpose()?
+        .and_then(|value| value.split(',').next())
+        .map(|value| value.trim().to_ascii_lowercase())
+        .filter(|value| !value.is_empty()))
+}
+
+fn forwarded_port(headers: &http::HeaderMap) -> Result<Option<u16>, http::header::ToStrError> {
+    Ok(
+        first_header_token(headers, "x-forwarded-port")?
+            .and_then(|value| value.parse::<u16>().ok()),
+    )
+}
+
+fn is_websocket_upgrade(headers: &http::HeaderMap) -> bool {
+    if !header_has_token(headers, http::header::UPGRADE, "websocket") {
+        return false;
+    }
+
+    header_has_token(headers, http::header::CONNECTION, "upgrade")
+        || headers.contains_key("Sec-WebSocket-Key")
+}
+
+fn effective_request_scheme(
+    req_header: &http::request::Parts,
+    is_ssl_port: bool,
+    port: Option<u16>,
+) -> Result<String, error::HttpRequestError> {
+    let mut scheme = req_header
+        .uri
+        .scheme()
+        .map(|value| value.as_str().to_ascii_lowercase())
+        .unwrap_or_else(|| "http".to_string());
+    let websocket_upgrade = is_websocket_upgrade(&req_header.headers);
+
+    if is_ssl_port {
+        return Ok(if websocket_upgrade {
+            "wss".to_string()
+        } else {
+            "https".to_string()
+        });
+    }
+
+    if let Some(forwarded_proto) = first_header_token(&req_header.headers, "x-forwarded-proto")? {
+        scheme = forwarded_proto;
+    }
+
+    if websocket_upgrade {
+        let tls_forwarded = forwarded_port(&req_header.headers)? == Some(443);
+        let is_secure_scheme =
+            scheme.eq_ignore_ascii_case("https") || scheme.eq_ignore_ascii_case("wss");
+        if is_secure_scheme || port == Some(443) || tls_forwarded {
+            scheme = "wss".to_string();
+        } else {
+            scheme = "ws".to_string();
+        }
+    } else if scheme.eq_ignore_ascii_case("wss") {
+        scheme = "https".to_string();
+    } else if scheme.eq_ignore_ascii_case("ws") {
+        scheme = "http".to_string();
+    }
+
+    Ok(scheme)
+}
+
 /// A "parsed" HTTP request with owned data for use in plugins/modules.
 ///
 /// Parsed from a [pingora session](https://docs.rs/pingora-proxy/latest/pingora_proxy/struct.Session.html#method.req_header),
@@ -83,26 +170,11 @@ impl HttpRequest {
         }
 
         let is_ssl_port = port.map(|p| p == config.https).unwrap_or(false);
-        let mut scheme_str = uri.scheme().map(|scheme| scheme.as_str()).unwrap_or("http");
+        let scheme_string = effective_request_scheme(req_header, is_ssl_port, port)?;
+        let scheme_str = scheme_string.as_str();
 
-        let is_websocket = req_header
-            .headers
-            .get("upgrade")
-            .map(|v| v.to_str().unwrap_or("").to_lowercase() == "websocket")
-            .unwrap_or(false);
-
-        if is_ssl_port {
-            scheme_str = if is_websocket { "wss" } else { "https" };
-        } else {
-            if let Some(forwarded_proto) = req_header.headers.get("x-forwarded-proto") {
-                scheme_str = forwarded_proto.to_str()?;
-            }
-            if is_websocket && scheme_str == "http" {
-                scheme_str = "ws";
-            }
-        }
-
-        let is_secure_proto = scheme_str == "https" || scheme_str == "wss";
+        let is_secure_proto =
+            scheme_str.eq_ignore_ascii_case("https") || scheme_str.eq_ignore_ascii_case("wss");
         let target_config_port = if is_secure_proto {
             config.https
         } else {
@@ -226,26 +298,11 @@ impl<'a> HttpRequestView<'a> {
         }
 
         let is_ssl_port = port.map(|p| p == config.https).unwrap_or(false);
-        let mut scheme_str = uri.scheme().map(|scheme| scheme.as_str()).unwrap_or("http");
+        let scheme_string = effective_request_scheme(req_header, is_ssl_port, port)?;
+        let scheme_str = scheme_string.as_str();
 
-        let is_websocket = req_header
-            .headers
-            .get("upgrade")
-            .map(|v| v.to_str().unwrap_or("").to_lowercase() == "websocket")
-            .unwrap_or(false);
-
-        if is_ssl_port {
-            scheme_str = if is_websocket { "wss" } else { "https" };
-        } else {
-            if let Some(forwarded_proto) = req_header.headers.get("x-forwarded-proto") {
-                scheme_str = forwarded_proto.to_str()?;
-            }
-            if is_websocket && scheme_str == "http" {
-                scheme_str = "ws";
-            }
-        }
-
-        let is_secure_proto = scheme_str == "https" || scheme_str == "wss";
+        let is_secure_proto =
+            scheme_str.eq_ignore_ascii_case("https") || scheme_str.eq_ignore_ascii_case("wss");
         let target_config_port = if is_secure_proto {
             config.https
         } else {
@@ -281,5 +338,96 @@ impl<'a> HttpRequestView<'a> {
             base_url,
             method: crate::requests::http_method::HttpMethodView(req_header.method.as_str()),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    fn build_request_parts(path: &str, extra_headers: &[(&str, &str)]) -> http::request::Parts {
+        let mut builder = http::Request::builder()
+            .method(http::Method::GET)
+            .uri(path)
+            .header(http::header::HOST, "example.test");
+        for (name, value) in extra_headers {
+            builder = builder.header(*name, *value);
+        }
+        let request = builder.body(()).expect("build request");
+        let (parts, _) = request.into_parts();
+        parts
+    }
+
+    fn parse_owned(parts: &http::request::Parts) -> crate::requests::http_request::HttpRequest {
+        crate::requests::http_request::HttpRequest::new(
+            parts,
+            uuid::Uuid::nil(),
+            &crate::Ports {
+                http: 80,
+                https: 443,
+            },
+        )
+        .expect("parse owned request")
+    }
+
+    fn parse_view<'a>(
+        parts: &'a http::request::Parts,
+    ) -> crate::requests::http_request::HttpRequestView<'a> {
+        crate::requests::http_request::HttpRequestView::new(
+            parts,
+            uuid::Uuid::nil(),
+            &crate::Ports {
+                http: 80,
+                https: 443,
+            },
+        )
+        .expect("parse request view")
+    }
+
+    #[test]
+    fn websocket_requires_connection_upgrade_in_parser() {
+        let parts = build_request_parts("/ws", &[("Upgrade", "websocket")]);
+        let owned = parse_owned(&parts);
+        let view = parse_view(&parts);
+
+        assert_eq!(owned.base_url.as_str(), "http://example.test");
+        assert_eq!(view.base_url, "http://example.test");
+        assert_eq!(owned.scheme.0.as_str(), "http");
+        assert_eq!(view.scheme.0.as_str(), "http");
+    }
+
+    #[test]
+    fn websocket_upgrade_maps_to_ws_scheme() {
+        let parts = build_request_parts(
+            "/ws",
+            &[
+                ("Upgrade", "websocket"),
+                ("Connection", "keep-alive, Upgrade"),
+            ],
+        );
+        let owned = parse_owned(&parts);
+        let view = parse_view(&parts);
+
+        assert_eq!(owned.base_url.as_str(), "ws://example.test");
+        assert_eq!(view.base_url, "ws://example.test");
+        assert_eq!(owned.scheme.0.as_str(), "http");
+        assert_eq!(view.scheme.0.as_str(), "http");
+    }
+
+    #[test]
+    fn websocket_upgrade_with_forwarded_https_maps_to_wss() {
+        let parts = build_request_parts(
+            "/ws",
+            &[
+                ("Upgrade", "websocket"),
+                ("Connection", "Upgrade"),
+                ("X-Forwarded-Proto", "https"),
+            ],
+        );
+        let owned = parse_owned(&parts);
+        let view = parse_view(&parts);
+
+        assert_eq!(owned.base_url.as_str(), "wss://example.test");
+        assert_eq!(view.base_url, "wss://example.test");
+        assert_eq!(owned.scheme.0.as_str(), "https");
+        assert_eq!(view.scheme.0.as_str(), "https");
     }
 }
