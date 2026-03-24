@@ -63,6 +63,8 @@ pub struct ModuleConfigurationSpec {
     pub requires_proper_request: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub secret_ref: Option<k8s_openapi::api::core::v1::SecretReference>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub config: Option<::std::collections::BTreeMap<String, String>>,
     #[serde(default)]
     #[schemars(default)]
     pub requires_body: bool,

@@ -231,9 +231,12 @@ spec:
 | `spec.type` | string | Canonical module type |
 | `spec.weight` | integer | Higher values run earlier within the same scope |
 | `spec.global` | boolean | Apply to all ingresses |
+| `spec.config` | object<string,string> | Inline module configuration key/value pairs |
 | `spec.secretRef` | object | Kubernetes Secret reference for module config |
 | `spec.requiresProperRequest` | boolean | Whether the module expects a proper request |
 | `spec.requiresBody` | boolean | Whether the module needs the request body |
+
+If both `spec.config` and `spec.secretRef` are set, secret values override inline keys on conflict.
 
 ### Referencing Modules From Ingress
 

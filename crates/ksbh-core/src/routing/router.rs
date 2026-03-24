@@ -593,6 +593,7 @@ mod tests {
                 global: false,
                 requires_proper_request: false,
                 secret_ref: None,
+                config: None,
                 requires_body: false,
             },
         );
@@ -638,6 +639,7 @@ mod tests {
                 global: true,
                 requires_proper_request: false,
                 secret_ref: None,
+                config: None,
                 requires_body: false,
             },
         );
@@ -652,6 +654,7 @@ mod tests {
                 global: true,
                 requires_proper_request: false,
                 secret_ref: None,
+                config: None,
                 requires_body: false,
             },
         );
@@ -666,6 +669,7 @@ mod tests {
                 global: false,
                 requires_proper_request: false,
                 secret_ref: None,
+                config: None,
                 requires_body: false,
             },
         );
@@ -680,6 +684,7 @@ mod tests {
                 global: false,
                 requires_proper_request: false,
                 secret_ref: None,
+                config: None,
                 requires_body: false,
             },
         );
@@ -731,6 +736,7 @@ mod tests {
                 global: true,
                 requires_proper_request: false,
                 secret_ref: None,
+                config: None,
                 requires_body: false,
             },
         );
@@ -745,6 +751,7 @@ mod tests {
                 global: true,
                 requires_proper_request: false,
                 secret_ref: None,
+                config: None,
                 requires_body: false,
             },
         );

@@ -58,6 +58,7 @@ Modules are loaded as `cdylib` libraries through the registry/ABI layer.
 - The SDK macro generates `get_module_type` and `request_filter` for normal module crates
 - The host-side native dynamic-module smoke test lives at `tests/module_host_dynamic.rs` and loads the `dynamic-ffi-smoke` test `cdylib` through `ModuleHost`
 - That test intentionally uses one shared `ModuleHost` because ABI host callbacks are registered through process-global `OnceLock`s; keep that in mind when extending the suite
+- `ModuleConfigurationSpec` includes optional inline `config` key/value data in addition to optional `secretRef`.
 
 ## Useful Notes
 

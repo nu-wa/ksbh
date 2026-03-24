@@ -13,6 +13,7 @@ Current responsibilities include:
 - related `Service` and `Secret` watchers used during ingress reconciliation
 
 `ModuleConfiguration.spec` includes explicit execution metadata such as `weight`; do not assume module `type` defines runtime order.
+`ModuleConfiguration.spec.config` is supported for inline key/value module config. When both `spec.config` and `spec.secretRef` are set, secret values override inline keys on conflict.
 
 ## Current API
 

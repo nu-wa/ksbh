@@ -134,6 +134,7 @@ impl FileConfigProvider {
                 global: module.global,
                 requires_proper_request: true,
                 secret_ref: None,
+                config: None,
                 requires_body: module.requires_body,
             };
 

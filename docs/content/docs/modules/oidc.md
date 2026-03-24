@@ -138,6 +138,7 @@ spec:
 ```
 
 The module will automatically load `client_id` and `client_secret` from the referenced secret.
+You can also set keys inline via `spec.config`, but `secretRef` is recommended for credentials.
 
 ## Example YAML Configuration
 

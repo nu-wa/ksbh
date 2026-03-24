@@ -99,6 +99,8 @@ spec:
       Sitemap: https://example.com/sitemap.xml
 ```
 
+`spec.config` works directly for plain-text robots rules. You can also use `secretRef` when you prefer secret-backed config values.
+
 Then reference it in your ingress:
 
 ```yaml

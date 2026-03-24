@@ -309,6 +309,34 @@ struct ModulesCtx {
     hosts: ksbh_core::routing::RouterWriter,
 }
 
+fn apply_inline_module_config(
+    cfg: &mut hashbrown::HashMap<ksbh_types::KsbhStr, ksbh_types::KsbhStr>,
+    inline: Option<&::std::collections::BTreeMap<String, String>>,
+) {
+    let Some(inline) = inline else {
+        return;
+    };
+
+    for (key, value) in inline {
+        cfg.insert(
+            ksbh_types::KsbhStr::new(key.as_str()),
+            ksbh_types::KsbhStr::new(value.as_str()),
+        );
+    }
+}
+
+fn apply_secret_module_config(
+    cfg: &mut hashbrown::HashMap<ksbh_types::KsbhStr, ksbh_types::KsbhStr>,
+    secret_data: &[(::std::string::String, ::std::string::String)],
+) {
+    for (key, value) in secret_data {
+        cfg.insert(
+            ksbh_types::KsbhStr::new(key.as_str()),
+            ksbh_types::KsbhStr::new(value.as_str()),
+        );
+    }
+}
+
 async fn ensure_finalizer<T>(
     api: &kube::Api<T>,
     obj: &T,
@@ -391,6 +419,7 @@ async fn reconcile_modules(
 
     let mut cfg: hashbrown::HashMap<ksbh_types::KsbhStr, ksbh_types::KsbhStr> =
         hashbrown::HashMap::new();
+    apply_inline_module_config(&mut cfg, obj.spec.config.as_ref());
 
     tracing::debug!("Reconciling module: {}", name);
 
@@ -507,12 +536,7 @@ async fn fetch_and_update_module_secret(
                     data.len(),
                     data.iter().map(|(k, _)| k).collect::<Vec<_>>()
                 );
-                for (k, v) in data.iter() {
-                    cfg.insert(
-                        ksbh_types::KsbhStr::new(k.as_str()),
-                        ksbh_types::KsbhStr::new(v.as_str()),
-                    );
-                }
+                apply_secret_module_config(cfg, data.as_slice());
             }
             Ok(false)
         }
@@ -550,4 +574,67 @@ fn error_modules(
 ) -> kube::runtime::controller::Action {
     tracing::error!("Module: '{:?}', caused an error: '{}", obj, err);
     kube::runtime::controller::Action::requeue(::std::time::Duration::from_secs(30))
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn apply_inline_module_config_populates_values() {
+        let mut cfg: hashbrown::HashMap<ksbh_types::KsbhStr, ksbh_types::KsbhStr> =
+            hashbrown::HashMap::new();
+        let mut inline = ::std::collections::BTreeMap::new();
+        inline.insert(
+            "content".to_string(),
+            "User-agent: *\nDisallow: /\n".to_string(),
+        );
+        inline.insert("requires_login".to_string(), "true".to_string());
+
+        super::apply_inline_module_config(&mut cfg, Some(&inline));
+
+        assert_eq!(
+            cfg.get(&ksbh_types::KsbhStr::new("content"))
+                .map(|v| v.as_str()),
+            Some("User-agent: *\nDisallow: /\n")
+        );
+        assert_eq!(
+            cfg.get(&ksbh_types::KsbhStr::new("requires_login"))
+                .map(|v| v.as_str()),
+            Some("true")
+        );
+    }
+
+    #[test]
+    fn secret_values_override_inline_config_values() {
+        let mut cfg: hashbrown::HashMap<ksbh_types::KsbhStr, ksbh_types::KsbhStr> =
+            hashbrown::HashMap::new();
+        let mut inline = ::std::collections::BTreeMap::new();
+        inline.insert("client_id".to_string(), "inline-client".to_string());
+        inline.insert(
+            "issuer_url".to_string(),
+            "https://issuer.example.com".to_string(),
+        );
+        super::apply_inline_module_config(&mut cfg, Some(&inline));
+
+        let secret_data = vec![
+            ("client_id".to_string(), "secret-client".to_string()),
+            ("client_secret".to_string(), "secret-value".to_string()),
+        ];
+        super::apply_secret_module_config(&mut cfg, secret_data.as_slice());
+
+        assert_eq!(
+            cfg.get(&ksbh_types::KsbhStr::new("client_id"))
+                .map(|v| v.as_str()),
+            Some("secret-client")
+        );
+        assert_eq!(
+            cfg.get(&ksbh_types::KsbhStr::new("issuer_url"))
+                .map(|v| v.as_str()),
+            Some("https://issuer.example.com")
+        );
+        assert_eq!(
+            cfg.get(&ksbh_types::KsbhStr::new("client_secret"))
+                .map(|v| v.as_str()),
+            Some("secret-value")
+        );
+    }
 }
