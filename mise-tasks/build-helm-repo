@@ -68,15 +68,17 @@ cat > "${repo_dir}/index.html" <<EOF
           <div class="ksbh-stage__side">
             <article class="ksbh-stage__panel">
               <div class="ksbh-stage__panel-label">Repository</div>
-              <p><code>helm repo add ksbh ${repo_url}</code></p>
-              <p><code>helm repo update</code></p>
+              <div class="code-block" data-lang="bash">
+                <div class="code-header">terminal</div>
+                <pre><code>helm repo add ksbh ${repo_url}
+helm repo update</code></pre>
+              </div>
             </article>
             <article class="ksbh-stage__panel">
               <div class="ksbh-stage__panel-label">Artifacts</div>
               <ul class="ksbh-stage__list">
                 <li><a href="./index.yaml">index.yaml</a></li>
                 <li><a href="./${chart_file}">${chart_file}</a></li>
-                <li><a href="./css/style.css">css/style.css</a></li>
               </ul>
             </article>
           </div>

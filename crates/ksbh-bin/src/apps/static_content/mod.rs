@@ -234,7 +234,7 @@ impl StaticHttpApp {
             && if_none.as_bytes() == file_meta.etag.as_bytes()
         {
             let mut response_header = pingora::http::ResponseHeader::build(
-                pingora::http::StatusCode::UNAUTHORIZED,
+                pingora::http::StatusCode::NOT_MODIFIED,
                 Some(1),
             )
             .ok()?;
