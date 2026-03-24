@@ -27,7 +27,8 @@ ksbh_modules_sdk::types::ModuleType::HttpToHttps
 
 - Crate type: `cdylib`
 - Built on top of `ksbh-modules-sdk`
-- Redirects insecure requests with HTTP 301
+- Redirects insecure HTTP requests with HTTP 301
+- Passes WebSocket upgrade handshakes through without redirecting
 
 ## Build
 
