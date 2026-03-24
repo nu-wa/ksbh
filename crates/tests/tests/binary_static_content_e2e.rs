@@ -13,8 +13,11 @@ ingresses:
     let mut fixture = tests::binary::BinaryFixture::new("static", routing_yaml)
         .expect("failed to create binary fixture");
 
+    let host_static_dir = fixture.static_dir().join("static.test.local");
+    ::std::fs::create_dir_all(&host_static_dir)
+        .expect("failed to create host-scoped static fixture dir");
     ::std::fs::write(
-        fixture.static_dir().join("index.html"),
+        host_static_dir.join("index.html"),
         "binary static fixture\n",
     )
     .expect("failed to write static fixture file");
