@@ -135,18 +135,8 @@ impl ksbh_types::prelude::ProxyProvider for ProxyService {
                             });
                         }
                     };
-                    let query_path = http_request.query.path.trim_end_matches("/");
-                    let file_path = if query_path.is_empty() || query_path == "/" {
-                        "index.html".to_string()
-                    } else {
-                        format!(
-                            "{}/{}",
-                            http_request.host.as_str().trim_end_matches("/"),
-                            query_path
-                        )
-                    };
-                    let file_path = urlencoding::encode(&file_path);
-                    let new_path = format!("/static?file={}", file_path);
+                    let request_path = urlencoding::encode(&http_request.query.path);
+                    let new_path = format!("/static?path={request_path}");
 
                     session.set_request_uri(
                         http::Uri::from_str(&new_path)

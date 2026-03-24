@@ -200,13 +200,35 @@ impl StaticHttpApp {
         &self,
         mut session: pingora::protocols::http::ServerSession,
         _shutdown: &pingora::server::ShutdownWatch,
+        host: &str,
+        request_path_param: Option<&str>,
         file_param: Option<&str>,
     ) -> Option<pingora::apps::ReusedHttpStream> {
-        let file_param = file_param?;
-        let decoded = urlencoding::decode(file_param).ok()?;
-        let file_path = get_clean_file_path(&self.config.config_paths.static_content, &decoded)?;
+        let file_path = if let Some(file_param) = file_param {
+            let decoded = match urlencoding::decode(file_param) {
+                Ok(value) => value,
+                Err(_) => return self.send_400(session).await,
+            };
 
-        let file_meta = self.file_cache.get(&file_path).await?;
+            match get_clean_file_path(&self.config.config_paths.static_content, &decoded) {
+                Some(path) => path,
+                None => return self.send_404(session).await,
+            }
+        } else {
+            match resolve_static_file_path(
+                &self.config.config_paths.static_content,
+                host,
+                request_path_param,
+            ) {
+                Some(path) => path,
+                None => return self.send_404(session).await,
+            }
+        };
+
+        let file_meta = match self.file_cache.get(&file_path).await {
+            Some(meta) => meta,
+            None => return self.send_404(session).await,
+        };
 
         if let Some(if_none) = session.get_header("if-none-match")
             && if_none.as_bytes() == file_meta.etag.as_bytes()
@@ -386,6 +408,49 @@ fn get_clean_file_path(root: &::std::path::Path, req_path: &str) -> Option<::std
     None
 }
 
+fn resolve_static_file_path(
+    root: &::std::path::Path,
+    host: &str,
+    request_path: Option<&str>,
+) -> Option<::std::path::PathBuf> {
+    let host = host.trim_end_matches('/');
+    if host.is_empty() {
+        return None;
+    }
+
+    let raw_path = request_path.unwrap_or("/");
+    let decoded_path = urlencoding::decode(raw_path).ok()?.into_owned();
+    let normalized_path = if decoded_path.is_empty() {
+        "/"
+    } else {
+        decoded_path.as_str()
+    };
+    let trimmed_path = normalized_path.trim_start_matches('/');
+
+    let mut candidates = ::std::vec::Vec::new();
+    if trimmed_path.is_empty() {
+        candidates.push(format!("{host}/index.html"));
+    } else if normalized_path.ends_with('/') {
+        let dir = trimmed_path.trim_end_matches('/');
+        if dir.is_empty() {
+            candidates.push(format!("{host}/index.html"));
+        } else {
+            candidates.push(format!("{host}/{dir}/index.html"));
+        }
+    } else {
+        candidates.push(format!("{host}/{trimmed_path}"));
+        candidates.push(format!("{host}/{trimmed_path}/index.html"));
+    }
+
+    for candidate in candidates {
+        if let Some(path) = get_clean_file_path(root, &candidate) {
+            return Some(path);
+        }
+    }
+
+    None
+}
+
 #[async_trait::async_trait]
 impl pingora::apps::HttpServerApp for StaticHttpApp {
     async fn process_new_http(
@@ -423,7 +488,12 @@ impl pingora::apps::HttpServerApp for StaticHttpApp {
 
         // Extract all data we need from HttpRequestView into owned types
         let method_str = http_request_info.method.0;
+        let host = http_request_info.host.to_string();
         let path = http_request_info.query.path.to_string();
+        let request_path_param = http_request_info
+            .query
+            .get_param("path")
+            .map(|s| s.to_string());
         let file_param = http_request_info
             .query
             .get_param("file")
@@ -460,7 +530,13 @@ impl pingora::apps::HttpServerApp for StaticHttpApp {
                 }
                 "/static" => {
                     return self
-                        .render_static_file(session, shutdown, file_param.as_deref())
+                        .render_static_file(
+                            session,
+                            shutdown,
+                            host.as_str(),
+                            request_path_param.as_deref(),
+                            file_param.as_deref(),
+                        )
                         .await;
                 }
                 "/400" => {
@@ -495,4 +571,62 @@ pub fn static_http_service(
         "static_service".to_string(),
         StaticHttpApp::new(config).expect("Could not create StaticHttpApp"),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    fn make_temp_root() -> ::std::path::PathBuf {
+        let root =
+            ::std::env::temp_dir().join(format!("ksbh-static-tests-{}", uuid::Uuid::new_v4()));
+        ::std::fs::create_dir_all(&root).expect("create temp root");
+        root
+    }
+
+    #[test]
+    fn resolve_static_file_path_maps_root_to_host_index() {
+        let root = make_temp_root();
+        let host_dir = root.join("ksbh.rs");
+        ::std::fs::create_dir_all(&host_dir).expect("create host dir");
+        ::std::fs::write(host_dir.join("index.html"), "ok").expect("write index");
+
+        let resolved = super::resolve_static_file_path(&root, "ksbh.rs", Some("/"))
+            .expect("resolve root index");
+        assert_eq!(resolved, host_dir.join("index.html"));
+
+        ::std::fs::remove_dir_all(&root).expect("cleanup");
+    }
+
+    #[test]
+    fn resolve_static_file_path_prefers_file_for_non_trailing_path() {
+        let root = make_temp_root();
+        let host_dir = root.join("ksbh.rs");
+        ::std::fs::create_dir_all(&host_dir).expect("create host dir");
+        ::std::fs::write(host_dir.join("xd"), "ok").expect("write file");
+
+        let resolved = super::resolve_static_file_path(&root, "ksbh.rs", Some("/xd"))
+            .expect("resolve direct file");
+        assert_eq!(resolved, host_dir.join("xd"));
+
+        ::std::fs::remove_dir_all(&root).expect("cleanup");
+    }
+
+    #[test]
+    fn resolve_static_file_path_falls_back_to_directory_index() {
+        let root = make_temp_root();
+        let host_dir = root.join("ksbh.rs");
+        let docs_dir = host_dir.join("docs");
+        ::std::fs::create_dir_all(&docs_dir).expect("create docs dir");
+        ::std::fs::write(docs_dir.join("index.html"), "ok").expect("write docs index");
+
+        let resolved_without_slash =
+            super::resolve_static_file_path(&root, "ksbh.rs", Some("/docs"))
+                .expect("resolve docs index without trailing slash");
+        assert_eq!(resolved_without_slash, docs_dir.join("index.html"));
+
+        let resolved_with_slash = super::resolve_static_file_path(&root, "ksbh.rs", Some("/docs/"))
+            .expect("resolve docs index with trailing slash");
+        assert_eq!(resolved_with_slash, docs_dir.join("index.html"));
+
+        ::std::fs::remove_dir_all(&root).expect("cleanup");
+    }
 }
