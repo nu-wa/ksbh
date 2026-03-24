@@ -31,6 +31,8 @@ service:
   type: LoadBalancer
   loadBalancerIP: 10.15.25.110
   externalTrafficPolicy: Local
+  # Public Service ports exposed by Kubernetes.
+  # Backends are mapped to app.ports.app.* (default 8080/8081).
   http: 8080
   https: 8081
   profiling: 8083
@@ -55,6 +57,7 @@ app:
 
   ports:
     app:
+      # Internal app listener ports used by the Service targetPort mapping.
       http: 8080
       https: 8081
     external:

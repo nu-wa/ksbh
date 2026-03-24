@@ -67,6 +67,7 @@ The deployment chart lives in `charts/ksbh`.
 - Templates: `charts/ksbh/templates/`
 - CRDs: `charts/ksbh/crds/`
 - Lint task: `mise run lint-helm-chart`
+- Service exposure ports are configured under `service.*`, while HTTP/HTTPS backend target ports are sourced from `app.ports.app.*`.
 
 If chart structure, values, templates, or CRDs change, update the relevant `AGENTS.md`.
 

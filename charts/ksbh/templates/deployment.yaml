@@ -71,10 +71,10 @@ spec:
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           ports:
             - name: http
-              containerPort: {{ .Values.service.http }}
+              containerPort: {{ .Values.app.ports.app.http }}
               protocol: TCP
             - name: https
-              containerPort: {{ .Values.service.https }}
+              containerPort: {{ .Values.app.ports.app.https }}
               protocol: TCP
             - name: internal
               containerPort: {{ include "ksbh.internalPort" . }}
