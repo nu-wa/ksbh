@@ -84,7 +84,7 @@ pub fn start_pingora(
     static_internal.add_tcp(&config.listen_addresses.internal.to_string());
     static_internal.threads = Some(2);
 
-    let mut services: Vec<Box<dyn pingora::services::Service>> = vec![
+    let mut services: Vec<Box<dyn pingora::services::ServiceWithDependents>> = vec![
         Box::new(static_internal),
         Box::new(config_service),
         Box::new({

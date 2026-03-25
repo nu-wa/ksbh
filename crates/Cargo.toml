@@ -91,17 +91,17 @@ version = "10.2.0"
 default-features = false
 
 [workspace.dependencies.pingora]
-version = "0.7.0"
+version = "0.8.0"
 features = ["cache", "lb", "openssl", "time"]
 
 [workspace.dependencies.pingora-core]
-version = "0.7.0"
+version = "0.8.0"
 
 [workspace.dependencies.pingora-http]
-version = "0.7.0"
+version = "0.8.0"
 
 [workspace.dependencies.pingora-runtime]
-version = "0.7.0"
+version = "0.8.0"
 
 [workspace.dependencies.redis]
 version = "1.0.2"
