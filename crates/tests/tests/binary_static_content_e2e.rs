@@ -250,6 +250,22 @@ ingresses:
     fixture.start().expect("failed to start ksbh binary");
 
     let client = tests::binary::build_http_client();
+    tests::binary::wait_for_host_body(
+        &client,
+        &fixture.http_base_addr(),
+        "/",
+        "static.test.local",
+        reqwest::StatusCode::OK,
+        "ok\n",
+    )
+    .await
+    .unwrap_or_else(|error| {
+        panic!(
+            "static backend did not become ready before HEAD missing test: {error}\nlogs:\n{}",
+            fixture.logs()
+        )
+    });
+
     let head_response = client
         .request(
             reqwest::Method::HEAD,
@@ -258,7 +274,12 @@ ingresses:
         .header(reqwest::header::HOST, "static.test.local")
         .send()
         .await
-        .unwrap_or_else(|error| panic!("failed to request static HEAD: {error}"));
+        .unwrap_or_else(|error| {
+            panic!(
+                "failed to request static HEAD: {error}\nlogs:\n{}",
+                fixture.logs()
+            )
+        });
 
     assert_eq!(
         head_response.status(),
@@ -303,6 +324,22 @@ ingresses:
     fixture.start().expect("failed to start ksbh binary");
 
     let client = tests::binary::build_http_client();
+    tests::binary::wait_for_host_body(
+        &client,
+        &fixture.http_base_addr(),
+        "/",
+        "static.test.local",
+        reqwest::StatusCode::OK,
+        "ok\n",
+    )
+    .await
+    .unwrap_or_else(|error| {
+        panic!(
+            "static backend did not become ready before OPTIONS test: {error}\nlogs:\n{}",
+            fixture.logs()
+        )
+    });
+
     let response = client
         .request(
             reqwest::Method::OPTIONS,
@@ -311,7 +348,12 @@ ingresses:
         .header(reqwest::header::HOST, "static.test.local")
         .send()
         .await
-        .unwrap_or_else(|error| panic!("failed to request static OPTIONS: {error}"));
+        .unwrap_or_else(|error| {
+            panic!(
+                "failed to request static OPTIONS: {error}\nlogs:\n{}",
+                fixture.logs()
+            )
+        });
 
     assert_eq!(
         response.status(),
