@@ -27,6 +27,35 @@ fn header_has_token(
         .unwrap_or(false)
 }
 
+fn forwarded_proto_is_secure(headers: &http::HeaderMap) -> bool {
+    let forwarded = match headers
+        .get(http::header::FORWARDED)
+        .and_then(|value| value.to_str().ok())
+    {
+        Some(value) => value,
+        None => return false,
+    };
+
+    for element in forwarded.split(',') {
+        for part in element.split(';') {
+            let trimmed = part.trim();
+            let mut kv = trimmed.splitn(2, '=');
+            let key = kv.next().unwrap_or_default().trim();
+            let value = kv
+                .next()
+                .unwrap_or_default()
+                .trim()
+                .trim_matches('"')
+                .to_ascii_lowercase();
+            if key.eq_ignore_ascii_case("proto") && (value == "https" || value == "wss") {
+                return true;
+            }
+        }
+    }
+
+    false
+}
+
 fn is_secure_request(request: &ksbh_modules_sdk::RequestInfo, headers: &http::HeaderMap) -> bool {
     let scheme = request.scheme.as_str();
     let uri = request.uri.as_str();
@@ -37,7 +66,9 @@ fn is_secure_request(request: &ksbh_modules_sdk::RequestInfo, headers: &http::He
         || uri.starts_with("wss://")
         || header_has_token(headers, "x-forwarded-proto", "https")
         || header_has_token(headers, "x-forwarded-proto", "wss")
+        || header_has_token(headers, "x-forwarded-ssl", "on")
         || header_has_token(headers, "x-forwarded-port", "443")
+        || forwarded_proto_is_secure(headers)
 }
 
 fn build_redirect_url(uri: &str, host: &str) -> String {
@@ -56,6 +87,48 @@ fn build_redirect_url(uri: &str, host: &str) -> String {
     format!("https://{}", uri)
 }
 
+fn normalized_url_for_compare(input: &str) -> Option<String> {
+    let parsed: http::Uri = input.parse().ok()?;
+    let scheme = parsed.scheme_str()?;
+    let host = parsed.host()?;
+    let mut normalized = String::new();
+    normalized.push_str(scheme);
+    normalized.push_str("://");
+    normalized.push_str(host.to_ascii_lowercase().as_str());
+    if let Some(port) = parsed.port_u16() {
+        let is_default = (scheme == "https" && port == 443)
+            || (scheme == "http" && port == 80)
+            || (scheme == "wss" && port == 443)
+            || (scheme == "ws" && port == 80);
+        if !is_default {
+            normalized.push(':');
+            normalized.push_str(port.to_string().as_str());
+        }
+    }
+    normalized.push_str(parsed.path());
+    if let Some(path_and_query) = parsed.path_and_query()
+        && let Some(query) = path_and_query.query()
+    {
+        normalized.push('?');
+        normalized.push_str(query);
+    }
+    Some(normalized)
+}
+
+fn is_self_redirect(redirect_url: &str, request_uri: &str) -> bool {
+    if redirect_url == request_uri {
+        return true;
+    }
+
+    match (
+        normalized_url_for_compare(redirect_url),
+        normalized_url_for_compare(request_uri),
+    ) {
+        (Some(redirect_norm), Some(request_norm)) => redirect_norm == request_norm,
+        _ => false,
+    }
+}
+
 pub fn process(
     ctx: ksbh_modules_sdk::RequestContext,
 ) -> Result<ksbh_modules_sdk::ModuleResult, ksbh_modules_sdk::ModuleError> {
@@ -67,6 +140,9 @@ pub fn process(
 
     if !secure {
         let redirect_url = build_redirect_url(ctx.request.uri.as_str(), ctx.request.host.as_str());
+        if is_self_redirect(&redirect_url, ctx.request.uri.as_str()) {
+            return Ok(ksbh_modules_sdk::ModuleResult::Pass);
+        }
 
         let response = http::Response::builder()
             .status(http::StatusCode::MOVED_PERMANENTLY)
@@ -165,6 +241,27 @@ mod tests {
     }
 
     #[test]
+    fn secure_request_detects_forwarded_ssl_on() {
+        let request = test_request("http://example.com/index.yaml", "example.com", "http", 80);
+        let mut headers = http::HeaderMap::new();
+        headers.insert("x-forwarded-ssl", http::HeaderValue::from_static("on"));
+
+        assert!(super::is_secure_request(&request, &headers));
+    }
+
+    #[test]
+    fn secure_request_detects_standard_forwarded_proto() {
+        let request = test_request("http://example.com/index.yaml", "example.com", "http", 80);
+        let mut headers = http::HeaderMap::new();
+        headers.insert(
+            http::header::FORWARDED,
+            http::HeaderValue::from_static("for=192.0.2.60;proto=https;host=example.com"),
+        );
+
+        assert!(super::is_secure_request(&request, &headers));
+    }
+
+    #[test]
     fn redirect_url_for_relative_path_uses_host() {
         let redirect = super::build_redirect_url("/ws/client/", "authentik.yannis.codes");
         assert_eq!(redirect, "https://authentik.yannis.codes/ws/client/");
@@ -174,5 +271,13 @@ mod tests {
     fn redirect_url_upgrades_ws_to_wss() {
         let redirect = super::build_redirect_url("ws://authentik.yannis.codes/ws/client/", "");
         assert_eq!(redirect, "wss://authentik.yannis.codes/ws/client/");
+    }
+
+    #[test]
+    fn self_redirect_detection_handles_equivalent_https_urls() {
+        assert!(super::is_self_redirect(
+            "https://charts.ksbh.rs/index.yaml",
+            "https://charts.ksbh.rs:443/index.yaml"
+        ));
     }
 }
