@@ -381,6 +381,56 @@ async fn assert_websocket_connection_rejected_with_status(
     }
 }
 
+async fn wait_for_ws_connection_ready(
+    url: &str,
+    host: &str,
+) -> (
+    tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>,
+    Option<::std::string::String>,
+) {
+    let start = tokio::time::Instant::now();
+    let mut last_error = ::std::string::String::new();
+    while start.elapsed() < WEBSOCKET_ROUTE_READY_TIMEOUT {
+        match connect_ws_with_host(url, host).await {
+            Ok(result) => return result,
+            Err(error) => {
+                last_error = error.to_string();
+            }
+        }
+        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+    }
+
+    panic!(
+        "timed out waiting for ws websocket readiness for host {}: {}",
+        host, last_error
+    );
+}
+
+async fn wait_for_wss_connection_ready(
+    url: &str,
+    host: &str,
+) -> (
+    tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>,
+    Option<::std::string::String>,
+) {
+    let start = tokio::time::Instant::now();
+    let mut last_error = ::std::string::String::new();
+    while start.elapsed() < WEBSOCKET_ROUTE_READY_TIMEOUT {
+        match connect_wss_with_host(url, host).await {
+            Ok(result) => return result,
+            Err(error) => {
+                last_error = error.to_string();
+            }
+        }
+        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+    }
+
+    panic!(
+        "timed out waiting for wss websocket readiness for host {}: {}",
+        host, last_error
+    );
+}
+
 #[tokio::test]
 #[ignore = "requires local kind e2e environment with websocket probe fixture"]
 async fn k8s_websocket_ingress_supports_wss_h2_extended_connect_roundtrip() {
@@ -614,7 +664,6 @@ async fn k8s_websocket_ingress_supports_multi_message_echo_and_close() {
 #[ignore = "requires local kind e2e environment with websocket probe fixture and module support"]
 async fn k8s_websocket_ingress_bypasses_http_modules_on_handshake() {
     let config = common::E2eConfig::from_env();
-    let client = common::build_http_client();
     let kube_client = common::kube_client().await;
     let ingress_name = common::unique_name("websocket-ingress");
     let host = common::unique_host("websocket");
@@ -642,28 +691,6 @@ async fn k8s_websocket_ingress_bypasses_http_modules_on_handshake() {
     )
     .await;
 
-    let start = tokio::time::Instant::now();
-    let timeout = WEBSOCKET_ROUTE_READY_TIMEOUT;
-    let mut last_status = reqwest::StatusCode::NOT_FOUND;
-    while start.elapsed() < timeout {
-        match common::get_with_host(&client, &config.http_addr, "/ws", &host).await {
-            Ok(response) => {
-                let status = response.status();
-                last_status = status;
-                if status != reqwest::StatusCode::NOT_FOUND {
-                    break;
-                }
-            }
-            Err(_) => {}
-        }
-        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-    }
-    assert_ne!(
-        last_status,
-        reqwest::StatusCode::NOT_FOUND,
-        "websocket ingress route was not available before websocket dial",
-    );
-
     let ws_url = format!(
         "{}/ws",
         config
@@ -679,9 +706,7 @@ async fn k8s_websocket_ingress_bypasses_http_modules_on_handshake() {
             .trim_end_matches('/')
     );
 
-    let (ws_socket, ws_transport) = connect_ws_with_host(&ws_url, &host)
-        .await
-        .expect("failed to establish ws websocket through ksbh");
+    let (ws_socket, ws_transport) = wait_for_ws_connection_ready(&ws_url, &host).await;
     assert!(
         matches!(ws_transport.as_deref(), None | Some("h1")),
         "expected ws downstream transport header to be absent or h1, got {:?}",
@@ -689,9 +714,7 @@ async fn k8s_websocket_ingress_bypasses_http_modules_on_handshake() {
     );
     assert_websocket_roundtrip(ws_socket, &["ping"]).await;
 
-    let (wss_socket, wss_transport) = connect_wss_with_host(&wss_url, &host)
-        .await
-        .expect("failed to establish wss websocket through ksbh");
+    let (wss_socket, wss_transport) = wait_for_wss_connection_ready(&wss_url, &host).await;
     assert!(
         matches!(wss_transport.as_deref(), None | Some("h1") | Some("h2")),
         "expected downstream transport header to be absent/h1/h2, got {:?}",
