@@ -425,8 +425,13 @@ pub(crate) async fn resolve_path_service(
 
             if ressource_kind == ksbh_core::constants::KSBH_SERVICE_RESSOURCE_KIND_STATIC {
                 Some(ksbh_core::routing::ServiceBackendType::Static)
-            } else if ressource_kind == ksbh_core::constants::KSBH_SERVICE_RESSOURCE_KIND_SELF {
-                Some(ksbh_core::routing::ServiceBackendType::ToSelf(None))
+            } else if ressource_kind == "self" {
+                tracing::warn!(
+                    "Ingress '{}/{}' path resource kind 'self' is deprecated; treating as no backend",
+                    namespace,
+                    obj.metadata.name.as_deref().unwrap_or("<unknown>")
+                );
+                Some(ksbh_core::routing::ServiceBackendType::None)
             } else {
                 Some(ksbh_core::routing::ServiceBackendType::None)
             }

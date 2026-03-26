@@ -255,7 +255,6 @@ The Kubernetes provider supports these backend types:
 |------|-------------------|-------------|
 | `service` | `IngressServiceBackend` | Kubernetes Service |
 | `static` | `CrossNamespaceObjectReference` with kind `static` | Static content |
-| `self` | `CrossNamespaceObjectReference` with kind `self` | Handle internally |
 
 Example for static backend:
 

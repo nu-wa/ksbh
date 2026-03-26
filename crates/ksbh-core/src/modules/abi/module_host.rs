@@ -224,3 +224,53 @@ fn response_sets_proxy_cookie(response: &http::response::Builder, cookie_name: &
 
     false
 }
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn unit_response_sets_proxy_cookie_malformed_headers_do_not_panic() {
+        let malformed = ["", "not-a-cookie", "still-bad;", "a=b;c", "===", ";=;"];
+        for value in malformed {
+            let builder = http::Response::builder().header(http::header::SET_COOKIE, value);
+            let _ = super::response_sets_proxy_cookie(&builder, "ksbh");
+        }
+    }
+
+    #[test]
+    fn response_sets_proxy_cookie_detects_cookie_name_only_at_cookie_key_boundary() {
+        let present =
+            http::Response::builder().header(http::header::SET_COOKIE, "ksbh=value; Path=/");
+        let near_miss =
+            http::Response::builder().header(http::header::SET_COOKIE, "ksbh2=value; Path=/");
+        let mixed = http::Response::builder()
+            .header(http::header::SET_COOKIE, "ksbh2=value; Path=/")
+            .header(http::header::SET_COOKIE, "other=value; Path=/");
+
+        assert!(super::response_sets_proxy_cookie(&present, "ksbh"));
+        assert!(!super::response_sets_proxy_cookie(&near_miss, "ksbh"));
+        assert!(!super::response_sets_proxy_cookie(&mixed, "ksbh"));
+    }
+
+    proptest::proptest! {
+        #[test]
+        fn proptest_response_sets_proxy_cookie_exact_name_match(
+            cookie_name in "[a-z]{1,12}",
+            other_name in "[a-z]{1,12}",
+            cookie_value in "[a-z0-9]{0,16}",
+        ) {
+            proptest::prop_assume!(cookie_name != other_name);
+
+            let exact_header = ::std::format!("{}={}; Path=/", cookie_name, cookie_value);
+            let near_header = ::std::format!("{}2={}; Path=/", cookie_name, cookie_value);
+            let other_header = ::std::format!("{}={}; Path=/", other_name, cookie_value);
+
+            let exact_builder = http::Response::builder().header(http::header::SET_COOKIE, exact_header);
+            let near_builder = http::Response::builder().header(http::header::SET_COOKIE, near_header);
+            let other_builder = http::Response::builder().header(http::header::SET_COOKIE, other_header);
+
+            proptest::prop_assert!(super::response_sets_proxy_cookie(&exact_builder, &cookie_name));
+            proptest::prop_assert!(!super::response_sets_proxy_cookie(&near_builder, &cookie_name));
+            proptest::prop_assert!(!super::response_sets_proxy_cookie(&other_builder, &cookie_name));
+        }
+    }
+}

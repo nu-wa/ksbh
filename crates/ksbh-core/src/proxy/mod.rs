@@ -3,6 +3,20 @@ pub(super) mod service_request_filter;
 
 pub use service::ProxyService;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DownstreamWebsocketKind {
+    None,
+    H1Upgrade,
+    H2ExtendedConnect,
+}
+
+#[derive(Debug, Clone)]
+pub struct WebsocketTunnelPlan {
+    pub upstream_addr: ::std::string::String,
+    pub host: smol_str::SmolStr,
+    pub path_and_query: ksbh_types::KsbhStr,
+}
+
 /// A [`ProxyConfiguration`](ProxyConfiguration) represents a configuration for a hostname.
 ///
 /// Modules execute in two phases:
@@ -23,6 +37,9 @@ pub struct ProxyContext {
     pub parsed_cookie: Option<crate::cookies::ProxyCookie>,
     pub needs_session_cookie: bool,
     pub http_request: Option<ksbh_types::requests::http_request::HttpRequest>,
+    pub downstream_ws_kind: DownstreamWebsocketKind,
+    pub downstream_transport: smol_str::SmolStr,
+    pub tunnel_plan: Option<WebsocketTunnelPlan>,
     pub session_id_bytes: [u8; 16],
     pub metrics_key: Vec<u8>,
 }
@@ -44,6 +61,9 @@ impl ProxyContext {
             parsed_cookie: None,
             needs_session_cookie: false,
             http_request: None,
+            downstream_ws_kind: DownstreamWebsocketKind::None,
+            downstream_transport: smol_str::SmolStr::new("h1"),
+            tunnel_plan: None,
             session_id_bytes: [0u8; 16],
             metrics_key: Vec::new(),
         }

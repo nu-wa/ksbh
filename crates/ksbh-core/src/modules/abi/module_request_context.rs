@@ -42,9 +42,11 @@ pub struct ModuleRequestContext<'req> {
 
 impl<'req> ModuleRequestContext<'req> {
     /// Create a new ModuleRequestContext from session and request data.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         session: &mut dyn ksbh_types::prelude::ProxyProviderSession,
         http_request: &ksbh_types::requests::http_request::HttpRequest,
+        is_websocket_handshake: bool,
         needs_session_cookie: bool,
         session_id_bytes: [u8; 16],
         metrics_key: &'req [u8],
@@ -69,7 +71,8 @@ impl<'req> ModuleRequestContext<'req> {
             });
         }
 
-        let request_info = RequestInfo::new_owned(http_request, &query_params_vec);
+        let request_info =
+            RequestInfo::new_owned(http_request, &query_params_vec, is_websocket_handshake);
 
         let cookie_header = session
             .headers()

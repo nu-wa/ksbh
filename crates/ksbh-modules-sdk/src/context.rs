@@ -54,4 +54,6 @@ pub struct RequestInfo {
     pub scheme: smol_str::SmolStr,
     /// Request port number.
     pub port: u16,
+    /// Whether this request is a websocket handshake.
+    pub is_websocket_handshake: bool,
 }

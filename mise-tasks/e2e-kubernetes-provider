@@ -33,6 +33,19 @@ fi
 
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 
+kubectl_context() {
+  if [ -n "${KSBH_KUBECTL_CONTEXT:-}" ]; then
+    printf '%s\n' "${KSBH_KUBECTL_CONTEXT}"
+    return 0
+  fi
+
+  printf 'kind-%s\n' "$(kind_cluster_name)"
+}
+
+kctl() {
+  kubectl --context "$(kubectl_context)" "$@"
+}
+
 resolve_ci_host() {
   if [ -n "${KSBH_CI_HOST:-}" ]; then
     echo "${KSBH_CI_HOST}"
@@ -63,13 +76,9 @@ resolve_ci_host() {
 }
 
 cleanup() {
-  if [ -n "${browser_host_ip:-}" ]; then
-    sed -i "\#^${browser_host_ip}[[:space:]]\\+${browser_host}\$#d" /etc/hosts >/dev/null 2>&1 || true
-  fi
-
   if command -v kubectl >/dev/null 2>&1 && [ -n "${namespace:-}" ]; then
     ksbh_pod_name="$(
-      kubectl get pods \
+      kctl get pods \
         --namespace "${namespace}" \
         --selector "app.kubernetes.io/instance=${release_name}" \
         -o jsonpath='{.items[0].metadata.name}' \
@@ -78,7 +87,7 @@ cleanup() {
 
     if [ -n "${ksbh_pod_name}" ]; then
       echo "ksbh pod logs (${ksbh_pod_name}, tail=100):"
-      kubectl logs --namespace "${namespace}" "${ksbh_pod_name}" --tail=100 || true
+      kctl logs --namespace "${namespace}" "${ksbh_pod_name}" --tail=100 || true
     fi
   fi
 
@@ -104,8 +113,15 @@ image_repository="$(release_image_repository)"
 image_tag="$(release_image_tag)"
 pvc_name="${release_name}-data"
 ci_host="$(resolve_ci_host)"
-e2e_host="${KSBH_E2E_HOST:-${ci_host:-127.0.0.1}}"
-kind_api_server_host="${KSBH_KIND_API_SERVER_HOST:-${ci_host:-}}"
+if [ -n "${CI:-}" ]; then
+  default_e2e_host="${ci_host:-127.0.0.1}"
+  default_kind_api_server_host="${ci_host:-}"
+else
+  default_e2e_host="127.0.0.1"
+  default_kind_api_server_host=""
+fi
+e2e_host="${KSBH_E2E_HOST:-${default_e2e_host}}"
+kind_api_server_host="${KSBH_KIND_API_SERVER_HOST:-${default_kind_api_server_host}}"
 kind_api_server_port="${KSBH_KIND_API_SERVER_PORT:-16443}"
 temp_kubeconfig=""
 browser_host="app.test.local"
@@ -131,9 +147,7 @@ elif printf '%s' "${e2e_host}" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'; th
   browser_host_ip="${e2e_host}"
 fi
 
-if [ -n "${browser_host_ip}" ]; then
-  echo "${browser_host_ip} ${browser_host}" >> /etc/hosts
-else
+if [ -z "${browser_host_ip}" ]; then
   echo "failed to resolve an IP address for browser host mapping from '${e2e_host}'" >&2
   exit 1
 fi
@@ -144,7 +158,7 @@ fi
 
 kind load docker-image "${image_name}" --name "${cluster_name}"
 
-kubectl apply -f - <<EOF
+kctl apply -f - <<EOF
 apiVersion: v1
 kind: PersistentVolume
 metadata:
@@ -165,6 +179,7 @@ spec:
 EOF
 
 helm upgrade --install "${release_name}" charts/ksbh \
+  --kube-context "$(kubectl_context)" \
   --namespace "${namespace}" \
   --create-namespace \
   --set configProvider.mode=kubernetes \
@@ -183,18 +198,18 @@ helm upgrade --install "${release_name}" charts/ksbh \
   --set service.nodePorts.profiling=30083 \
   --set service.nodePorts.prometheus=30084
 
-kubectl rollout status "deployment/${release_name}" \
+kctl rollout status "deployment/${release_name}" \
   --namespace "${namespace}" \
   --timeout=180s
 
-kubectl wait \
+kctl wait \
   --namespace "${namespace}" \
   --for=condition=Ready \
   pod \
   --selector='app.kubernetes.io/instance='"${release_name}" \
   --timeout=180s
 
-kubectl apply --namespace "${namespace}" -f - <<EOF
+kctl apply --namespace "${namespace}" -f - <<EOF
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -215,6 +230,46 @@ spec:
           ports:
             - containerPort: 8080
 ---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: e2e-websocket-probe
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: e2e-websocket-probe
+  template:
+    metadata:
+      labels:
+        app: e2e-websocket-probe
+    spec:
+      containers:
+        - name: websocket-probe
+          image: python:3.12-alpine
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              pip install --no-cache-dir websockets==12.0
+              python - <<'PY'
+              import asyncio
+              import websockets
+
+              async def echo(websocket):
+                  await websocket.send("ready")
+                  async for message in websocket:
+                      await websocket.send(f"echo:{message}")
+
+              async def main():
+                  async with websockets.serve(echo, "0.0.0.0", 8080):
+                      await asyncio.Future()
+
+              asyncio.run(main())
+              PY
+          ports:
+            - containerPort: 8080
+---
 apiVersion: v1
 kind: Service
 metadata:
@@ -222,6 +277,18 @@ metadata:
 spec:
   selector:
     app: e2e-httpbin
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8080
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: e2e-websocket-probe
+spec:
+  selector:
+    app: e2e-websocket-probe
   ports:
     - name: http
       port: 80
@@ -278,11 +345,15 @@ spec:
               mountPath: /data
 EOF
 
-kubectl rollout status "deployment/e2e-httpbin" \
+kctl rollout status "deployment/e2e-httpbin" \
   --namespace "${namespace}" \
   --timeout=180s
 
-kubectl wait \
+kctl rollout status "deployment/e2e-websocket-probe" \
+  --namespace "${namespace}" \
+  --timeout=180s
+
+kctl wait \
   --namespace "${namespace}" \
   --for=condition=complete \
   job/e2e-static-writer \
@@ -297,6 +368,7 @@ export KSBH_E2E_PROFILING_ADDR="http://${e2e_host}:18083"
 export KSBH_E2E_METRICS_ADDR="http://${e2e_host}:18084"
 export KSBH_E2E_NAMESPACE="${namespace}"
 export KSBH_E2E_BROWSER_BASE_URL="http://${browser_host}:18080"
+export KSBH_E2E_BROWSER_HOST_RULE="MAP ${browser_host} ${browser_host_ip}"
 
 echo "running Rust kubernetes e2e tests"
 cargo test \
@@ -344,12 +416,21 @@ cargo test \
   --nocapture \
   --test-threads=1
 
-echo "creating browser PoW fixture"
-kubectl delete ingress pow-browser-ingress --namespace "${namespace}" --ignore-not-found >/dev/null 2>&1 || true
-kubectl delete secret pow-browser-secret --namespace "${namespace}" --ignore-not-found >/dev/null 2>&1 || true
-kubectl delete moduleconfiguration pow-browser --ignore-not-found >/dev/null 2>&1 || true
+cargo test \
+  --manifest-path "${repo_root}/crates/Cargo.toml" \
+  -p tests \
+  --test k8s_websocket_e2e \
+  -- \
+  --ignored \
+  --nocapture \
+  --test-threads=1
 
-kubectl apply --namespace "${namespace}" -f - <<EOF
+echo "creating browser PoW fixture"
+kctl delete ingress pow-browser-ingress --namespace "${namespace}" --ignore-not-found >/dev/null 2>&1 || true
+kctl delete moduleconfiguration pow-browser --ignore-not-found >/dev/null 2>&1 || true
+kctl delete secret pow-browser-secret --namespace "${namespace}" --ignore-not-found >/dev/null 2>&1 || true
+
+kctl apply --namespace "${namespace}" -f - <<EOF
 apiVersion: v1
 kind: Secret
 metadata:
@@ -395,13 +476,45 @@ spec:
                   number: 80
 EOF
 
-wait_for_http_status "http://${browser_host}:18080/get" "401" 90
+wait_for_http_status "http://${e2e_host}:18080/get" "401" 90 "${browser_host}"
 
 echo "running Playwright kubernetes PoW browser e2e"
-tests/playwright/node_modules/.bin/playwright test \
-  "${repo_root}/tests/playwright/k8s-pow-browser.spec.cjs" \
-  --workers=1
+playwright_driver="${KSBH_E2E_PLAYWRIGHT_DRIVER:-container}"
 
-kubectl delete ingress pow-browser-ingress --namespace "${namespace}" --ignore-not-found >/dev/null 2>&1 || true
-kubectl delete secret pow-browser-secret --namespace "${namespace}" --ignore-not-found >/dev/null 2>&1 || true
-kubectl delete moduleconfiguration pow-browser --ignore-not-found >/dev/null 2>&1 || true
+if [ "${playwright_driver}" = "container" ]; then
+  playwright_image="${KSBH_E2E_PLAYWRIGHT_IMAGE:-mcr.microsoft.com/playwright:v1.54.2-noble}"
+  echo "running Playwright in container (${playwright_image})"
+  docker run --rm \
+    --network host \
+    -e KSBH_E2E_BROWSER_BASE_URL="${KSBH_E2E_BROWSER_BASE_URL}" \
+    -e KSBH_E2E_BROWSER_HOST_RULE="${KSBH_E2E_BROWSER_HOST_RULE}" \
+    -v "${repo_root}:/work:ro" \
+    "${playwright_image}" \
+    /bin/bash -lc '
+      set -Eeuo pipefail
+      mkdir -p /tmp/ksbh-playwright
+      cd /tmp/ksbh-playwright
+      npm init -y >/dev/null 2>&1
+      npm install --no-audit --no-fund @playwright/test@1.54.2 >/dev/null
+      cp /work/tests/playwright/k8s-pow-browser.spec.cjs ./k8s-pow-browser.spec.cjs
+      npx playwright test ./k8s-pow-browser.spec.cjs --workers=1
+    '
+else
+  playwright_bin="${repo_root}/tests/playwright/node_modules/.bin/playwright"
+
+  if [ ! -x "${playwright_bin}" ]; then
+    echo "installing Playwright npm package"
+    npm install --prefix "${repo_root}/tests/playwright"
+  fi
+
+  echo "ensuring Playwright Chromium browser is installed"
+  "${playwright_bin}" install chromium
+
+  "${playwright_bin}" test \
+    "${repo_root}/tests/playwright/k8s-pow-browser.spec.cjs" \
+    --workers=1
+fi
+
+kctl delete ingress pow-browser-ingress --namespace "${namespace}" --ignore-not-found >/dev/null 2>&1 || true
+kctl delete moduleconfiguration pow-browser --ignore-not-found >/dev/null 2>&1 || true
+kctl delete secret pow-browser-secret --namespace "${namespace}" --ignore-not-found >/dev/null 2>&1 || true

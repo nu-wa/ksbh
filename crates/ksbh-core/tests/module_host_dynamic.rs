@@ -137,18 +137,6 @@ fn shared_host()
         .ok_or("failed to initialize shared module host".into())
 }
 
-fn seed_metrics_score(
-    host: &ksbh_core::modules::abi::module_host::ModuleHost,
-    session_id: uuid::Uuid,
-    score: u64,
-) -> Result<(), Box<dyn ::std::error::Error>> {
-    let encoded = rmp_serde::to_vec(&ksbh_core::metrics::AtomicU64Wrapper::new(score))?;
-    let metrics_key =
-        ksbh_core::storage::module_session_key::ModuleSessionKey::user_session(session_id);
-    let _ = host.session_store().set_sync(metrics_key, encoded);
-    Ok(())
-}
-
 fn build_request_context(
     session: &mut TestSession,
     path: &[u8],
@@ -167,6 +155,7 @@ fn build_request_context(
     ksbh_core::modules::abi::ModuleRequestContext::new(
         session,
         &http_request,
+        false,
         needs_session_cookie,
         *session_id.as_bytes(),
         metrics_key,
@@ -205,16 +194,25 @@ fn dynamic_smoke_loops() -> usize {
         .unwrap_or(25)
 }
 
+fn set_cookie_values(
+    response: &http::Response<bytes::Bytes>,
+) -> ::std::vec::Vec<::std::string::String> {
+    response
+        .headers()
+        .get_all(http::header::SET_COOKIE)
+        .iter()
+        .filter_map(|value| value.to_str().ok().map(::std::string::String::from))
+        .collect()
+}
+
 #[tokio::test]
 async fn dynamic_module_host_loads_real_cdylib_and_persists_state()
 -> Result<(), Box<dyn ::std::error::Error>> {
     let host = shared_host()?;
+    let params = build_params();
 
     for _ in 0..dynamic_smoke_loops() {
         let session_id = uuid::Uuid::new_v4();
-        seed_metrics_score(host, session_id, 120)?;
-
-        let params = build_params();
 
         let mut first_session = TestSession::new(
             "example.test",
@@ -242,18 +240,6 @@ async fn dynamic_module_host_loads_real_cdylib_and_persists_state()
         assert_eq!(
             response_header_string(&first_response, "x-seen-before").as_deref(),
             Some("")
-        );
-        assert_eq!(
-            response_header_string(&first_response, "x-score-before").as_deref(),
-            Some("120")
-        );
-        assert_eq!(
-            response_header_string(&first_response, "x-score-after").as_deref(),
-            Some("70")
-        );
-        assert_eq!(
-            response_header_string(&first_response, "x-good-boy").as_deref(),
-            Some("true")
         );
         assert!(::std::str::from_utf8(first_response.body().as_ref())?.contains("body=alpha"));
 
@@ -284,35 +270,7 @@ async fn dynamic_module_host_loads_real_cdylib_and_persists_state()
             response_header_string(&second_response, "x-seen-before").as_deref(),
             Some("/ffi-smoke|alpha")
         );
-        assert_eq!(
-            response_header_string(&second_response, "x-score-before").as_deref(),
-            Some("70")
-        );
-        assert_eq!(
-            response_header_string(&second_response, "x-score-after").as_deref(),
-            Some("20")
-        );
         assert!(::std::str::from_utf8(second_response.body().as_ref())?.contains("body=beta"));
-
-        let stored_seen_key = ksbh_core::storage::module_session_key::ModuleSessionKey::new(
-            "dynamic-ffi-smoke:seen",
-            session_id,
-        );
-        let stored_seen = host
-            .session_store()
-            .get_hot_or_cold_sync(&stored_seen_key)
-            .ok_or("session store did not contain persisted `seen` value")?;
-        assert_eq!(stored_seen, b"/ffi-smoke|beta".to_vec());
-
-        let metrics_key =
-            ksbh_core::storage::module_session_key::ModuleSessionKey::user_session(session_id);
-        let stored_metrics = host
-            .session_store()
-            .get_hot_or_cold_sync(&metrics_key)
-            .ok_or("metrics store did not contain persisted score")?;
-        let final_score =
-            rmp_serde::from_slice::<ksbh_core::metrics::AtomicU64Wrapper>(&stored_metrics)?.load();
-        assert_eq!(final_score, 20);
     }
 
     Ok(())
@@ -322,11 +280,9 @@ async fn dynamic_module_host_loads_real_cdylib_and_persists_state()
 async fn dynamic_module_host_injects_proxy_cookie_when_needed()
 -> Result<(), Box<dyn ::std::error::Error>> {
     let host = shared_host()?;
+    let params = build_params();
 
     let session_id = uuid::Uuid::new_v4();
-    seed_metrics_score(host, session_id, 50)?;
-
-    let params = build_params();
     let mut session = TestSession::new(
         "example.test",
         b"/ffi-cookie",
@@ -349,13 +305,246 @@ async fn dynamic_module_host_injects_proxy_cookie_when_needed()
         .ok_or("module call did not write a response")?;
 
     assert_eq!(response.status(), http::StatusCode::OK);
-    let set_cookie = response
-        .headers()
-        .get(http::header::SET_COOKIE)
-        .and_then(|value| value.to_str().ok())
-        .ok_or("missing proxy session set-cookie header")?;
-    assert!(set_cookie.contains("ksbh="));
-    assert!(set_cookie.contains("HttpOnly"));
+    let set_cookie_values = set_cookie_values(&response);
+    assert_eq!(
+        set_cookie_values
+            .iter()
+            .filter(|value| value.contains("ksbh="))
+            .count(),
+        1
+    );
+    assert!(
+        set_cookie_values
+            .iter()
+            .any(|value| value.contains("HttpOnly"))
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn dynamic_module_host_does_not_inject_proxy_cookie_when_already_present()
+-> Result<(), Box<dyn ::std::error::Error>> {
+    let host = shared_host()?;
+    let params = build_params();
+
+    let session_id = uuid::Uuid::new_v4();
+    let mut session = TestSession::new(
+        "example.test",
+        b"/ffi-cookie-present",
+        "POST",
+        Some(bytes::Bytes::from_static(b"cookie-test")),
+    )?;
+    let req_ctx = build_request_context(
+        &mut session,
+        b"/ffi-cookie-present",
+        Some(bytes::Bytes::from_static(b"cookie-test")),
+        session_id,
+        true,
+    );
+
+    host.call_module(&req_ctx, &params, &mut session).await?;
+
+    let response = session
+        .response
+        .clone()
+        .ok_or("module call did not write a response")?;
+
+    let set_cookie_values = set_cookie_values(&response);
+    assert_eq!(
+        set_cookie_values
+            .iter()
+            .filter(|value| value.contains("ksbh="))
+            .count(),
+        1
+    );
+    assert!(
+        set_cookie_values
+            .iter()
+            .any(|value| value.contains("already-present"))
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn dynamic_module_host_injects_proxy_cookie_when_existing_set_cookie_is_malformed()
+-> Result<(), Box<dyn ::std::error::Error>> {
+    let host = shared_host()?;
+    let params = build_params();
+
+    let session_id = uuid::Uuid::new_v4();
+    let mut session = TestSession::new(
+        "example.test",
+        b"/ffi-cookie-malformed",
+        "POST",
+        Some(bytes::Bytes::from_static(b"cookie-test")),
+    )?;
+    let req_ctx = build_request_context(
+        &mut session,
+        b"/ffi-cookie-malformed",
+        Some(bytes::Bytes::from_static(b"cookie-test")),
+        session_id,
+        true,
+    );
+
+    host.call_module(&req_ctx, &params, &mut session).await?;
+
+    let response = session
+        .response
+        .clone()
+        .ok_or("module call did not write a response")?;
+
+    let set_cookie_values = set_cookie_values(&response);
+    assert_eq!(
+        set_cookie_values
+            .iter()
+            .filter(|value| value.contains("ksbh="))
+            .count(),
+        1
+    );
+    assert!(
+        set_cookie_values
+            .iter()
+            .any(|value| value == "not-a-cookie")
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn dynamic_module_host_adds_content_length_when_missing()
+-> Result<(), Box<dyn ::std::error::Error>> {
+    let host = shared_host()?;
+    let params = build_params();
+
+    let session_id = uuid::Uuid::new_v4();
+    let mut session = TestSession::new(
+        "example.test",
+        b"/ffi-length-missing",
+        "POST",
+        Some(bytes::Bytes::from_static(b"length-test")),
+    )?;
+    let req_ctx = build_request_context(
+        &mut session,
+        b"/ffi-length-missing",
+        Some(bytes::Bytes::from_static(b"length-test")),
+        session_id,
+        false,
+    );
+
+    host.call_module(&req_ctx, &params, &mut session).await?;
+
+    let response = session
+        .response
+        .clone()
+        .ok_or("module call did not write a response")?;
+
+    let body_len = response.body().len().to_string();
+    assert_eq!(
+        response_header_string(&response, "content-length").as_deref(),
+        Some(body_len.as_str())
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn dynamic_module_host_keeps_existing_content_length_header()
+-> Result<(), Box<dyn ::std::error::Error>> {
+    let host = shared_host()?;
+    let params = build_params();
+
+    let session_id = uuid::Uuid::new_v4();
+    let mut session = TestSession::new(
+        "example.test",
+        b"/ffi-length-present",
+        "POST",
+        Some(bytes::Bytes::from_static(b"length-test")),
+    )?;
+    let req_ctx = build_request_context(
+        &mut session,
+        b"/ffi-length-present",
+        Some(bytes::Bytes::from_static(b"length-test")),
+        session_id,
+        false,
+    );
+
+    host.call_module(&req_ctx, &params, &mut session).await?;
+
+    let response = session
+        .response
+        .clone()
+        .ok_or("module call did not write a response")?;
+
+    assert_eq!(
+        response_header_string(&response, "content-length").as_deref(),
+        Some("11")
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn dynamic_module_host_skips_invalid_module_headers_without_failing()
+-> Result<(), Box<dyn ::std::error::Error>> {
+    let host = shared_host()?;
+    let params = build_params();
+
+    let session_id = uuid::Uuid::new_v4();
+    let mut session = TestSession::new(
+        "example.test",
+        b"/ffi-invalid-header",
+        "POST",
+        Some(bytes::Bytes::from_static(b"header-test")),
+    )?;
+    let req_ctx = build_request_context(
+        &mut session,
+        b"/ffi-invalid-header",
+        Some(bytes::Bytes::from_static(b"header-test")),
+        session_id,
+        false,
+    );
+
+    host.call_module(&req_ctx, &params, &mut session).await?;
+
+    let response = session
+        .response
+        .clone()
+        .ok_or("module call did not write a response")?;
+
+    assert_eq!(response.status(), http::StatusCode::OK);
+    assert_eq!(
+        response_header_string(&response, "x-valid").as_deref(),
+        Some("ok")
+    );
+    assert!(!response.headers().contains_key("bad header name"));
+    let body_len = response.body().len().to_string();
+    assert_eq!(
+        response_header_string(&response, "content-length").as_deref(),
+        Some(body_len.as_str())
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn dynamic_module_host_reports_loader_failure_when_library_cannot_load()
+-> Result<(), Box<dyn ::std::error::Error>> {
+    let _ = shared_host()?;
+    let host = create_host()?;
+    let bogus_path = ::std::path::PathBuf::from("/definitely/not/a/real/module.so");
+    let error = host
+        .load_module(&bogus_path)
+        .err()
+        .ok_or("expected load failure")?;
+
+    match error {
+        ksbh_core::modules::abi::error::AbiError::ModuleInstanceError(
+            ksbh_core::modules::abi::module_instance::ModuleInstanceError::FailedToLoad(_),
+        ) => {}
+        other => return Err(format!("unexpected loader error: {:?}", other).into()),
+    }
 
     Ok(())
 }
@@ -363,6 +552,7 @@ async fn dynamic_module_host_injects_proxy_cookie_when_needed()
 #[tokio::test]
 async fn dynamic_module_host_returns_module_not_found_for_unloaded_type()
 -> Result<(), Box<dyn ::std::error::Error>> {
+    let _ = shared_host()?;
     let host = create_host()?;
     let session_id = uuid::Uuid::new_v4();
     let params = build_params();

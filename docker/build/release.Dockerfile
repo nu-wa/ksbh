@@ -25,7 +25,7 @@ FROM debian:bookworm-slim
 
 WORKDIR /app
 
-RUN apt-get update -y && apt-get install -y ca-certificates libssl3 && rm -rf /var/lib/apt/lists/*
+RUN apt-get update -y && apt-get install -y ca-certificates libssl3 openssl && rm -rf /var/lib/apt/lists/*
 
 RUN mkdir -p /app/modules /usr/lib/ksbh/modules /app/config
 

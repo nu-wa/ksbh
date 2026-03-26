@@ -45,7 +45,7 @@ kind_cluster_name() {
 }
 
 kind_cluster_config() {
-  printf '%s\n' "${KIND_CLUSTER_CONFIG:-tests/kind/cluster.yaml}"
+  printf '%s\n' "${KIND_CLUSTER_CONFIG:-tests/kind/cluster-ci.yaml}"
 }
 
 ensure_kind_cluster() {

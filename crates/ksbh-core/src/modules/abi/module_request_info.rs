@@ -7,6 +7,7 @@ pub struct RequestInfo {
     pub query_params: QueryParams,
     pub scheme: super::ModuleBuffer,
     pub port: u16,
+    pub is_websocket_handshake: bool,
 }
 
 #[repr(C)]
@@ -66,6 +67,7 @@ impl RequestInfo {
     pub fn new(
         request_info: &ksbh_types::requests::http_request::HttpRequestView,
         query_params_data: &[super::ModuleKvSlice],
+        is_websocket_handshake: bool,
     ) -> Self {
         Self {
             uri: super::ModuleBuffer::from_ref(&request_info.uri),
@@ -75,6 +77,7 @@ impl RequestInfo {
             query_params: QueryParams::new(query_params_data),
             scheme: super::ModuleBuffer::from_ref(request_info.scheme.0.as_str()),
             port: request_info.port,
+            is_websocket_handshake,
         }
     }
 
@@ -82,6 +85,7 @@ impl RequestInfo {
     pub fn new_owned(
         request: &ksbh_types::requests::http_request::HttpRequest,
         query_params_data: &[super::ModuleKvSlice],
+        is_websocket_handshake: bool,
     ) -> Self {
         Self {
             uri: super::ModuleBuffer::from_ref(&request.uri),
@@ -91,6 +95,7 @@ impl RequestInfo {
             query_params: QueryParams::new(query_params_data),
             scheme: super::ModuleBuffer::from_ref(request.scheme.0.as_str()),
             port: request.port,
+            is_websocket_handshake,
         }
     }
 
@@ -129,5 +134,9 @@ impl RequestInfo {
 
     pub fn get_port(&self) -> u16 {
         self.port
+    }
+
+    pub fn is_websocket_handshake(&self) -> bool {
+        self.is_websocket_handshake
     }
 }

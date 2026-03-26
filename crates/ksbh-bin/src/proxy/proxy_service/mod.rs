@@ -35,11 +35,17 @@ pub fn create_service(
         cookie_settings,
     ));
 
-    let mut proxy = pingora::proxy::http_proxy_service_with_name(
-        &pingora_server_conf,
-        proxy_wrapper,
-        "HttpProxy",
-    );
+    let mut proxy_inner = pingora::proxy::http_proxy(&pingora_server_conf, proxy_wrapper);
+    let mut server_options = pingora::apps::HttpServerOptions::default();
+    server_options.allow_connect_method_proxying = true;
+    proxy_inner.server_options = Some(server_options);
+
+    let mut h2_options = pingora::protocols::http::v2::server::H2Options::default();
+    h2_options.enable_connect_protocol();
+    proxy_inner.h2_options = Some(h2_options);
+
+    let mut proxy =
+        pingora::services::listening::Service::new("HttpProxy".to_string(), proxy_inner);
 
     let perf = &config.performance;
     let tcp_fastopen = perf

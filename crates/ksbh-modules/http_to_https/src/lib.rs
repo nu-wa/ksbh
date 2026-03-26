@@ -59,7 +59,7 @@ fn build_redirect_url(uri: &str, host: &str) -> String {
 pub fn process(
     ctx: ksbh_modules_sdk::RequestContext,
 ) -> Result<ksbh_modules_sdk::ModuleResult, ksbh_modules_sdk::ModuleError> {
-    if ksbh_modules_sdk::is_websocket_upgrade_request(&ctx.headers) {
+    if ctx.request.is_websocket_handshake {
         return Ok(ksbh_modules_sdk::ModuleResult::Pass);
     }
 
@@ -97,6 +97,7 @@ mod tests {
             query_params: ::std::collections::HashMap::new(),
             scheme: scheme.into(),
             port,
+            is_websocket_handshake: false,
         }
     }
 

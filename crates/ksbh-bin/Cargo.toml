@@ -13,6 +13,7 @@ async-trait = { workspace = true }
 bytes = { workspace = true }
 hashbrown = { workspace = true }
 http = { workspace = true }
+h2 = "0.4.13"
 http_to_https = { path = "../ksbh-modules/http_to_https/" }
 httpdate = "1.0.3"
 jemalloc_pprof = { version = "0.8.1", optional = true }

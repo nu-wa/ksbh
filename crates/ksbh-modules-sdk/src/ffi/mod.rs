@@ -2,6 +2,53 @@ fn parse_buffer(buffer: &ksbh_core::modules::abi::ModuleBuffer) -> smol_str::Smo
     buffer.as_str().unwrap_or_default().into()
 }
 
+type ResponseOwnerKey = (usize, usize, usize, usize);
+type ResponseOwners =
+    ::std::sync::Mutex<::std::collections::HashMap<ResponseOwnerKey, OwnedResponsePtr>>;
+
+#[derive(Clone, Copy)]
+struct OwnedResponsePtr(*mut OwnedResponse);
+
+// SAFETY: pointers are only inserted/removed behind `ResponseOwners` mutex, and ownership
+// transfer is explicit via `Box::into_raw`/`Box::from_raw` in this module.
+unsafe impl Send for OwnedResponsePtr {}
+
+// SAFETY: same reasoning as `Send`; synchronization is provided by the registry mutex.
+unsafe impl Sync for OwnedResponsePtr {}
+
+fn response_owners() -> &'static ResponseOwners {
+    static RESPONSE_OWNERS: ::std::sync::OnceLock<ResponseOwners> = ::std::sync::OnceLock::new();
+    RESPONSE_OWNERS.get_or_init(|| ::std::sync::Mutex::new(::std::collections::HashMap::new()))
+}
+
+pub fn free_owned_response_by_parts(
+    headers_ptr: *const ksbh_core::modules::abi::ModuleKvSlice,
+    headers_len: usize,
+    body_ptr: *const u8,
+    body_len: usize,
+) -> bool {
+    let key = (
+        headers_ptr as usize,
+        headers_len,
+        body_ptr as usize,
+        body_len,
+    );
+    let removed = response_owners()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .remove(&key);
+    if let Some(owned) = removed {
+        // SAFETY: `owned.0` was created by `Box::into_raw` in `alloc_response`, and is removed
+        // exactly once here before converting back into a `Box` for drop.
+        unsafe {
+            drop(Box::from_raw(owned.0));
+        }
+        true
+    } else {
+        false
+    }
+}
+
 pub fn convert_context<'a>(
     ffi_ctx: &'a ksbh_core::modules::abi::ModuleContext<'a>,
 ) -> crate::context::RequestContext<'a> {
@@ -95,6 +142,7 @@ pub fn parse_request_info(
         query_params,
         scheme: req_info.get_scheme().unwrap_or_default().into(),
         port: req_info.get_port(),
+        is_websocket_handshake: req_info.is_websocket_handshake(),
     }
 }
 
@@ -105,7 +153,9 @@ pub struct OwnedResponse {
 }
 
 impl Drop for OwnedResponse {
-    fn drop(&mut self) {}
+    fn drop(&mut self) {
+        let _ = self.headers.len();
+    }
 }
 
 pub fn alloc_response(
@@ -138,6 +188,160 @@ pub fn alloc_response(
         headers: headers_vec,
     };
 
+    let body_ptr = owned.response.body.as_ptr();
+    let body_len = owned.response.body.len();
+    let key = (
+        headers_ptr as usize,
+        headers_len,
+        body_ptr as usize,
+        body_len,
+    );
     let owned_ptr = Box::into_raw(Box::new(owned));
-    owned_ptr as *const ksbh_core::modules::abi::ModuleResponse
+    let response_ptr = {
+        // SAFETY: `owned_ptr` remains valid until explicitly freed through the response owner
+        // registry via `free_owned_response_by_parts`.
+        unsafe { &(*owned_ptr).response as *const ksbh_core::modules::abi::ModuleResponse }
+    };
+
+    match response_owners().lock() {
+        Ok(mut registry) => {
+            registry.insert(key, OwnedResponsePtr(owned_ptr));
+        }
+        Err(poisoned) => {
+            let mut registry = poisoned.into_inner();
+            registry.insert(key, OwnedResponsePtr(owned_ptr));
+        }
+    }
+
+    response_ptr
+}
+
+#[cfg(test)]
+mod tests {
+    fn make_kv_slice(
+        key: ::std::vec::Vec<u8>,
+        value: ::std::vec::Vec<u8>,
+    ) -> ksbh_core::modules::abi::ModuleKvSlice {
+        ksbh_core::modules::abi::ModuleKvSlice {
+            key: bytes::Bytes::from(key),
+            value: bytes::Bytes::from(value),
+        }
+    }
+
+    fn make_request_info(
+        query_params: ::std::vec::Vec<ksbh_core::modules::abi::ModuleKvSlice>,
+    ) -> ksbh_core::modules::abi::RequestInfo {
+        ksbh_core::modules::abi::RequestInfo {
+            uri: ksbh_core::modules::abi::ModuleBuffer::from_ref("http://example.test/path"),
+            host: ksbh_core::modules::abi::ModuleBuffer::from_ref("example.test"),
+            method: ksbh_core::modules::abi::ModuleBuffer::from_ref("GET"),
+            path: ksbh_core::modules::abi::ModuleBuffer::from_ref("/path"),
+            query_params: ksbh_core::modules::abi::QueryParams {
+                params: query_params,
+            },
+            scheme: ksbh_core::modules::abi::ModuleBuffer::from_ref("http"),
+            port: 80,
+            is_websocket_handshake: false,
+        }
+    }
+
+    proptest::proptest! {
+        #[test]
+        fn proptest_parse_headers_never_panics_and_only_keeps_valid_pairs(
+            pairs in proptest::collection::vec(
+                (
+                    proptest::collection::vec(proptest::num::u8::ANY, 0..16),
+                    proptest::collection::vec(proptest::num::u8::ANY, 0..32)
+                ),
+                0..32
+            )
+        ) {
+            let slices: ::std::vec::Vec<ksbh_core::modules::abi::ModuleKvSlice> = pairs
+                .iter()
+                .map(|(k, v)| make_kv_slice(k.clone(), v.clone()))
+                .collect();
+
+            let parsed = super::parse_headers(&slices);
+            for (k, v) in pairs {
+                if let (Ok(key), Ok(value)) = (::std::str::from_utf8(&k), ::std::str::from_utf8(&v))
+                    && let (Ok(name), Ok(header_value)) = (
+                        key.parse::<http::header::HeaderName>(),
+                        value.parse::<http::header::HeaderValue>(),
+                    )
+                    && let Some(parsed_value) = parsed.get(name)
+                {
+                    proptest::prop_assert_eq!(parsed_value, &header_value);
+                }
+            }
+        }
+    }
+
+    proptest::proptest! {
+        #[test]
+        fn proptest_parse_config_no_panic_invalid_utf8_filtered(
+            pairs in proptest::collection::vec(
+                (
+                    proptest::collection::vec(proptest::num::u8::ANY, 0..16),
+                    proptest::collection::vec(proptest::num::u8::ANY, 0..32)
+                ),
+                0..32
+            )
+        ) {
+            let slices: ::std::vec::Vec<ksbh_core::modules::abi::ModuleKvSlice> = pairs
+                .iter()
+                .map(|(k, v)| make_kv_slice(k.clone(), v.clone()))
+                .collect();
+
+            let parsed = super::parse_config(&slices);
+            let mut expected = ::std::collections::HashMap::<::std::string::String, ::std::string::String>::new();
+            for (k, v) in pairs {
+                if let (Ok(key), Ok(value)) = (::std::str::from_utf8(&k), ::std::str::from_utf8(&v)) {
+                    expected.insert(key.to_string(), value.to_string());
+                }
+            }
+
+            for (key, value) in expected {
+                if let Some(parsed_value) = parsed.get(key.as_str()) {
+                    proptest::prop_assert_eq!(parsed_value.as_str(), value.as_str());
+                } else {
+                    proptest::prop_assert!(false, "missing expected config key");
+                }
+            }
+        }
+    }
+
+    proptest::proptest! {
+        #[test]
+        fn proptest_parse_request_info_no_panic_and_query_semantics_stable(
+            pairs in proptest::collection::vec(
+                (
+                    proptest::collection::vec(proptest::num::u8::ANY, 0..16),
+                    proptest::collection::vec(proptest::num::u8::ANY, 0..32)
+                ),
+                0..32
+            )
+        ) {
+            let query_params: ::std::vec::Vec<ksbh_core::modules::abi::ModuleKvSlice> = pairs
+                .iter()
+                .map(|(k, v)| make_kv_slice(k.clone(), v.clone()))
+                .collect();
+            let req_info = make_request_info(query_params);
+            let parsed = super::parse_request_info(&req_info);
+
+            let mut expected = ::std::collections::HashMap::<::std::string::String, ::std::string::String>::new();
+            for (k, v) in pairs {
+                if let (Ok(key), Ok(value)) = (::std::str::from_utf8(&k), ::std::str::from_utf8(&v)) {
+                    expected.insert(key.to_string(), value.to_string());
+                }
+            }
+
+            for (key, value) in expected {
+                if let Some(parsed_value) = parsed.query_params.get(key.as_str()) {
+                    proptest::prop_assert_eq!(parsed_value.as_str(), value.as_str());
+                } else {
+                    proptest::prop_assert!(false, "missing expected query key");
+                }
+            }
+        }
+    }
 }

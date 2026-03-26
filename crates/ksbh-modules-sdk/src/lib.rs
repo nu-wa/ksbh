@@ -84,8 +84,6 @@ pub fn is_websocket_upgrade_request(headers: &http::HeaderMap) -> bool {
 /// This function should be called to free responses returned by `request_filter`
 /// when the response is not null.
 ///
-/// Currently this is a no-op as the SDK manages memory internally.
-///
 /// # Safety
 ///
 /// The pointers must have been obtained from a call to the module's
@@ -93,14 +91,12 @@ pub fn is_websocket_upgrade_request(headers: &http::HeaderMap) -> bool {
 /// from another source results in undefined behavior.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn free_response(
-    _headers_ptr: *const ksbh_core::modules::abi::ModuleKvSlice,
-    _headers_len: usize,
-    _body_ptr: *const u8,
-    _body_len: usize,
+    headers_ptr: *const ksbh_core::modules::abi::ModuleKvSlice,
+    headers_len: usize,
+    body_ptr: *const u8,
+    body_len: usize,
 ) {
-    // Headers are kept alive by a static in the SDK
-    // Body is owned by ModuleResponse which is dropped when the host
-    // finishes processing
+    let _ = crate::ffi::free_owned_response_by_parts(headers_ptr, headers_len, body_ptr, body_len);
 }
 
 /// Exports a module's FFI entry points for the KSBH host.
@@ -169,24 +165,53 @@ macro_rules! register_module {
             match result {
                 Ok(Ok($crate::ModuleResult::Pass)) => std::ptr::null(),
                 Ok(Ok($crate::ModuleResult::Stop(resp))) => $crate::ffi::alloc_response(resp),
-                Ok(Err(e)) => {
-                    // Module returned an error - return 500 with error message
-                    // The module already logged/handled the error appropriately
-                    let message = e.to_string();
-                    tracing::warn!("Module returned error: {}", message);
-                    let resp = http::Response::builder()
-                        .status(http::StatusCode::INTERNAL_SERVER_ERROR)
-                        .body(bytes::Bytes::from(message))
-                        .unwrap();
-                    $crate::ffi::alloc_response(resp)
-                }
+                Ok(Err(e)) => match e {
+                    $crate::ModuleError::Response { status, message } => {
+                        tracing::warn!("Module returned response error: {} {}", status, message);
+                        let resp = match http::Response::builder()
+                            .status(status)
+                            .body(bytes::Bytes::from(message))
+                        {
+                            Ok(resp) => resp,
+                            Err(error) => {
+                                tracing::error!("Failed to build module response error: {}", error);
+                                http::Response::new(bytes::Bytes::new())
+                            }
+                        };
+                        $crate::ffi::alloc_response(resp)
+                    }
+                    $crate::ModuleError::Critical(error) => {
+                        let message = ::std::format!("Critical: {}", error);
+                        tracing::warn!("Module returned critical error: {}", message);
+                        let resp = match http::Response::builder()
+                            .status(http::StatusCode::INTERNAL_SERVER_ERROR)
+                            .body(bytes::Bytes::from(message))
+                        {
+                            Ok(resp) => resp,
+                            Err(build_error) => {
+                                tracing::error!(
+                                    "Failed to build critical error response: {}",
+                                    build_error
+                                );
+                                http::Response::new(bytes::Bytes::new())
+                            }
+                        };
+                        $crate::ffi::alloc_response(resp)
+                    }
+                },
                 Err(_) => {
                     // Module panicked - return 500
                     tracing::error!("Module panicked");
-                    let resp = http::Response::builder()
+                    let resp = match http::Response::builder()
                         .status(http::StatusCode::INTERNAL_SERVER_ERROR)
                         .body(bytes::Bytes::from("Module panic"))
-                        .unwrap();
+                    {
+                        Ok(resp) => resp,
+                        Err(error) => {
+                            tracing::error!("Failed to build panic response: {}", error);
+                            http::Response::new(bytes::Bytes::new())
+                        }
+                    };
                     $crate::ffi::alloc_response(resp)
                 }
             }

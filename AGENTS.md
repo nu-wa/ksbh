@@ -97,6 +97,7 @@ Notable tasks:
 - `mise run e2e-binary`
 - `mise run dynamic-modules-smoke`
 - `mise run miri-modules-sdk-ffi`
+- `mise run p0-unhappy-tests`
 - `mise run e2e-file-provider`
 - `mise run e2e-kubernetes-provider`
 
@@ -120,6 +121,7 @@ Current Forgejo workflows:
 
 The `ci-base-image` job builds and publishes `docker/build/ci.Dockerfile` to Harbor once per workflow run, and downstream jobs run in that image.
 The `rust-cache-prime` job seeds compile artifacts once per workflow run, and downstream jobs reuse split CI caches (`cargo/mise` dependency caches, `crates/target`, and Playwright browser/npm caches) to reduce repeated setup and Rust rebuild time.
+The `modules-memory-check` job now runs the targeted `p0-unhappy-tests` task (SDK FFI matrix + parser property tests + host callback unhappy-path tests) in addition to `dynamic-modules-smoke` and `miri-modules-sdk-ffi`.
 
 Local Forgejo composite actions:
 

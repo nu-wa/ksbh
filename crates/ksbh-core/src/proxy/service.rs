@@ -208,6 +208,17 @@ impl ksbh_types::prelude::ProxyProvider for ProxyService {
                 .map_err(ksbh_types::prelude::ProxyProviderError::from)?;
         }
 
+        if ctx.downstream_ws_kind != crate::proxy::DownstreamWebsocketKind::None {
+            response
+                .headers
+                .try_insert(
+                    crate::constants::HEADER_X_KSBH_WS_DOWNSTREAM_TRANSPORT,
+                    http::HeaderValue::from_str(ctx.downstream_transport.as_str())
+                        .map_err(ksbh_types::prelude::ProxyProviderError::from)?,
+                )
+                .map_err(ksbh_types::prelude::ProxyProviderError::from)?;
+        }
+
         response
             .headers
             .try_insert(
@@ -248,19 +259,25 @@ impl ksbh_types::prelude::ProxyProvider for ProxyService {
         };
 
         upstream_request
-            .insert_header("X-Forwarded-Proto", http::HeaderValue::from_static(proto))
+            .insert_header(
+                crate::constants::HEADER_X_FORWARDED_PROTO,
+                http::HeaderValue::from_static(proto),
+            )
             .map_err(ksbh_types::prelude::ProxyProviderError::from)?;
 
         if proto == "https" {
             upstream_request
-                .insert_header("X-Forwarded-Ssl", http::HeaderValue::from_static("on"))
+                .insert_header(
+                    crate::constants::HEADER_X_FORWARDED_SSL,
+                    http::HeaderValue::from_static("on"),
+                )
                 .map_err(ksbh_types::prelude::ProxyProviderError::from)?;
         }
 
         if let Some(client_addr) = crate::utils::get_client_ip_from_session(session) {
             upstream_request
                 .insert_header(
-                    "X-Forwarded-For",
+                    crate::constants::HEADER_X_FORWARDED_FOR,
                     http::HeaderValue::from_str(client_addr.to_string().as_str())
                         .map_err(ksbh_types::prelude::ProxyProviderError::from)?,
                 )
@@ -269,7 +286,7 @@ impl ksbh_types::prelude::ProxyProvider for ProxyService {
 
         upstream_request
             .insert_header(
-                "X-Forwarded-Host",
+                crate::constants::HEADER_X_FORWARDED_HOST,
                 http::HeaderValue::from_str(host_with_port.as_str())
                     .map_err(ksbh_types::prelude::ProxyProviderError::from)?,
             )

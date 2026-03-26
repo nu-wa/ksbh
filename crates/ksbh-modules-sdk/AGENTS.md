@@ -28,6 +28,9 @@ Primary exports:
 - `ksbh_modules_sdk::MetricsHandle`
 - `ksbh_modules_sdk::is_websocket_upgrade_request(headers)`
 
+`RequestInfo` includes `is_websocket_handshake` for protocol-neutral websocket checks.
+Use that field in module logic instead of inferring websocket intent from raw transport headers.
+
 ## Module Pattern
 
 Normal modules implement a handler with this shape:

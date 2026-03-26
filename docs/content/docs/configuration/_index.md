@@ -69,7 +69,7 @@ KSBH supports multiple configuration methods that can be combined:
 
 - **Modules**: Request processing plugins (rate-limit, http-to-https, oidc, pow, robots.txt, custom)
 - **Ingresses**: Routing rules mapping hostnames/paths to backends
-- **Backends**: `service` (Kubernetes Service), `static` (static content), `self` (internal)
+- **Backends**: `service` (Kubernetes Service), `static` (static content)
 
 ---
 

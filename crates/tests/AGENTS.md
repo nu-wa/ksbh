@@ -24,6 +24,7 @@ Current e2e test binaries:
 - `k8s_pow_http_e2e`
 - `k8s_robots_txt_e2e`
 - `k8s_static_content_e2e`
+- `k8s_websocket_e2e`
 
 ## Common Helpers
 

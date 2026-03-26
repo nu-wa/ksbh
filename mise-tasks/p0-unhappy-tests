@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+#MISE description="Run targeted unhappy-path and property regression tests"
+#MISE tools={rust="1.92.0"}
+
+set -euo pipefail
+
+repo_root="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$repo_root"
+
+cargo test --manifest-path crates/Cargo.toml -p ksbh-modules-sdk --test ffi_miri
+cargo test --manifest-path crates/Cargo.toml -p ksbh-modules-sdk proptest_parse_
+cargo test --manifest-path crates/Cargo.toml -p ksbh-core --test host_functions_unhappy
+cargo test --manifest-path crates/Cargo.toml -p ksbh-core response_sets_proxy_cookie

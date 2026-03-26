@@ -168,7 +168,14 @@ impl FileConfigProvider {
                         }
                     }
                     "static" => ::ksbh_core::routing::ServiceBackendType::Static,
-                    "self" => ::ksbh_core::routing::ServiceBackendType::ToSelf(None),
+                    "self" => {
+                        tracing::warn!(
+                            "Ingress '{}' path '{}' uses deprecated backend 'self'; treating as no backend",
+                            ingress.name,
+                            path_config.path
+                        );
+                        ::ksbh_core::routing::ServiceBackendType::None
+                    }
                     _ => ::ksbh_core::routing::ServiceBackendType::None,
                 };
 

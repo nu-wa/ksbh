@@ -11,3 +11,4 @@ ksbh-core = { path = "../ksbh-core/" }
 
 [dev-dependencies]
 tracing = { workspace = true }
+proptest = { workspace = true }

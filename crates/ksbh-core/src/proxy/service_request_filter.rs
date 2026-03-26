@@ -102,11 +102,14 @@ impl super::ProxyService {
         let modules_metrics = &mut ctx.modules_metrics;
 
         ctx.metrics_key = ctx.session_id_bytes.to_vec();
+        let is_websocket_handshake =
+            ctx.downstream_ws_kind != crate::proxy::DownstreamWebsocketKind::None;
 
         let internal_path = self.config.url_paths.modules.as_str();
         let req_ctx = crate::modules::abi::ModuleRequestContext::new(
             session,
             &http_request,
+            is_websocket_handshake,
             ctx.needs_session_cookie,
             ctx.session_id_bytes,
             &ctx.metrics_key,
@@ -114,7 +117,7 @@ impl super::ProxyService {
             internal_path,
         );
 
-        ctx.http_request = Some(http_request);
+        ctx.http_request = Some(http_request.clone());
         ctx.valid_request_information = Some(valid_request_information.clone());
 
         for module in modules.iter() {
@@ -159,6 +162,17 @@ impl super::ProxyService {
             if decision.is_some() {
                 return Ok(ksbh_types::prelude::ProxyDecision::ModuleReplied);
             }
+        }
+
+        if ctx.downstream_ws_kind == crate::proxy::DownstreamWebsocketKind::H2ExtendedConnect
+            && let crate::routing::ServiceBackendType::ServiceBackend(svc) =
+                &valid_request_information.req_match.backend
+        {
+            ctx.tunnel_plan = Some(crate::proxy::WebsocketTunnelPlan {
+                upstream_addr: format!("{}:{}", svc.name, svc.port),
+                host: valid_request_information.host.clone(),
+                path_and_query: ksbh_types::KsbhStr::new(http_request.query.to_string()),
+            });
         }
 
         Ok(ksbh_types::prelude::ProxyDecision::ContinueProcessing)

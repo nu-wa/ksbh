@@ -88,6 +88,449 @@ impl<P> PingoraWrapper<P> {
     pub fn new(provider: P) -> Self {
         Self { provider }
     }
+
+    fn header_has_token(
+        headers: &http::HeaderMap,
+        name: impl http::header::AsHeaderName,
+        token: &str,
+    ) -> bool {
+        headers
+            .get(name)
+            .and_then(|value| value.to_str().ok())
+            .map(|value| {
+                value
+                    .split(',')
+                    .any(|part| part.trim().eq_ignore_ascii_case(token))
+            })
+            .unwrap_or(false)
+    }
+
+    fn is_h1_websocket_upgrade(headers: &http::HeaderMap) -> bool {
+        if !Self::header_has_token(headers, http::header::UPGRADE, "websocket") {
+            return false;
+        }
+
+        Self::header_has_token(headers, http::header::CONNECTION, "upgrade")
+            || headers.contains_key("Sec-WebSocket-Key")
+    }
+
+    fn classify_downstream_websocket(
+        pingora_session: &pingora::proxy::Session,
+    ) -> ksbh_core::proxy::DownstreamWebsocketKind {
+        let parts = pingora_session.req_header().as_ref();
+
+        if Self::is_h1_websocket_upgrade(&parts.headers) {
+            return ksbh_core::proxy::DownstreamWebsocketKind::H1Upgrade;
+        }
+
+        let protocol = parts
+            .extensions
+            .get::<h2::ext::Protocol>()
+            .map(|value| value.as_str())
+            .unwrap_or("");
+
+        if parts.version == http::Version::HTTP_2
+            && parts.method == http::Method::CONNECT
+            && protocol.eq_ignore_ascii_case("websocket")
+        {
+            return ksbh_core::proxy::DownstreamWebsocketKind::H2ExtendedConnect;
+        }
+
+        ksbh_core::proxy::DownstreamWebsocketKind::None
+    }
+
+    fn parse_h1_response_status_and_headers(
+        response_head: &str,
+    ) -> Result<
+        (
+            http::StatusCode,
+            Vec<(::std::string::String, ::std::string::String)>,
+        ),
+        ksbh_types::prelude::ProxyProviderError,
+    > {
+        let mut lines = response_head.lines();
+        let status_line = lines.next().ok_or_else(|| {
+            ksbh_types::prelude::ProxyProviderError::InternalErrorDetailed(
+                "upstream websocket handshake missing status line".to_string(),
+            )
+        })?;
+
+        let status_code = status_line
+            .split_whitespace()
+            .nth(1)
+            .ok_or_else(|| {
+                ksbh_types::prelude::ProxyProviderError::InternalErrorDetailed(format!(
+                    "upstream websocket handshake malformed status line: {status_line}",
+                ))
+            })?
+            .parse::<u16>()
+            .map_err(|e| {
+                ksbh_types::prelude::ProxyProviderError::InternalErrorDetailed(format!(
+                    "upstream websocket handshake invalid status code: {e}",
+                ))
+            })?;
+        let status = http::StatusCode::from_u16(status_code).map_err(|e| {
+            ksbh_types::prelude::ProxyProviderError::InternalErrorDetailed(e.to_string())
+        })?;
+
+        let mut headers = Vec::new();
+        for line in lines {
+            let Some((name, value)) = line.split_once(':') else {
+                continue;
+            };
+            headers.push((name.trim().to_string(), value.trim().to_string()));
+        }
+
+        Ok((status, headers))
+    }
+
+    fn is_hop_by_hop_header_name(name: &str) -> bool {
+        name.eq_ignore_ascii_case("connection")
+            || name.eq_ignore_ascii_case("proxy-connection")
+            || name.eq_ignore_ascii_case("keep-alive")
+            || name.eq_ignore_ascii_case("transfer-encoding")
+            || name.eq_ignore_ascii_case("te")
+            || name.eq_ignore_ascii_case("trailer")
+            || name.eq_ignore_ascii_case("upgrade")
+    }
+
+    async fn bridge_h2_websocket_to_h1_upstream(
+        &self,
+        pingora_session: &mut pingora::proxy::Session,
+        ctx: &mut ksbh_core::proxy::ProxyContext,
+        plan: &ksbh_core::proxy::WebsocketTunnelPlan,
+    ) -> Result<(), ksbh_types::prelude::ProxyProviderError>
+    where
+        P: ksbh_types::prelude::ProxyProvider<ProxyContext = ksbh_core::proxy::ProxyContext>,
+    {
+        let connect_timeout = tokio::time::Duration::from_secs(5);
+        let mut upstream = tokio::time::timeout(
+            connect_timeout,
+            tokio::net::TcpStream::connect(plan.upstream_addr.as_str()),
+        )
+        .await
+        .map_err(|_| {
+            ksbh_types::prelude::ProxyProviderError::InternalErrorDetailed(
+                "timeout while connecting websocket upstream".to_string(),
+            )
+        })?
+        .map_err(|e| {
+            ksbh_types::prelude::ProxyProviderError::InternalErrorDetailed(e.to_string())
+        })?;
+
+        let downstream_headers = &pingora_session.req_header().as_ref().headers;
+        let mut upstream_request = pingora::http::RequestHeader::build_no_case(
+            "GET",
+            plan.path_and_query.as_bytes(),
+            Some(downstream_headers.len() + 8),
+        )
+        .map_err(ksbh_types::prelude::ProxyProviderError::from)?;
+        upstream_request
+            .insert_header(http::header::HOST, plan.host.as_str())
+            .map_err(ksbh_types::prelude::ProxyProviderError::from)?;
+        upstream_request
+            .insert_header(http::header::UPGRADE, "websocket")
+            .map_err(ksbh_types::prelude::ProxyProviderError::from)?;
+        upstream_request
+            .insert_header(http::header::CONNECTION, "Upgrade")
+            .map_err(ksbh_types::prelude::ProxyProviderError::from)?;
+
+        for (name, value) in downstream_headers {
+            let name_str = name.as_str();
+            if name == http::header::HOST
+                || Self::is_hop_by_hop_header_name(name_str)
+                || name_str.eq_ignore_ascii_case(ksbh_core::constants::HEADER_X_FORWARDED_FOR)
+                || name_str.eq_ignore_ascii_case(ksbh_core::constants::HEADER_X_FORWARDED_PROTO)
+                || name_str.eq_ignore_ascii_case(ksbh_core::constants::HEADER_X_FORWARDED_SSL)
+                || name_str.eq_ignore_ascii_case(ksbh_core::constants::HEADER_X_FORWARDED_HOST)
+            {
+                continue;
+            }
+            upstream_request
+                .append_header(name.clone(), value.clone())
+                .map_err(ksbh_types::prelude::ProxyProviderError::from)?;
+        }
+
+        {
+            let mut session = PingoraSessionWrapper::new(pingora_session);
+            self.provider
+                .upstream_request_filter(&mut session, &mut upstream_request, ctx)
+                .await?;
+        }
+
+        let upstream_path = upstream_request
+            .uri
+            .path_and_query()
+            .map(|pq| pq.as_str())
+            .unwrap_or("/");
+        let mut request = format!(
+            "{} {} HTTP/1.1\r\n",
+            upstream_request.method.as_str(),
+            upstream_path
+        );
+        for (name, value) in &upstream_request.headers {
+            if let Ok(value_str) = value.to_str() {
+                request.push_str(name.as_str());
+                request.push_str(": ");
+                request.push_str(value_str);
+                request.push_str("\r\n");
+            }
+        }
+        request.push_str("\r\n");
+
+        tokio::time::timeout(
+            tokio::time::Duration::from_secs(5),
+            tokio::io::AsyncWriteExt::write_all(&mut upstream, request.as_bytes()),
+        )
+        .await
+        .map_err(|_| {
+            ksbh_types::prelude::ProxyProviderError::InternalErrorDetailed(
+                "timeout while writing websocket handshake to upstream".to_string(),
+            )
+        })?
+        .map_err(|e| {
+            ksbh_types::prelude::ProxyProviderError::InternalErrorDetailed(e.to_string())
+        })?;
+
+        let mut upstream_buffer = Vec::<u8>::with_capacity(4096);
+        let handshake_deadline = tokio::time::Instant::now() + tokio::time::Duration::from_secs(10);
+        let header_end = loop {
+            if let Some(index) = upstream_buffer
+                .windows(4)
+                .position(|window| window == b"\r\n\r\n")
+            {
+                break index + 4;
+            }
+
+            let mut read_buffer = [0u8; 2048];
+            let remaining = handshake_deadline
+                .checked_duration_since(tokio::time::Instant::now())
+                .ok_or_else(|| {
+                    ksbh_types::prelude::ProxyProviderError::InternalErrorDetailed(
+                        "timeout while reading websocket handshake from upstream".to_string(),
+                    )
+                })?;
+            let read = tokio::time::timeout(
+                remaining,
+                tokio::io::AsyncReadExt::read(&mut upstream, &mut read_buffer),
+            )
+            .await
+            .map_err(|_| {
+                ksbh_types::prelude::ProxyProviderError::InternalErrorDetailed(
+                    "timeout while reading websocket handshake from upstream".to_string(),
+                )
+            })?
+            .map_err(|e| {
+                ksbh_types::prelude::ProxyProviderError::InternalErrorDetailed(e.to_string())
+            })?;
+
+            if read == 0 {
+                return Err(
+                    ksbh_types::prelude::ProxyProviderError::InternalErrorDetailed(
+                        "upstream closed websocket handshake socket".to_string(),
+                    ),
+                );
+            }
+
+            upstream_buffer.extend_from_slice(&read_buffer[..read]);
+            if upstream_buffer.len() > 16384 {
+                return Err(
+                    ksbh_types::prelude::ProxyProviderError::InternalErrorDetailed(
+                        "upstream websocket handshake headers too large".to_string(),
+                    ),
+                );
+            }
+        };
+
+        let header_bytes = &upstream_buffer[..header_end];
+        let header_string = ::std::str::from_utf8(header_bytes).map_err(|e| {
+            ksbh_types::prelude::ProxyProviderError::InternalErrorDetailed(e.to_string())
+        })?;
+        let (upstream_status, upstream_headers) =
+            Self::parse_h1_response_status_and_headers(header_string)?;
+        let downstream_status = if ctx.downstream_ws_kind
+            == ksbh_core::proxy::DownstreamWebsocketKind::H2ExtendedConnect
+            && upstream_status == http::StatusCode::SWITCHING_PROTOCOLS
+        {
+            http::StatusCode::OK
+        } else {
+            upstream_status
+        };
+
+        let mut upstream_response = pingora::http::ResponseHeader::build(
+            downstream_status,
+            Some(upstream_headers.len() + 8),
+        )
+        .map_err(|e| {
+            ksbh_types::prelude::ProxyProviderError::InternalErrorDetailed(e.to_string())
+        })?;
+        for (name, value) in &upstream_headers {
+            if Self::is_hop_by_hop_header_name(name.as_str()) {
+                continue;
+            }
+            let header_name =
+                http::header::HeaderName::from_bytes(name.as_bytes()).map_err(|e| {
+                    ksbh_types::prelude::ProxyProviderError::InternalErrorDetailed(e.to_string())
+                })?;
+            upstream_response
+                .append_header(
+                    header_name,
+                    http::HeaderValue::from_str(value.as_str())
+                        .map_err(ksbh_types::prelude::ProxyProviderError::from)?,
+                )
+                .map_err(ksbh_types::prelude::ProxyProviderError::from)?;
+        }
+
+        let mut response_parts = upstream_response.as_owned_parts();
+        {
+            let mut session = PingoraSessionWrapper::new(pingora_session);
+            self.provider
+                .response_filter(&mut session, &mut response_parts, ctx)
+                .await?;
+        }
+        let headers_count = response_parts.headers.len();
+        let mut response =
+            pingora::http::ResponseHeader::build(response_parts.status, Some(headers_count))
+                .map_err(ksbh_types::prelude::ProxyProviderError::from)?;
+        response.set_version(response_parts.version);
+        for (header_name, header_value) in &response_parts.headers {
+            response
+                .append_header(header_name.clone(), header_value.clone())
+                .map_err(ksbh_types::prelude::ProxyProviderError::from)?;
+        }
+
+        pingora_session
+            .write_response_header(Box::new(response), false)
+            .await
+            .map_err(ksbh_types::prelude::ProxyProviderError::from)?;
+
+        if header_end < upstream_buffer.len() {
+            pingora_session
+                .write_response_body(
+                    Some(bytes::Bytes::copy_from_slice(
+                        &upstream_buffer[header_end..],
+                    )),
+                    upstream_status != http::StatusCode::SWITCHING_PROTOCOLS,
+                )
+                .await
+                .map_err(ksbh_types::prelude::ProxyProviderError::from)?;
+            if upstream_status != http::StatusCode::SWITCHING_PROTOCOLS {
+                return Ok(());
+            }
+        } else if upstream_status != http::StatusCode::SWITCHING_PROTOCOLS {
+            pingora_session
+                .write_response_body(None, true)
+                .await
+                .map_err(ksbh_types::prelude::ProxyProviderError::from)?;
+            return Ok(());
+        }
+
+        enum UpstreamEvent {
+            Data(bytes::Bytes),
+            Eof,
+            Error(::std::string::String),
+        }
+
+        let (mut upstream_reader, mut upstream_writer) = tokio::io::split(upstream);
+        let (upstream_tx, mut upstream_rx) = tokio::sync::mpsc::channel::<UpstreamEvent>(64);
+
+        tokio::spawn(async move {
+            let mut read_buffer = [0u8; 8192];
+            loop {
+                let read =
+                    match tokio::io::AsyncReadExt::read(&mut upstream_reader, &mut read_buffer)
+                        .await
+                    {
+                        Ok(read) => read,
+                        Err(e) => {
+                            let _ = upstream_tx.send(UpstreamEvent::Error(e.to_string())).await;
+                            return;
+                        }
+                    };
+
+                if read == 0 {
+                    let _ = upstream_tx.send(UpstreamEvent::Eof).await;
+                    return;
+                }
+
+                if upstream_tx
+                    .send(UpstreamEvent::Data(bytes::Bytes::copy_from_slice(
+                        &read_buffer[..read],
+                    )))
+                    .await
+                    .is_err()
+                {
+                    return;
+                }
+            }
+        });
+
+        let mut upstream_done = false;
+        let mut downstream_done = false;
+
+        loop {
+            if upstream_done && downstream_done {
+                break;
+            }
+
+            tokio::select! {
+                downstream_read = pingora_session.read_request_body(), if !downstream_done => {
+                    match downstream_read {
+                        Ok(Some(data)) => {
+                            tokio::io::AsyncWriteExt::write_all(&mut upstream_writer, data.as_ref())
+                                .await
+                                .map_err(|e| {
+                                    ksbh_types::prelude::ProxyProviderError::InternalErrorDetailed(
+                                        e.to_string(),
+                                    )
+                                })?;
+                        }
+                        Ok(None) => {
+                            downstream_done = true;
+                            tokio::io::AsyncWriteExt::shutdown(&mut upstream_writer)
+                                .await
+                                .map_err(|e| {
+                                    ksbh_types::prelude::ProxyProviderError::InternalErrorDetailed(
+                                        e.to_string(),
+                                    )
+                                })?;
+                        }
+                        Err(e) => {
+                            return Err(
+                                ksbh_types::prelude::ProxyProviderError::InternalErrorDetailed(
+                                    e.to_string(),
+                                ),
+                            );
+                        }
+                    }
+                }
+                upstream_event = upstream_rx.recv(), if !upstream_done => {
+                    match upstream_event {
+                        Some(UpstreamEvent::Data(chunk)) => {
+                            pingora_session
+                                .write_response_body(Some(chunk), false)
+                                .await
+                                .map_err(ksbh_types::prelude::ProxyProviderError::from)?;
+                        }
+                        Some(UpstreamEvent::Eof) | None => {
+                            upstream_done = true;
+                            pingora_session
+                                .write_response_body(None, true)
+                                .await
+                                .map_err(ksbh_types::prelude::ProxyProviderError::from)?;
+                        }
+                        Some(UpstreamEvent::Error(e)) => {
+                            return Err(
+                                ksbh_types::prelude::ProxyProviderError::InternalErrorDetailed(e),
+                            );
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
 }
 
 #[async_trait::async_trait]
@@ -114,24 +557,128 @@ where
         pingora_session: &mut pingora::proxy::Session,
         ctx: &mut Self::CTX,
     ) -> pingora::prelude::Result<bool> {
-        let mut session = PingoraSessionWrapper::new(pingora_session);
+        ctx.downstream_transport = smol_str::SmolStr::new(
+            if pingora_session.req_header().version == http::Version::HTTP_2 {
+                "h2"
+            } else {
+                "h1"
+            },
+        );
+        ctx.downstream_ws_kind = Self::classify_downstream_websocket(pingora_session);
 
-        if ksbh_types::prelude::ProxyDecision::ModuleReplied
-            == self
-                .provider
-                .request_filter(&mut session, ctx)
-                .await
-                .map_err(|e| {
-                    pingora::Error::create(
-                        pingora::ErrorType::Custom("InternalError"),
-                        pingora::ErrorSource::Internal,
-                        Some(pingora::ImmutStr::Owned(e.to_string().into())),
-                        None,
+        let is_non_ws_connect = pingora_session.req_header().method == http::Method::CONNECT
+            && ctx.downstream_ws_kind
+                != ksbh_core::proxy::DownstreamWebsocketKind::H2ExtendedConnect;
+        let mut session = PingoraSessionWrapper::new(pingora_session);
+        let decision = self
+            .provider
+            .request_filter(&mut session, ctx)
+            .await
+            .map_err(|e| {
+                pingora::Error::create(
+                    pingora::ErrorType::Custom("InternalError"),
+                    pingora::ErrorSource::Internal,
+                    Some(pingora::ImmutStr::Owned(e.to_string().into())),
+                    None,
+                )
+            })?;
+
+        match decision {
+            ksbh_types::prelude::ProxyDecision::ModuleReplied => Ok(true),
+            ksbh_types::prelude::ProxyDecision::ContinueProcessing => {
+                if is_non_ws_connect {
+                    let response = http::Response::builder()
+                        .status(http::StatusCode::BAD_REQUEST)
+                        .body(bytes::Bytes::from_static(
+                            b"CONNECT is only supported for websocket extended CONNECT",
+                        ))
+                        .map_err(|e| {
+                            pingora::Error::create(
+                                pingora::ErrorType::Custom("InternalError"),
+                                pingora::ErrorSource::Internal,
+                                Some(pingora::ImmutStr::Owned(e.to_string().into())),
+                                None,
+                            )
+                        })?;
+                    ctx.proxy_decision = Some(ksbh_types::prelude::ProxyDecision::StopProcessing(
+                        http::StatusCode::BAD_REQUEST,
+                        bytes::Bytes::from_static(
+                            b"CONNECT is only supported for websocket extended CONNECT",
+                        ),
+                    ));
+                    ksbh_types::prelude::ProxyProviderSession::write_response(
+                        &mut session,
+                        response,
                     )
-                })?
-        {
+                    .await
+                    .map_err(|e| {
+                        pingora::Error::create(
+                            pingora::ErrorType::Custom("InternalError"),
+                            pingora::ErrorSource::Internal,
+                            Some(pingora::ImmutStr::Owned(e.to_string().into())),
+                            None,
+                        )
+                    })?;
+                    return Ok(true);
+                }
+
+                Ok(false)
+            }
+            ksbh_types::prelude::ProxyDecision::StopProcessing(status, body) => {
+                ctx.proxy_decision = Some(ksbh_types::prelude::ProxyDecision::StopProcessing(
+                    status,
+                    body.clone(),
+                ));
+                let response = http::Response::builder()
+                    .status(status)
+                    .body(body)
+                    .map_err(|e| {
+                        pingora::Error::create(
+                            pingora::ErrorType::Custom("InternalError"),
+                            pingora::ErrorSource::Internal,
+                            Some(pingora::ImmutStr::Owned(e.to_string().into())),
+                            None,
+                        )
+                    })?;
+
+                ksbh_types::prelude::ProxyProviderSession::write_response(&mut session, response)
+                    .await
+                    .map_err(|e| {
+                        pingora::Error::create(
+                            pingora::ErrorType::Custom("InternalError"),
+                            pingora::ErrorSource::Internal,
+                            Some(pingora::ImmutStr::Owned(e.to_string().into())),
+                            None,
+                        )
+                    })?;
+                Ok(true)
+            }
+        }
+    }
+
+    async fn proxy_upstream_filter(
+        &self,
+        pingora_session: &mut pingora::proxy::Session,
+        ctx: &mut Self::CTX,
+    ) -> pingora::Result<bool> {
+        let Some(plan) = ctx.tunnel_plan.clone() else {
+            return Ok(true);
+        };
+
+        if ctx.downstream_ws_kind != ksbh_core::proxy::DownstreamWebsocketKind::H2ExtendedConnect {
             return Ok(true);
         }
+
+        self.bridge_h2_websocket_to_h1_upstream(pingora_session, ctx, &plan)
+            .await
+            .map_err(|e| {
+                pingora::Error::create(
+                    pingora::ErrorType::Custom("InternalError"),
+                    pingora::ErrorSource::Internal,
+                    Some(pingora::ImmutStr::Owned(e.to_string().into())),
+                    None,
+                )
+            })?;
 
         Ok(false)
     }

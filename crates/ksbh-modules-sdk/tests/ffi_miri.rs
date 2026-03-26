@@ -5,10 +5,50 @@ fn ffi_smoke_process(
         return Ok(ksbh_modules_sdk::ModuleResult::Pass);
     }
 
-    if ctx.request.path == "/error" {
+    if ctx.request.path == "/error/bad_request" {
         return Err(ksbh_modules_sdk::ModuleError::bad_request(
             "sdk ffi error path",
         ));
+    }
+
+    if ctx.request.path == "/error/unauthorized" {
+        return Err(ksbh_modules_sdk::ModuleError::unauthorized(
+            "sdk ffi unauthorized path",
+        ));
+    }
+
+    if ctx.request.path == "/error/forbidden" {
+        return Err(ksbh_modules_sdk::ModuleError::forbidden(
+            "sdk ffi forbidden path",
+        ));
+    }
+
+    if ctx.request.path == "/error/not_found" {
+        return Err(ksbh_modules_sdk::ModuleError::not_found(
+            "sdk ffi not found path",
+        ));
+    }
+
+    if ctx.request.path == "/error/too_many" {
+        return Err(ksbh_modules_sdk::ModuleError::too_many_requests(
+            "sdk ffi too many requests path",
+        ));
+    }
+
+    if ctx.request.path == "/error/internal" {
+        return Err(ksbh_modules_sdk::ModuleError::internal_error(
+            "sdk ffi internal error path",
+        ));
+    }
+
+    if ctx.request.path == "/error/critical" {
+        return Err(ksbh_modules_sdk::ModuleError::critical(
+            ::std::io::Error::other("sdk ffi critical path"),
+        ));
+    }
+
+    if ctx.request.path == "/panic" {
+        panic!("ffi panic route");
     }
 
     let header_value = ctx
@@ -195,11 +235,7 @@ fn exported_sdk_module_ffi_smoke_test() {
     assert!(logs[0].contains("ffi-smoke POST /ffi 250"));
     drop(logs);
 
-    unsafe {
-        drop(Box::from_raw(
-            response_ptr as *mut ksbh_modules_sdk::OwnedResponse,
-        ));
-    }
+    free_response_from_module_ptr(response_ptr);
 }
 
 #[test]
@@ -233,11 +269,94 @@ fn exported_sdk_module_pass_returns_null_response_pointer() {
 }
 
 #[test]
-fn exported_sdk_module_error_becomes_http_response() {
-    let query_params = ::std::vec::Vec::new();
-    let config = ::std::vec::Vec::new();
-    let headers = ::std::vec::Vec::new();
-    let request_info = build_request_info("GET", "/error", &query_params);
+fn request_filter_null_ctx_returns_null() {
+    let response_ptr = unsafe { request_filter(::std::ptr::null()) };
+    assert!(response_ptr.is_null());
+}
+
+#[test]
+fn module_error_bad_request_maps_to_400() {
+    assert_error_path(
+        "/error/bad_request",
+        http::StatusCode::BAD_REQUEST,
+        "sdk ffi error path",
+    );
+}
+
+#[test]
+fn module_error_unauthorized_maps_to_401() {
+    assert_error_path(
+        "/error/unauthorized",
+        http::StatusCode::UNAUTHORIZED,
+        "sdk ffi unauthorized path",
+    );
+}
+
+#[test]
+fn module_error_forbidden_maps_to_403() {
+    assert_error_path(
+        "/error/forbidden",
+        http::StatusCode::FORBIDDEN,
+        "sdk ffi forbidden path",
+    );
+}
+
+#[test]
+fn module_error_not_found_maps_to_404() {
+    assert_error_path(
+        "/error/not_found",
+        http::StatusCode::NOT_FOUND,
+        "sdk ffi not found path",
+    );
+}
+
+#[test]
+fn module_error_too_many_requests_maps_to_429() {
+    assert_error_path(
+        "/error/too_many",
+        http::StatusCode::TOO_MANY_REQUESTS,
+        "sdk ffi too many requests path",
+    );
+}
+
+#[test]
+fn module_error_internal_error_maps_to_500() {
+    assert_error_path(
+        "/error/internal",
+        http::StatusCode::INTERNAL_SERVER_ERROR,
+        "sdk ffi internal error path",
+    );
+}
+
+#[test]
+fn module_error_critical_maps_to_500_with_critical_prefix() {
+    assert_error_path(
+        "/error/critical",
+        http::StatusCode::INTERNAL_SERVER_ERROR,
+        "Critical: sdk ffi critical path",
+    );
+}
+
+#[test]
+fn panic_in_handler_maps_to_500_module_panic_body() {
+    assert_error_path(
+        "/panic",
+        http::StatusCode::INTERNAL_SERVER_ERROR,
+        "Module panic",
+    );
+}
+
+#[test]
+fn response_free_via_exported_free_response_single_round_trip() {
+    let query_params = ::std::vec![ksbh_core::modules::abi::ModuleKvSlice::new("name", "codex")];
+    let config = ::std::vec![ksbh_core::modules::abi::ModuleKvSlice::new(
+        "greeting", "hello",
+    )];
+    let headers = ::std::vec![ksbh_core::modules::abi::ModuleKvSlice::new(
+        "x-test-header",
+        "header-value",
+    )];
+    let request_info = build_request_info("POST", "/ffi", &query_params);
     let metrics_key = default_metrics_key();
     let module_context = build_module_context(
         &config,
@@ -249,26 +368,20 @@ fn exported_sdk_module_error_becomes_http_response() {
 
     let response_ptr = unsafe { request_filter(&module_context) };
     assert!(!response_ptr.is_null());
-
     let response = unsafe { &*response_ptr };
-    assert_eq!(
-        response.status_code,
-        http::StatusCode::INTERNAL_SERVER_ERROR.as_u16()
-    );
-    assert_eq!(
-        ::std::str::from_utf8(response.body.as_ref()).unwrap_or_default(),
-        "sdk ffi error path"
-    );
+    assert_eq!(response.status_code, http::StatusCode::CREATED.as_u16());
+    free_response_from_module_ptr(response_ptr);
+}
 
+#[test]
+fn free_response_null_and_zero_args_is_safe_noop() {
     unsafe {
-        drop(Box::from_raw(
-            response_ptr as *mut ksbh_modules_sdk::OwnedResponse,
-        ));
+        ksbh_modules_sdk::free_response(::std::ptr::null(), 0, ::std::ptr::null(), 0);
     }
 }
 
 #[test]
-fn exported_sdk_module_repeated_response_allocation_and_free() {
+fn response_free_via_exported_free_response_repeated_loop() {
     reset_records();
 
     let query_params = ::std::vec![ksbh_core::modules::abi::ModuleKvSlice::new("name", "codex")];
@@ -295,12 +408,7 @@ fn exported_sdk_module_repeated_response_allocation_and_free() {
 
         let response = unsafe { &*response_ptr };
         assert_eq!(response.status_code, http::StatusCode::CREATED.as_u16());
-
-        unsafe {
-            drop(Box::from_raw(
-                response_ptr as *mut ksbh_modules_sdk::OwnedResponse,
-            ));
-        }
+        free_response_from_module_ptr(response_ptr);
     }
 }
 
@@ -308,6 +416,48 @@ fn default_metrics_key() -> ksbh_core::modules::abi::ModuleBuffer {
     ksbh_core::modules::abi::ModuleBuffer::from_ref_bytes(&[
         1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16,
     ])
+}
+
+fn free_response_from_module_ptr(response_ptr: *const ksbh_core::modules::abi::ModuleResponse) {
+    if response_ptr.is_null() {
+        return;
+    }
+
+    let response = unsafe { &*response_ptr };
+    unsafe {
+        ksbh_modules_sdk::free_response(
+            response.headers_ptr,
+            response.headers_len,
+            response.body.as_ptr(),
+            response.body.len(),
+        );
+    }
+}
+
+fn assert_error_path(path: &str, expected_status: http::StatusCode, expected_body: &str) {
+    let query_params = ::std::vec::Vec::new();
+    let config = ::std::vec::Vec::new();
+    let headers = ::std::vec::Vec::new();
+    let request_info = build_request_info("GET", path, &query_params);
+    let metrics_key = default_metrics_key();
+    let module_context = build_module_context(
+        &config,
+        &headers,
+        &request_info,
+        metrics_key,
+        "ffi-miri-smoke",
+    );
+
+    let response_ptr = unsafe { request_filter(&module_context) };
+    assert!(!response_ptr.is_null());
+
+    let response = unsafe { &*response_ptr };
+    assert_eq!(response.status_code, expected_status.as_u16());
+    assert_eq!(
+        ::std::str::from_utf8(response.body.as_ref()).unwrap_or_default(),
+        expected_body
+    );
+    free_response_from_module_ptr(response_ptr);
 }
 
 fn build_request_info(
@@ -329,6 +479,7 @@ fn build_request_info(
         query_params: ksbh_core::modules::abi::QueryParams::new(query_params),
         scheme: ksbh_core::modules::abi::ModuleBuffer::from_ref("http"),
         port: 8080,
+        is_websocket_handshake: false,
     }
 }
 

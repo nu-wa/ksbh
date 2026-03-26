@@ -247,6 +247,12 @@ jobs:
                   task: dynamic-modules-smoke
                   chmod-paths: mise-tasks/dynamic-modules-smoke
 
+            - name: Run unhappy-path regression tests
+              uses: ./.forgejo/actions/run-mise-task
+              with:
+                  task: p0-unhappy-tests
+                  chmod-paths: mise-tasks/p0-unhappy-tests
+
             - name: Run Miri SDK FFI task
               uses: ./.forgejo/actions/run-mise-task
               with:

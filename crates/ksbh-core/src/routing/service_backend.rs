@@ -3,8 +3,6 @@
 pub enum ServiceBackendType {
     /// Direct service backend with name and port
     ServiceBackend(ServiceBackend),
-    /// Route back to self, optionally with a specific path
-    ToSelf(Option<ksbh_types::KsbhStr>),
     /// Static content backend
     Static,
     /// Error response with static message

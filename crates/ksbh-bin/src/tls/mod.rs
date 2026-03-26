@@ -8,22 +8,66 @@ impl DynamicTLS {
     }
 }
 
-static DEFAULT_CERT: ::std::sync::LazyLock<ksbh_core::certs::Certificate> =
-    ::std::sync::LazyLock::new(|| {
-        let key =
-            pingora::tls::pkey::PKey::generate_ed25519().expect("Failed to generate ED25519 key");
-        let mut builder =
-            pingora::tls::x509::X509::builder().expect("Failed to create X509 builder");
-        builder.set_version(2).expect("Failed to set X509 version");
-        builder.set_pubkey(&key).expect("Failed to set public key");
+static DEFAULT_CERT: ::std::sync::LazyLock<Option<ksbh_core::certs::Certificate>> =
+    ::std::sync::LazyLock::new(load_default_cert);
 
-        builder
-            .sign(&key, pingora::tls::hash::MessageDigest::null())
-            .expect("Failed to sign certificate");
-        let crt = builder.build();
+fn load_default_cert() -> Option<ksbh_core::certs::Certificate> {
+    let cert_file = ::std::env::var("KSBH__TLS__DEFAULT_CERT_FILE")
+        .unwrap_or_else(|_| "/app/config/default-tls.crt".to_string());
+    let key_file = ::std::env::var("KSBH__TLS__DEFAULT_KEY_FILE")
+        .unwrap_or_else(|_| "/app/config/default-tls.key".to_string());
 
-        (::std::sync::Arc::new(key), ::std::sync::Arc::new(vec![crt]))
-    });
+    let cert_pem = match ::std::fs::read(&cert_file) {
+        Ok(v) => v,
+        Err(err) => {
+            tracing::error!(
+                "failed to read fallback certificate file '{}': {}",
+                cert_file,
+                err
+            );
+            return None;
+        }
+    };
+    let key_pem = match ::std::fs::read(&key_file) {
+        Ok(v) => v,
+        Err(err) => {
+            tracing::error!("failed to read fallback key file '{}': {}", key_file, err);
+            return None;
+        }
+    };
+
+    let key = match pingora::tls::pkey::PKey::private_key_from_pem(&key_pem) {
+        Ok(v) => v,
+        Err(err) => {
+            tracing::error!(
+                "failed to parse fallback private key from '{}': {}",
+                key_file,
+                err
+            );
+            return None;
+        }
+    };
+    let cert_chain = match pingora::tls::x509::X509::stack_from_pem(&cert_pem) {
+        Ok(v) => v,
+        Err(err) => {
+            tracing::error!(
+                "failed to parse fallback certificate chain from '{}': {}",
+                cert_file,
+                err
+            );
+            return None;
+        }
+    };
+    if cert_chain.is_empty() {
+        tracing::error!("fallback certificate chain from '{}' is empty", cert_file);
+        return None;
+    }
+
+    Some((
+        ::std::sync::Arc::new(key),
+        ::std::sync::Arc::new(cert_chain),
+    ))
+}
 
 #[async_trait::async_trait]
 impl pingora::listeners::TlsAccept for DynamicTLS {
@@ -38,9 +82,16 @@ impl pingora::listeners::TlsAccept for DynamicTLS {
             None => None,
         };
 
-        let (private_key, cert_chain) = match cert_data {
-            Some(ref cert) => (cert.0.as_ref(), cert.1.as_ref()),
-            None => (DEFAULT_CERT.0.as_ref(), DEFAULT_CERT.1.as_ref()),
+        let fallback_cert = DEFAULT_CERT.as_ref();
+        let (private_key, cert_chain) = match cert_data.as_ref().or(fallback_cert) {
+            Some(cert) => (cert.0.as_ref(), cert.1.as_ref()),
+            None => {
+                tracing::error!(
+                    "no certificate available for TLS handshake (sni='{}')",
+                    sni.as_deref().unwrap_or("unknown/no-sni")
+                );
+                return;
+            }
         };
 
         let sni_str = sni.as_deref().unwrap_or("unknown/no-sni");

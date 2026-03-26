@@ -162,7 +162,7 @@ For the file provider, `cert_file` and `key_file` are the effective TLS fields. 
 |-------|------|----------|-------------|
 | `path` | string | Yes | Path to match |
 | `type` | string | No | Match type: `exact`, `prefix`. Defaults to `prefix` when omitted. |
-| `backend` | string | Yes | Backend type: `service`, `static`, `self` |
+| `backend` | string | Yes | Backend type: `service`, `static` |
 | `service` | object | For `service` backend | Service details |
 
 ### Backend Types
@@ -190,17 +190,6 @@ paths:
   - path: "/static"
     type: "prefix"
     backend: "static"
-```
-
-#### Self Backend
-
-Handles request within the proxy itself (for error pages, redirects, etc.):
-
-```yaml
-paths:
-  - path: "/health"
-    type: "exact"
-    backend: "self"
 ```
 
 ### Path Match Types
@@ -322,13 +311,16 @@ ingresses:
       - "oidc-auth"
       - "api-limiter"
 
-  # Health check (no auth, self backend)
+  # Health check (no auth)
   - name: "health"
     host: "health.example.com"
     paths:
       - path: "/"
-        type: "exact"
-        backend: "self"
+        type: "prefix"
+        backend: "service"
+        service:
+          name: "health-service"
+          port: 8080
 ```
 
 ### Environment Variable Interpolation

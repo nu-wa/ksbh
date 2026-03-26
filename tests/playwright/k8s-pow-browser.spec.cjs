@@ -5,6 +5,10 @@ function browserBaseUrl() {
   return process.env.KSBH_E2E_BROWSER_BASE_URL || 'http://app.test.local:18080';
 }
 
+function browserHostRule() {
+  return process.env.KSBH_E2E_BROWSER_HOST_RULE || '';
+}
+
 function findPowNonce(challenge, difficulty) {
   let nonce = 1;
 
@@ -24,18 +28,24 @@ function findPowNonce(challenge, difficulty) {
 
 test('k8s_pow_module_is_solved_by_browser_javascript', async () => {
   test.setTimeout(60000);
+  const hostRule = browserHostRule();
+  const launchArgs = [
+    '--disable-dev-shm-usage',
+    '--disable-gpu',
+    '--disable-setuid-sandbox',
+    '--no-sandbox',
+    '--no-first-run',
+    '--no-default-browser-check',
+    '--disable-background-networking',
+  ];
+
+  if (hostRule.length > 0) {
+    launchArgs.push(`--host-resolver-rules=${hostRule}`);
+  }
 
   const context = await chromium.launchPersistentContext('/tmp/ksbh-playwright-profile', {
     headless: true,
-    args: [
-      '--disable-dev-shm-usage',
-      '--disable-gpu',
-      '--disable-setuid-sandbox',
-      '--no-sandbox',
-      '--no-first-run',
-      '--no-default-browser-check',
-      '--disable-background-networking',
-    ],
+    args: launchArgs,
   });
 
   const page = context.pages()[0] || await context.newPage();
