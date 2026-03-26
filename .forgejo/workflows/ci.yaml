@@ -263,8 +263,6 @@ jobs:
     e2e-kubernetes:
         continue-on-error: ${{ (forge.ref_name || env.FORGEJO_REF_NAME || env.LOCAL_REF_NAME) == 'dev' }}
         needs:
-            - e2e-binary
-            - modules-memory-check
             - release-image-build
         runs-on: kind
         container:
@@ -322,6 +320,7 @@ jobs:
               env:
                   KIND_CLUSTER_CONFIG: tests/kind/cluster-ci.yaml
                   KSBH_KIND_API_SERVER_PORT: "16443"
+                  KSBH_E2E_PLAYWRIGHT_DRIVER: host
               with:
                   task: e2e
                   task-args: --skip-build
@@ -329,6 +328,8 @@ jobs:
 
     publish-images:
         needs:
+            - e2e-binary
+            - modules-memory-check
             - e2e-kubernetes
         if: ${{ forge.event_name != 'pull_request' }}
         runs-on: docker

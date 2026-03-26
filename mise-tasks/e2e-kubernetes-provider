@@ -504,12 +504,17 @@ fi
 
 if [ "${playwright_driver}" = "container" ]; then
   playwright_image="${KSBH_E2E_PLAYWRIGHT_IMAGE:-mcr.microsoft.com/playwright:v1.54.2-noble}"
+  playwright_spec_b64="$(base64 < "${playwright_spec}" | tr -d '\n')"
+  if [ -z "${playwright_spec_b64}" ]; then
+    echo "failed to encode Playwright spec: ${playwright_spec}" >&2
+    exit 1
+  fi
   echo "running Playwright in container (${playwright_image})"
   docker run --rm \
     --network host \
     -e KSBH_E2E_BROWSER_BASE_URL="${KSBH_E2E_BROWSER_BASE_URL}" \
     -e KSBH_E2E_BROWSER_HOST_RULE="${KSBH_E2E_BROWSER_HOST_RULE}" \
-    -v "${repo_root}:/work:ro" \
+    -e KSBH_E2E_PLAYWRIGHT_SPEC_B64="${playwright_spec_b64}" \
     "${playwright_image}" \
     /bin/bash -lc '
       set -Eeuo pipefail
@@ -517,7 +522,7 @@ if [ "${playwright_driver}" = "container" ]; then
       cd /tmp/ksbh-playwright
       npm init -y >/dev/null 2>&1
       npm install --no-audit --no-fund @playwright/test@1.54.2 >/dev/null
-      cp /work/tests/playwright/k8s-pow-browser.spec.cjs ./k8s-pow-browser.spec.cjs
+      printf "%s" "${KSBH_E2E_PLAYWRIGHT_SPEC_B64}" | base64 -d > ./k8s-pow-browser.spec.cjs
       npx playwright test ./k8s-pow-browser.spec.cjs --workers=1
     '
 else
