@@ -91,18 +91,24 @@ resolve_ci_host() {
 
 cleanup() {
   if command -v kubectl >/dev/null 2>&1 && [ -n "${namespace:-}" ]; then
-    ksbh_pod_name="$(
-      kctl get pods \
-        --namespace "${namespace}" \
-        --selector "app.kubernetes.io/instance=${release_name}" \
-        -o jsonpath='{.items[0].metadata.name}' \
-        2>/dev/null || true
-    )"
+    for instance_name in "${release_name:-}" "${trusted_release_name:-}"; do
+      if [ -z "${instance_name}" ]; then
+        continue
+      fi
 
-    if [ -n "${ksbh_pod_name}" ]; then
-      echo "ksbh pod logs (${ksbh_pod_name}, tail=100):"
-      kctl logs --namespace "${namespace}" "${ksbh_pod_name}" --tail=100 || true
-    fi
+      ksbh_pod_name="$(
+        kctl get pods \
+          --namespace "${namespace}" \
+          --selector "app.kubernetes.io/instance=${instance_name}" \
+          -o jsonpath='{.items[0].metadata.name}' \
+          2>/dev/null || true
+      )"
+
+      if [ -n "${ksbh_pod_name}" ]; then
+        echo "ksbh pod logs (${instance_name}/${ksbh_pod_name}, tail=100):"
+        kctl logs --namespace "${namespace}" "${ksbh_pod_name}" --tail=100 || true
+      fi
+    done
   fi
 
   if [ "${usage_keep_cluster:-false}" = "true" ]; then
@@ -122,6 +128,7 @@ trap cleanup EXIT
 cluster_name="$(kind_cluster_name)"
 namespace="$(e2e_namespace)"
 release_name="$(e2e_release_name)"
+trusted_release_name="${release_name}-trusted-proxies"
 image_name="$(release_image_name)"
 image_repository="$(release_image_repository)"
 image_tag="$(release_image_tag)"
@@ -212,7 +219,28 @@ helm upgrade --install "${release_name}" charts/ksbh \
   --set service.nodePorts.profiling=30083 \
   --set service.nodePorts.prometheus=30084
 
+helm upgrade --install "${trusted_release_name}" charts/ksbh \
+  --kube-context "$(kubectl_context)" \
+  --namespace "${namespace}" \
+  --create-namespace \
+  --set configProvider.mode=kubernetes \
+  --set image.repository="${image_repository}" \
+  --set image.tag="${image_tag}" \
+  --set image.pullPolicy=IfNotPresent \
+  --set-string configEnv.KSBH__CONSTANTS__COOKIE_SECURE=false \
+  --set-string configEnv.KSBH__CONFIG_PATHS__STATIC_CONTENT=/app/data/static \
+  --set-string configEnv.KSBH__TRUSTED_PROXIES__0=0.0.0.0/0 \
+  --set persistence.enabled=false \
+  --set service.type=NodePort \
+  --set service.nodePorts.http=31080 \
+  --set service.nodePorts.https=31443 \
+  --set fullnameOverride="${trusted_release_name}"
+
 kctl rollout status "deployment/${release_name}" \
+  --namespace "${namespace}" \
+  --timeout=180s
+
+kctl rollout status "deployment/${trusted_release_name}" \
   --namespace "${namespace}" \
   --timeout=180s
 
@@ -221,6 +249,13 @@ kctl wait \
   --for=condition=Ready \
   pod \
   --selector='app.kubernetes.io/instance='"${release_name}" \
+  --timeout=180s
+
+kctl wait \
+  --namespace "${namespace}" \
+  --for=condition=Ready \
+  pod \
+  --selector='app.kubernetes.io/instance='"${trusted_release_name}" \
   --timeout=180s
 
 kctl apply --namespace "${namespace}" -f - <<EOF
@@ -375,9 +410,12 @@ kctl wait \
 
 wait_for_http_status "http://${e2e_host}:18080/" "200" 90 "static.example.local"
 wait_for_http_status "http://${e2e_host}:18084/metrics" "200" 60
+wait_for_http_status "http://${e2e_host}:19080/" "404" 60
 
 export KSBH_E2E_HTTP_ADDR="http://${e2e_host}:18080"
 export KSBH_E2E_HTTPS_ADDR="https://${e2e_host}:18443"
+export KSBH_E2E_TRUSTED_HTTP_ADDR="http://${e2e_host}:19080"
+export KSBH_E2E_TRUSTED_HTTPS_ADDR="https://${e2e_host}:19443"
 export KSBH_E2E_PROFILING_ADDR="http://${e2e_host}:18083"
 export KSBH_E2E_METRICS_ADDR="http://${e2e_host}:18084"
 export KSBH_E2E_NAMESPACE="${namespace}"
@@ -425,6 +463,24 @@ cargo test \
   --manifest-path "${repo_root}/crates/Cargo.toml" \
   -p tests \
   --test k8s_pow_http_e2e \
+  -- \
+  --ignored \
+  --nocapture \
+  --test-threads=1
+
+cargo test \
+  --manifest-path "${repo_root}/crates/Cargo.toml" \
+  -p tests \
+  --test k8s_http_to_https_e2e \
+  -- \
+  --ignored \
+  --nocapture \
+  --test-threads=1
+
+cargo test \
+  --manifest-path "${repo_root}/crates/Cargo.toml" \
+  -p tests \
+  --test k8s_trusted_proxies_e2e \
   -- \
   --ignored \
   --nocapture \

@@ -5,58 +5,11 @@
 //! - Scheme is `https`
 //! - Port is 443
 //! - URI starts with `https://` or `wss://`
-//! - `x-forwarded-proto` indicates `https`/`wss`
-//! - `x-forwarded-port` indicates `443`
 //!
 //! WebSocket upgrades are always passed through to avoid breaking the
 //! HTTP/1.1 upgrade handshake with redirects.
 
-fn header_has_token(
-    headers: &http::HeaderMap,
-    name: impl http::header::AsHeaderName,
-    token: &str,
-) -> bool {
-    headers
-        .get(name)
-        .and_then(|value| value.to_str().ok())
-        .map(|value| {
-            value
-                .split(',')
-                .any(|part| part.trim().eq_ignore_ascii_case(token))
-        })
-        .unwrap_or(false)
-}
-
-fn forwarded_proto_is_secure(headers: &http::HeaderMap) -> bool {
-    let forwarded = match headers
-        .get(http::header::FORWARDED)
-        .and_then(|value| value.to_str().ok())
-    {
-        Some(value) => value,
-        None => return false,
-    };
-
-    for element in forwarded.split(',') {
-        for part in element.split(';') {
-            let trimmed = part.trim();
-            let mut kv = trimmed.splitn(2, '=');
-            let key = kv.next().unwrap_or_default().trim();
-            let value = kv
-                .next()
-                .unwrap_or_default()
-                .trim()
-                .trim_matches('"')
-                .to_ascii_lowercase();
-            if key.eq_ignore_ascii_case("proto") && (value == "https" || value == "wss") {
-                return true;
-            }
-        }
-    }
-
-    false
-}
-
-fn is_secure_request(request: &ksbh_modules_sdk::RequestInfo, headers: &http::HeaderMap) -> bool {
+fn is_secure_request(request: &ksbh_modules_sdk::RequestInfo) -> bool {
     let scheme = request.scheme.as_str();
     let uri = request.uri.as_str();
 
@@ -64,11 +17,6 @@ fn is_secure_request(request: &ksbh_modules_sdk::RequestInfo, headers: &http::He
         || request.port == 443
         || uri.starts_with("https://")
         || uri.starts_with("wss://")
-        || header_has_token(headers, "x-forwarded-proto", "https")
-        || header_has_token(headers, "x-forwarded-proto", "wss")
-        || header_has_token(headers, "x-forwarded-ssl", "on")
-        || header_has_token(headers, "x-forwarded-port", "443")
-        || forwarded_proto_is_secure(headers)
 }
 
 fn build_redirect_url(uri: &str, host: &str) -> String {
@@ -129,13 +77,6 @@ fn is_self_redirect(redirect_url: &str, request_uri: &str) -> bool {
     }
 }
 
-fn header_value_as_str(headers: &http::HeaderMap, name: impl http::header::AsHeaderName) -> &str {
-    headers
-        .get(name)
-        .and_then(|value| value.to_str().ok())
-        .unwrap_or("-")
-}
-
 pub fn process(
     ctx: ksbh_modules_sdk::RequestContext,
 ) -> Result<ksbh_modules_sdk::ModuleResult, ksbh_modules_sdk::ModuleError> {
@@ -143,36 +84,13 @@ pub fn process(
         return Ok(ksbh_modules_sdk::ModuleResult::Pass);
     }
 
-    let secure = is_secure_request(&ctx.request, &ctx.headers);
-    ctx.logger.debug(&format!(
-        "http_to_https decision input: host={} method={} path={} scheme={} port={} uri={} x-forwarded-proto={} x-forwarded-port={} x-forwarded-ssl={} forwarded={} secure={}",
-        ctx.request.host,
-        ctx.request.method,
-        ctx.request.path,
-        ctx.request.scheme,
-        ctx.request.port,
-        ctx.request.uri,
-        header_value_as_str(&ctx.headers, "x-forwarded-proto"),
-        header_value_as_str(&ctx.headers, "x-forwarded-port"),
-        header_value_as_str(&ctx.headers, "x-forwarded-ssl"),
-        header_value_as_str(&ctx.headers, http::header::FORWARDED),
-        secure
-    ));
+    let secure = is_secure_request(&ctx.request);
 
     if !secure {
         let redirect_url = build_redirect_url(ctx.request.uri.as_str(), ctx.request.host.as_str());
-        let self_redirect = is_self_redirect(&redirect_url, ctx.request.uri.as_str());
-        if self_redirect {
-            ctx.logger.warn(&format!(
-                "http_to_https self-redirect suppressed: uri={} redirect={}",
-                ctx.request.uri, redirect_url
-            ));
+        if is_self_redirect(&redirect_url, ctx.request.uri.as_str()) {
             return Ok(ksbh_modules_sdk::ModuleResult::Pass);
         }
-        ctx.logger.info(&format!(
-            "http_to_https redirecting: uri={} redirect={}",
-            ctx.request.uri, redirect_url
-        ));
 
         let response = http::Response::builder()
             .status(http::StatusCode::MOVED_PERMANENTLY)
@@ -253,42 +171,22 @@ mod tests {
     }
 
     #[test]
-    fn secure_request_detects_forwarded_https() {
-        let request = test_request("http://example.com/ws/client/", "example.com", "http", 80);
-        let mut headers = http::HeaderMap::new();
-        headers.insert("x-forwarded-proto", http::HeaderValue::from_static("https"));
-
-        assert!(super::is_secure_request(&request, &headers));
-    }
-
-    #[test]
-    fn secure_request_detects_forwarded_wss() {
-        let request = test_request("ws://example.com/ws/client/", "example.com", "http", 80);
-        let mut headers = http::HeaderMap::new();
-        headers.insert("x-forwarded-proto", http::HeaderValue::from_static("wss"));
-
-        assert!(super::is_secure_request(&request, &headers));
-    }
-
-    #[test]
-    fn secure_request_detects_forwarded_ssl_on() {
-        let request = test_request("http://example.com/index.yaml", "example.com", "http", 80);
-        let mut headers = http::HeaderMap::new();
-        headers.insert("x-forwarded-ssl", http::HeaderValue::from_static("on"));
-
-        assert!(super::is_secure_request(&request, &headers));
-    }
-
-    #[test]
-    fn secure_request_detects_standard_forwarded_proto() {
-        let request = test_request("http://example.com/index.yaml", "example.com", "http", 80);
-        let mut headers = http::HeaderMap::new();
-        headers.insert(
-            http::header::FORWARDED,
-            http::HeaderValue::from_static("for=192.0.2.60;proto=https;host=example.com"),
+    fn secure_request_detects_https_scheme_from_request_info() {
+        let request = test_request(
+            "https://example.com/ws/client/",
+            "example.com",
+            "https",
+            443,
         );
 
-        assert!(super::is_secure_request(&request, &headers));
+        assert!(super::is_secure_request(&request));
+    }
+
+    #[test]
+    fn secure_request_detects_wss_uri_from_request_info() {
+        let request = test_request("wss://example.com/ws/client/", "example.com", "https", 443);
+
+        assert!(super::is_secure_request(&request));
     }
 
     #[test]

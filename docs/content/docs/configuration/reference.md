@@ -17,6 +17,7 @@ pub struct Config {
     pub cookie_key: Option<String>,    // Cookie signing key (64 bytes min)
     pub redis_url: Option<String>,    // Redis connection URL (optional)
     pub pyroscope_url: Option<String>, // Pyroscope profiling URL
+    pub trusted_proxies: Vec<IpNet>,  // IP/CIDR allowlist for trusting forwarded headers
     pub ports: ConfigPorts,           // Port mappings
     pub listen_addresses: ConfigListenAddresses, // Network binding
     pub config_paths: ConfigFilePaths, // File paths
@@ -162,6 +163,24 @@ KSBH__REDIS_URL="redis://localhost:6379"
 
 ---
 
+## Trusted Proxies
+
+### `trusted_proxies`
+
+List of proxy source IPs or CIDRs whose forwarded headers are trusted.
+
+```yaml
+trusted_proxies:
+  - "10.15.0.12"
+  - "10.15.0.0/16"
+```
+
+When a request does not come from one of these addresses, KSBH ignores
+`X-Forwarded-*` and `Forwarded` for scheme and client IP derivation.
+The default is an empty list.
+
+---
+
 ## Cookie Security
 
 ### `cookie_key` (Required)
@@ -219,6 +238,9 @@ cookie_key: "your-64-byte-minimum-key-here"
 redis_url: "redis://localhost:6379"
 pyroscope_url: "http://pyroscope:4040"
 threads: 8
+trusted_proxies:
+  - "10.15.0.12"
+  - "10.15.0.0/16"
 
 # Port mappings
 ports:

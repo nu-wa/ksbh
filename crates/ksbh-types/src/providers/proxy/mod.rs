@@ -92,6 +92,7 @@ pub trait ProxyProviderSession: Send + Sync {
     fn headers(&self) -> http::request::Parts;
     fn get_header(&self, header_name: http::HeaderName) -> Option<&http::header::HeaderValue>;
     fn set_request_uri(&mut self, uri: http::Uri);
+    fn server_addr(&self) -> Option<::std::net::SocketAddr>;
 
     fn response_written(&self) -> Option<http::Response<bytes::Bytes>>;
 

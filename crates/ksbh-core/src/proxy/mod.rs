@@ -76,6 +76,7 @@ impl ProxyContext {
 /// Unlike `PartialRequestInformation`, this struct includes the resolved routing
 /// destination (`req_match`), the session identifier, and a shared config Arc.
 pub struct ValidRequestInformation {
+    pub scheme: ksbh_types::prelude::HttpScheme,
     pub host: smol_str::SmolStr,
     pub path: ksbh_types::KsbhStr,
     pub method: ksbh_types::prelude::HttpMethod,
@@ -108,7 +109,9 @@ pub struct PartialClientInformation {
 }
 
 impl ValidRequestInformation {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
+        scheme: ksbh_types::prelude::HttpScheme,
         host: smol_str::SmolStr,
         path: ksbh_types::KsbhStr,
         method: ksbh_types::prelude::HttpMethod,
@@ -118,6 +121,7 @@ impl ValidRequestInformation {
         session_id: uuid::Uuid,
     ) -> Self {
         Self {
+            scheme,
             host,
             path,
             method,
@@ -132,9 +136,11 @@ impl ValidRequestInformation {
 impl PartialClientInformation {
     pub fn new_from_session(
         session: &dyn ksbh_types::prelude::ProxyProviderSession,
+        config: &crate::Config,
     ) -> Option<Self> {
+        let trust_forwarded_headers = config.trusts_forwarded_headers_from(session.client_addr());
         Some(Self {
-            ip: crate::utils::get_client_ip_from_session(session)?,
+            ip: crate::utils::get_client_ip_from_session(session, trust_forwarded_headers)?,
             user_agent: match session
                 .headers()
                 .headers
@@ -151,9 +157,11 @@ impl PartialClientInformation {
 impl ClientInformation {
     pub fn new_from_session(
         session: &dyn ksbh_types::prelude::ProxyProviderSession,
+        config: &crate::Config,
     ) -> Option<Self> {
+        let trust_forwarded_headers = config.trusts_forwarded_headers_from(session.client_addr());
         Some(Self {
-            ip: crate::utils::get_client_ip_from_session(session)?,
+            ip: crate::utils::get_client_ip_from_session(session, trust_forwarded_headers)?,
             user_agent: smol_str::SmolStr::new(
                 session
                     .headers()

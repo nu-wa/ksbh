@@ -22,6 +22,8 @@ impl Default for WaitRetrySettings {
 pub struct E2eConfig {
     pub http_addr: ::std::string::String,
     pub https_addr: ::std::string::String,
+    pub trusted_http_addr: ::std::string::String,
+    pub trusted_https_addr: ::std::string::String,
     pub profiling_addr: ::std::string::String,
     pub metrics_addr: ::std::string::String,
     pub namespace: ::std::string::String,
@@ -34,6 +36,10 @@ impl E2eConfig {
                 .unwrap_or_else(|_| "http://127.0.0.1:18080".to_string()),
             https_addr: ::std::env::var("KSBH_E2E_HTTPS_ADDR")
                 .unwrap_or_else(|_| "https://127.0.0.1:18443".to_string()),
+            trusted_http_addr: ::std::env::var("KSBH_E2E_TRUSTED_HTTP_ADDR")
+                .unwrap_or_else(|_| "http://127.0.0.1:19080".to_string()),
+            trusted_https_addr: ::std::env::var("KSBH_E2E_TRUSTED_HTTPS_ADDR")
+                .unwrap_or_else(|_| "https://127.0.0.1:19443".to_string()),
             profiling_addr: ::std::env::var("KSBH_E2E_PROFILING_ADDR")
                 .unwrap_or_else(|_| "http://127.0.0.1:18083".to_string()),
             metrics_addr: ::std::env::var("KSBH_E2E_METRICS_ADDR")
@@ -92,11 +98,158 @@ pub async fn get_with_host(
     path: &str,
     host: &str,
 ) -> Result<reqwest::Response, reqwest::Error> {
-    client
+    get_with_host_and_headers(client, base_addr, path, host, &[]).await
+}
+
+pub async fn get_with_host_and_headers(
+    client: &reqwest::Client,
+    base_addr: &str,
+    path: &str,
+    host: &str,
+    extra_headers: &[(&str, &str)],
+) -> Result<reqwest::Response, reqwest::Error> {
+    let mut request = client
         .get(format!("{base_addr}{path}"))
-        .header(reqwest::header::HOST, host)
-        .send()
+        .header(reqwest::header::HOST, host);
+
+    for (name, value) in extra_headers {
+        request = request.header(*name, *value);
+    }
+
+    client
+        .execute(
+            request
+                .build()
+                .expect("failed to build request with host headers"),
+        )
         .await
+}
+
+pub async fn wait_for_host_status_with_headers(
+    client: &reqwest::Client,
+    base_addr: &str,
+    path: &str,
+    host: &str,
+    expected_status: reqwest::StatusCode,
+    extra_headers: &[(&str, &str)],
+) -> reqwest::Response {
+    wait_for_host_status_with_headers_and_retries(
+        client,
+        base_addr,
+        path,
+        host,
+        expected_status,
+        extra_headers,
+        WaitRetrySettings::default(),
+    )
+    .await
+}
+
+pub async fn wait_for_host_status_with_headers_and_retries(
+    client: &reqwest::Client,
+    base_addr: &str,
+    path: &str,
+    host: &str,
+    expected_status: reqwest::StatusCode,
+    extra_headers: &[(&str, &str)],
+    retry_settings: WaitRetrySettings,
+) -> reqwest::Response {
+    let mut attempts = 0usize;
+    let mut last_error = ::std::string::String::new();
+
+    while attempts <= retry_settings.retries {
+        attempts += 1;
+        let start = tokio::time::Instant::now();
+        let timeout = tokio::time::Duration::from_secs(45);
+
+        while start.elapsed() < timeout {
+            match get_with_host_and_headers(client, base_addr, path, host, extra_headers).await {
+                Ok(response) if response.status() == expected_status => return response,
+                Ok(response) => {
+                    last_error = format!(
+                        "unexpected status {} while waiting for host {} path {}",
+                        response.status(),
+                        host,
+                        path
+                    );
+                }
+                Err(error) => {
+                    last_error = format!(
+                        "request failed while waiting for host {} path {}: {}",
+                        host, path, error
+                    );
+                }
+            }
+
+            tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+        }
+
+        if attempts <= retry_settings.retries {
+            tokio::time::sleep(retry_settings.retry_delay).await;
+        }
+    }
+
+    panic!(
+        "timed out waiting for host {} path {} to return {}: {}",
+        host, path, expected_status, last_error
+    );
+}
+
+pub async fn wait_for_host_body_with_headers(
+    client: &reqwest::Client,
+    base_addr: &str,
+    path: &str,
+    host: &str,
+    expected_status: reqwest::StatusCode,
+    expected_body_contains: &str,
+    extra_headers: &[(&str, &str)],
+) -> ::std::string::String {
+    let mut attempts = 0usize;
+    let mut last_error = ::std::string::String::new();
+
+    while attempts <= DEFAULT_WAIT_RETRIES {
+        attempts += 1;
+        let start = tokio::time::Instant::now();
+        let timeout = tokio::time::Duration::from_secs(45);
+
+        while start.elapsed() < timeout {
+            match get_with_host_and_headers(client, base_addr, path, host, extra_headers).await {
+                Ok(response) => {
+                    let status = response.status();
+                    let body = response
+                        .text()
+                        .await
+                        .expect("failed to read response body while waiting for host body");
+
+                    if status == expected_status && body.contains(expected_body_contains) {
+                        return body;
+                    }
+
+                    last_error = format!(
+                        "unexpected status/body while waiting for host {} path {}: status={}, body=`{}`",
+                        host, path, status, body
+                    );
+                }
+                Err(error) => {
+                    last_error = format!(
+                        "request failed while waiting for host {} path {} body match: {}",
+                        host, path, error
+                    );
+                }
+            }
+
+            tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+        }
+
+        if attempts <= DEFAULT_WAIT_RETRIES {
+            tokio::time::sleep(DEFAULT_WAIT_RETRY_DELAY).await;
+        }
+    }
+
+    panic!(
+        "timed out waiting for host {} path {} to return {} with expected body fragment: {}",
+        host, path, expected_status, last_error
+    );
 }
 
 pub async fn wait_for_host_status(
@@ -694,6 +847,23 @@ pub async fn create_pow_module(
             requires_body: true,
             secret_name: Some(secret_name),
             secret_namespace: Some(namespace),
+        },
+    )
+    .await;
+}
+
+pub async fn create_http_to_https_module(client: &kube::Client, module_name: &str, global: bool) {
+    create_module_configuration(
+        client,
+        ModuleConfigurationInput {
+            module_name,
+            module_type: "HttpToHttps",
+            weight: 100,
+            global,
+            requires_proper_request: true,
+            requires_body: false,
+            secret_name: None,
+            secret_namespace: None,
         },
     )
     .await;

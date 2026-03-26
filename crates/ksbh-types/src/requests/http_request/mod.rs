@@ -47,7 +47,8 @@ fn is_websocket_upgrade(headers: &http::HeaderMap) -> bool {
 
 fn effective_request_scheme(
     req_header: &http::request::Parts,
-    is_ssl_port: bool,
+    downstream_tls: bool,
+    trust_forwarded_headers: bool,
     port: Option<u16>,
 ) -> Result<String, error::HttpRequestError> {
     let mut scheme = req_header
@@ -57,7 +58,7 @@ fn effective_request_scheme(
         .unwrap_or_else(|| "http".to_string());
     let websocket_upgrade = is_websocket_upgrade(&req_header.headers);
 
-    if is_ssl_port {
+    if downstream_tls {
         return Ok(if websocket_upgrade {
             "wss".to_string()
         } else {
@@ -65,12 +66,15 @@ fn effective_request_scheme(
         });
     }
 
-    if let Some(forwarded_proto) = first_header_token(&req_header.headers, "x-forwarded-proto")? {
+    if trust_forwarded_headers
+        && let Some(forwarded_proto) = first_header_token(&req_header.headers, "x-forwarded-proto")?
+    {
         scheme = forwarded_proto;
     }
 
     if websocket_upgrade {
-        let tls_forwarded = forwarded_port(&req_header.headers)? == Some(443);
+        let tls_forwarded =
+            trust_forwarded_headers && forwarded_port(&req_header.headers)? == Some(443);
         let is_secure_scheme =
             scheme.eq_ignore_ascii_case("https") || scheme.eq_ignore_ascii_case("wss");
         if is_secure_scheme || port == Some(443) || tls_forwarded {
@@ -126,6 +130,8 @@ impl HttpRequest {
         req_header: &http::request::Parts,
         req_uuid: uuid::Uuid,
         config: &crate::Ports,
+        downstream_tls: bool,
+        trust_forwarded_headers: bool,
     ) -> Result<Self, error::HttpRequestError> {
         let uri = &req_header.uri;
         let query = crate::prelude::HttpQuery::new(req_header)?;
@@ -169,8 +175,12 @@ impl HttpRequest {
             }
         }
 
-        let is_ssl_port = port.map(|p| p == config.https).unwrap_or(false);
-        let scheme_string = effective_request_scheme(req_header, is_ssl_port, port)?;
+        let scheme_string = effective_request_scheme(
+            req_header,
+            downstream_tls || port.map(|p| p == config.https).unwrap_or(false),
+            trust_forwarded_headers,
+            port,
+        )?;
         let scheme_str = scheme_string.as_str();
 
         let is_secure_proto =
@@ -247,6 +257,8 @@ impl HttpRequest {
                 https: 443,
                 http: 80,
             },
+            false,
+            false,
         )
         .unwrap()
     }
@@ -257,6 +269,8 @@ impl<'a> HttpRequestView<'a> {
         req_header: &'a http::request::Parts,
         req_uuid: uuid::Uuid,
         config: &crate::Ports,
+        downstream_tls: bool,
+        trust_forwarded_headers: bool,
     ) -> Result<Self, error::HttpRequestError> {
         let uri = &req_header.uri;
         let query = crate::requests::http_query::HttpQueryView::new(req_header)?;
@@ -297,8 +311,12 @@ impl<'a> HttpRequestView<'a> {
             }
         }
 
-        let is_ssl_port = port.map(|p| p == config.https).unwrap_or(false);
-        let scheme_string = effective_request_scheme(req_header, is_ssl_port, port)?;
+        let scheme_string = effective_request_scheme(
+            req_header,
+            downstream_tls || port.map(|p| p == config.https).unwrap_or(false),
+            trust_forwarded_headers,
+            port,
+        )?;
         let scheme_str = scheme_string.as_str();
 
         let is_secure_proto =
@@ -357,6 +375,13 @@ mod tests {
     }
 
     fn parse_owned(parts: &http::request::Parts) -> crate::requests::http_request::HttpRequest {
+        parse_owned_with_trust(parts, false)
+    }
+
+    fn parse_owned_with_trust(
+        parts: &http::request::Parts,
+        trust_forwarded_headers: bool,
+    ) -> crate::requests::http_request::HttpRequest {
         crate::requests::http_request::HttpRequest::new(
             parts,
             uuid::Uuid::nil(),
@@ -364,12 +389,21 @@ mod tests {
                 http: 80,
                 https: 443,
             },
+            false,
+            trust_forwarded_headers,
         )
         .expect("parse owned request")
     }
 
     fn parse_view<'a>(
         parts: &'a http::request::Parts,
+    ) -> crate::requests::http_request::HttpRequestView<'a> {
+        parse_view_with_trust(parts, false)
+    }
+
+    fn parse_view_with_trust<'a>(
+        parts: &'a http::request::Parts,
+        trust_forwarded_headers: bool,
     ) -> crate::requests::http_request::HttpRequestView<'a> {
         crate::requests::http_request::HttpRequestView::new(
             parts,
@@ -378,6 +412,8 @@ mod tests {
                 http: 80,
                 https: 443,
             },
+            false,
+            trust_forwarded_headers,
         )
         .expect("parse request view")
     }
@@ -422,11 +458,87 @@ mod tests {
                 ("X-Forwarded-Proto", "https"),
             ],
         );
-        let owned = parse_owned(&parts);
-        let view = parse_view(&parts);
+        let owned = parse_owned_with_trust(&parts, true);
+        let view = parse_view_with_trust(&parts, true);
 
         assert_eq!(owned.base_url.as_str(), "wss://example.test");
         assert_eq!(view.base_url, "wss://example.test");
+        assert_eq!(owned.scheme.0.as_str(), "https");
+        assert_eq!(view.scheme.0.as_str(), "https");
+    }
+
+    #[test]
+    fn direct_tls_request_maps_to_https_without_forwarded_headers() {
+        let parts = build_request_parts("/index.yaml", &[]);
+        let owned = crate::requests::http_request::HttpRequest::new(
+            &parts,
+            uuid::Uuid::nil(),
+            &crate::Ports {
+                http: 80,
+                https: 443,
+            },
+            true,
+            false,
+        )
+        .expect("parse owned direct tls request");
+        let view = crate::requests::http_request::HttpRequestView::new(
+            &parts,
+            uuid::Uuid::nil(),
+            &crate::Ports {
+                http: 80,
+                https: 443,
+            },
+            true,
+            false,
+        )
+        .expect("parse direct tls request view");
+
+        assert_eq!(owned.base_url.as_str(), "https://example.test");
+        assert_eq!(view.base_url, "https://example.test");
+        assert_eq!(owned.scheme.0.as_str(), "https");
+        assert_eq!(view.scheme.0.as_str(), "https");
+    }
+
+    #[test]
+    fn untrusted_forwarded_https_does_not_upgrade_scheme() {
+        let parts = build_request_parts("/index.yaml", &[("X-Forwarded-Proto", "https")]);
+        let owned = parse_owned(&parts);
+        let view = parse_view(&parts);
+
+        assert_eq!(owned.base_url.as_str(), "http://example.test");
+        assert_eq!(view.base_url, "http://example.test");
+        assert_eq!(owned.scheme.0.as_str(), "http");
+        assert_eq!(view.scheme.0.as_str(), "http");
+    }
+
+    #[test]
+    fn trusted_forwarded_https_upgrades_scheme() {
+        let parts = build_request_parts("/index.yaml", &[("X-Forwarded-Proto", "https")]);
+        let owned = crate::requests::http_request::HttpRequest::new(
+            &parts,
+            uuid::Uuid::nil(),
+            &crate::Ports {
+                http: 80,
+                https: 443,
+            },
+            false,
+            true,
+        )
+        .expect("parse owned trusted forwarded https request");
+        let view = crate::requests::http_request::HttpRequestView::new(
+            &parts,
+            uuid::Uuid::nil(),
+            &crate::Ports {
+                http: 80,
+                https: 443,
+            },
+            false,
+            true,
+        )
+        .expect("parse trusted forwarded https request view");
+
+        assert_eq!(owned.base_url.as_str(), "https://example.test");
+        assert_eq!(view.base_url, "https://example.test");
         assert_eq!(owned.scheme.0.as_str(), "https");
         assert_eq!(view.scheme.0.as_str(), "https");
     }

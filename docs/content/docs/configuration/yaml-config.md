@@ -27,6 +27,11 @@ That default applies to the top-level runtime config file lookup. It is separate
 The configuration file consists of two main sections:
 
 ```yaml
+# Runtime config (optional)
+trusted_proxies:
+  - "10.15.0.12"
+  - "10.15.0.0/16"
+
 # Module definitions (optional)
 modules:
   - name: "module-name"
@@ -53,6 +58,9 @@ ingresses:
     modules:
       - "rate-limit"
 ```
+
+`trusted_proxies` controls whether KSBH will trust `X-Forwarded-*` and
+`Forwarded` headers from the remote peer. It accepts both single IPs and CIDRs.
 
 ---
 

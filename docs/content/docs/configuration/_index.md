@@ -26,6 +26,9 @@ Create a configuration file:
 
 ```yaml
 # /app/config/config.yaml
+trusted_proxies:
+  - "10.15.0.0/16"
+
 modules:
   - name: "rate-limiter"
     type: "ratelimit"
@@ -43,8 +46,12 @@ ingresses:
         backend: "service"
         service:
           name: "web"
-          port: 80
+      port: 80
 ```
+
+If KSBH sits behind another proxy or load balancer, add that upstream source IP
+or CIDR to `trusted_proxies` so forwarded scheme and client IP headers are only
+accepted from trusted hops.
 
 Set the config path:
 

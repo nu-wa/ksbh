@@ -38,6 +38,7 @@ The current file format in `src/lib.rs` uses:
 - TLS file loading from `cert_file` / `key_file` is implemented in file mode and registers certificates in the runtime cert registry.
 - `tls.secret_name` in file mode is metadata only; Secret-backed TLS loading is a Kubernetes-provider feature.
 - The crate uses `notify` plus `serde_yaml`.
+- Runtime config fields such as `trusted_proxies` are loaded by core config and can coexist with file-provider `modules` / `ingresses` in the same YAML.
 
 ## Build
 

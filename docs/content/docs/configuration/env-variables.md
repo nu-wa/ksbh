@@ -19,6 +19,7 @@ KSBH uses `KSBH__...` environment variables for runtime configuration. In the cu
 | `KSBH__REDIS_URL` | No | Redis connection URL (optional; if not set, Redis-dependent features are disabled) |
 | `KSBH__PYROSCOPE_URL` | No | Pyroscope profiling server URL |
 | `KSBH__THREADS` | No | Number of worker threads (default: 8) |
+| `KSBH__TRUSTED_PROXIES__0`, `KSBH__TRUSTED_PROXIES__1`, ... | No | Trusted proxy IP/CIDR entries used to allow `X-Forwarded-*` and `Forwarded` |
 
 ### Port Configuration
 
@@ -84,6 +85,16 @@ export KSBH__COOKIE_KEY="your-secret-key-at-least-64-bytes-long"
 
 **Note**: The key must be at least 64 bytes.
 
+### Trusted Proxy Headers
+
+Forwarded headers are only trusted when the TCP peer address matches one of the
+configured `trusted_proxies` entries.
+
+```bash
+export KSBH__TRUSTED_PROXIES__0="10.15.0.12"
+export KSBH__TRUSTED_PROXIES__1="10.15.0.0/16"
+```
+
 ### Session Cookie Name
 
 ---
@@ -133,6 +144,7 @@ export KSBH__COOKIE_KEY="your-secret-key-at-least-64-bytes-long"
 
 # Optional
 export KSBH__REDIS_URL="redis://redis.example.com:6379"
+export KSBH__TRUSTED_PROXIES__0="10.15.0.0/16"
 
 # File-based config provider
 export KSBH__CONFIG_PATHS__CONFIG="/app/config/config.yaml"

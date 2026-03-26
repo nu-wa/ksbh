@@ -15,6 +15,13 @@ data:
     pyroscope_url: {{ . | quote }}
     {{- end }}
     threads: {{ .Values.app.threads }}
+    {{- with .Values.app.trustedProxies }}
+
+    trusted_proxies:
+    {{- range . }}
+      - {{ . | quote }}
+    {{- end }}
+    {{- end }}
 
     constants:
       tcp_fastopen_queue_size: {{ .Values.app.constants.tcpFastopenQueueSize }}

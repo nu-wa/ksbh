@@ -4,6 +4,7 @@ struct TestSession {
     response: Option<http::Response<bytes::Bytes>>,
     sent: bool,
     client_addr: Option<::std::net::IpAddr>,
+    server_addr: Option<::std::net::SocketAddr>,
 }
 
 impl TestSession {
@@ -25,6 +26,10 @@ impl TestSession {
             response: None,
             sent: false,
             client_addr: Some(::std::net::IpAddr::V4(::std::net::Ipv4Addr::LOCALHOST)),
+            server_addr: Some(::std::net::SocketAddr::from((
+                ::std::net::Ipv4Addr::LOCALHOST,
+                8080,
+            ))),
         })
     }
 }
@@ -41,6 +46,10 @@ impl ksbh_types::prelude::ProxyProviderSession for TestSession {
 
     fn set_request_uri(&mut self, uri: http::Uri) {
         self.request_header.set_uri(uri);
+    }
+
+    fn server_addr(&self) -> Option<::std::net::SocketAddr> {
+        self.server_addr
     }
 
     fn response_written(&self) -> Option<http::Response<bytes::Bytes>> {

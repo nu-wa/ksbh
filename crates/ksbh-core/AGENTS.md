@@ -67,6 +67,7 @@ Modules are loaded as `cdylib` libraries through the registry/ABI layer.
 - Runtime router-state metrics are emitted from in-memory router snapshots, not provider-specific event streams.
 - Proxy context now tracks websocket handshake kind (`H1Upgrade`/`H2ExtendedConnect`) and optional tunnel plan state for runtime transport handling.
 - Proxy request filtering skips module-chain execution for websocket handshakes (`H1Upgrade`/`H2ExtendedConnect`) and routes upgrades directly to websocket transport handling.
+- Forwarded headers are only trusted when the remote peer IP matches `Config.trusted_proxies` (IP/CIDR allowlist).
 
 ## Build
 

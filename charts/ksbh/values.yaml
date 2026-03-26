@@ -47,6 +47,7 @@ app:
   redisUrl: null
   pyroscopeUrl: null
   threads: 8
+  trustedProxies: []
 
   constants:
     tcpFastopenQueueSize: 12

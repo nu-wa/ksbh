@@ -274,7 +274,12 @@ impl ksbh_types::prelude::ProxyProvider for ProxyService {
                 .map_err(ksbh_types::prelude::ProxyProviderError::from)?;
         }
 
-        if let Some(client_addr) = crate::utils::get_client_ip_from_session(session) {
+        let trust_forwarded_headers = self
+            .config
+            .trusts_forwarded_headers_from(session.client_addr());
+        if let Some(client_addr) =
+            crate::utils::get_client_ip_from_session(session, trust_forwarded_headers)
+        {
             upstream_request
                 .insert_header(
                     crate::constants::HEADER_X_FORWARDED_FOR,

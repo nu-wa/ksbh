@@ -166,8 +166,22 @@ pub fn get_filename(path: &::std::path::Path) -> Option<String> {
 
 pub fn get_client_ip_from_session(
     session: &dyn ksbh_types::prelude::ProxyProviderSession,
+    trust_forwarded_headers: bool,
 ) -> Option<::std::net::IpAddr> {
     use ::std::str::FromStr;
+
+    fn parse_forwarded_ip(
+        value: &http::header::HeaderValue,
+        allow_chain: bool,
+    ) -> Option<::std::net::IpAddr> {
+        let value = value.to_str().ok()?;
+        let candidate = if allow_chain {
+            value.split(',').next()?.trim()
+        } else {
+            value.trim()
+        };
+        ::std::net::IpAddr::from_str(candidate).ok()
+    }
 
     let mut client_addr: Option<::std::net::IpAddr> = session.client_addr();
     let req_headers = &session.headers().headers;
@@ -175,25 +189,130 @@ pub fn get_client_ip_from_session(
     let forwarded_for_header = req_headers.get("x-forwarded-for");
     let real_ip = req_headers.get("x-real-ip");
 
-    if forwarded_for_header.is_some() || real_ip.is_some() {
-        client_addr = match real_ip {
-            Some(real_ip) => match real_ip.to_str() {
-                Ok(real_ip_str) => ::std::net::IpAddr::from_str(real_ip_str).ok(),
-                Err(_) => None,
-            },
-            None => None,
-        };
+    if trust_forwarded_headers && (forwarded_for_header.is_some() || real_ip.is_some()) {
+        client_addr = real_ip.and_then(|real_ip| parse_forwarded_ip(real_ip, false));
 
         if client_addr.is_none() && forwarded_for_header.is_some() {
-            client_addr = match forwarded_for_header {
-                Some(forwarded_for) => match forwarded_for.to_str() {
-                    Ok(forwarded_for_str) => ::std::net::IpAddr::from_str(forwarded_for_str).ok(),
-                    Err(_) => None,
-                },
-                None => None,
-            };
+            client_addr = forwarded_for_header
+                .and_then(|forwarded_for| parse_forwarded_ip(forwarded_for, true));
         }
     }
 
     client_addr
+}
+
+#[cfg(test)]
+mod tests {
+    struct TestSession {
+        parts: http::request::Parts,
+        client_addr: Option<::std::net::IpAddr>,
+    }
+
+    #[async_trait::async_trait]
+    impl ksbh_types::prelude::ProxyProviderSession for TestSession {
+        fn headers(&self) -> http::request::Parts {
+            self.parts.clone()
+        }
+
+        fn get_header(&self, header_name: http::HeaderName) -> Option<&http::header::HeaderValue> {
+            self.parts.headers.get(header_name)
+        }
+
+        fn set_request_uri(&mut self, uri: http::Uri) {
+            self.parts.uri = uri;
+        }
+
+        fn server_addr(&self) -> Option<::std::net::SocketAddr> {
+            None
+        }
+
+        fn response_written(&self) -> Option<http::Response<bytes::Bytes>> {
+            None
+        }
+
+        fn response_sent(&self) -> bool {
+            false
+        }
+
+        fn client_addr(&self) -> Option<::std::net::IpAddr> {
+            self.client_addr
+        }
+
+        async fn write_response(
+            &mut self,
+            _response: http::Response<bytes::Bytes>,
+        ) -> Result<(), ksbh_types::prelude::ProxyProviderError> {
+            Ok(())
+        }
+
+        async fn read_request_body(
+            &mut self,
+        ) -> Result<Option<bytes::Bytes>, ksbh_types::prelude::ProxyProviderError> {
+            Ok(None)
+        }
+    }
+
+    fn build_session(client_addr: &str, headers: &[(&str, &str)]) -> TestSession {
+        let mut builder = http::Request::builder()
+            .method(http::Method::GET)
+            .uri("http://example.test/");
+        for (name, value) in headers {
+            builder = builder.header(*name, *value);
+        }
+        let (parts, _) = builder.body(()).expect("build test request").into_parts();
+
+        TestSession {
+            parts,
+            client_addr: Some(client_addr.parse().expect("parse client ip")),
+        }
+    }
+
+    #[test]
+    fn forwarded_headers_are_ignored_for_untrusted_proxy() {
+        let session = build_session(
+            "10.0.0.10",
+            &[
+                ("X-Real-IP", "203.0.113.8"),
+                ("X-Forwarded-For", "198.51.100.5"),
+            ],
+        );
+
+        assert_eq!(
+            super::get_client_ip_from_session(&session, false),
+            Some("10.0.0.10".parse().expect("parse direct client ip"))
+        );
+    }
+
+    #[test]
+    fn real_ip_takes_precedence_for_trusted_proxy() {
+        let session = build_session(
+            "10.0.0.10",
+            &[
+                ("X-Real-IP", "203.0.113.8"),
+                ("X-Forwarded-For", "198.51.100.5"),
+            ],
+        );
+
+        assert_eq!(
+            super::get_client_ip_from_session(&session, true),
+            Some("203.0.113.8".parse().expect("parse x-real-ip"))
+        );
+    }
+
+    #[test]
+    fn forwarded_for_uses_first_hop_for_trusted_proxy() {
+        let session = build_session(
+            "10.0.0.10",
+            &[("X-Forwarded-For", "198.51.100.5, 10.0.0.10")],
+        );
+
+        assert_eq!(
+            super::get_client_ip_from_session(&session, true),
+            Some(
+                "198.51.100.5"
+                    .parse()
+                    .expect("parse first x-forwarded-for hop")
+            )
+        );
+    }
 }

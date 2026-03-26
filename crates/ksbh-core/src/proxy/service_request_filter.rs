@@ -5,9 +5,12 @@ impl super::ProxyService {
         ctx: &mut crate::proxy::ProxyContext,
     ) -> ksbh_types::prelude::ProxyProviderResult {
         let client_information: crate::proxy::PartialClientInformation =
-            match crate::proxy::ClientInformation::new_from_session(session) {
+            match crate::proxy::ClientInformation::new_from_session(session, &self.config) {
                 Some(cli_info) => cli_info.into(),
-                None => match crate::proxy::PartialClientInformation::new_from_session(session) {
+                None => match crate::proxy::PartialClientInformation::new_from_session(
+                    session,
+                    &self.config,
+                ) {
                     Some(partial_cli_info) => partial_cli_info,
                     None => {
                         tracing::error!("Client has no information (user agent or ip ?)");
@@ -21,11 +24,20 @@ impl super::ProxyService {
 
         let req_id = ctx.req_id;
         let headers = &session.headers();
+        let trust_forwarded_headers = self
+            .config
+            .trusts_forwarded_headers_from(session.client_addr());
+        let downstream_tls = session
+            .server_addr()
+            .map(|addr| addr.port() == self.config.listen_addresses.https.port())
+            .unwrap_or(false);
 
         let http_request = match ksbh_types::requests::http_request::HttpRequest::new(
             headers,
             req_id,
             &self.config.ports.external,
+            downstream_tls,
+            trust_forwarded_headers,
         ) {
             Ok(req) => req,
             Err(e) => {
@@ -65,6 +77,7 @@ impl super::ProxyService {
         ctx.session_id_bytes = session_id.into_bytes();
 
         let valid_request_information = super::ValidRequestInformation::new(
+            http_request.scheme.clone(),
             smol_str::SmolStr::new(http_request.host.as_str()),
             ksbh_types::KsbhStr::new(http_request.query.path.as_str()),
             http_request.method.clone(),

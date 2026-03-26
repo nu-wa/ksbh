@@ -20,6 +20,8 @@ pub struct Config {
     pub threads: usize,
     #[serde(default)]
     pub performance: ConfigPerformance,
+    #[serde(default, deserialize_with = "deserialize_trusted_proxies")]
+    pub trusted_proxies: Vec<ipnet::IpNet>,
 }
 
 #[derive(Debug, Clone, serde::Deserialize)]
@@ -284,6 +286,16 @@ impl Config {
         Ok(())
     }
 
+    pub fn trusts_forwarded_headers_from(&self, client_ip: Option<::std::net::IpAddr>) -> bool {
+        let Some(client_ip) = client_ip else {
+            return false;
+        };
+
+        self.trusted_proxies
+            .iter()
+            .any(|network| network.contains(&client_ip))
+    }
+
     /// Converts to a Pingora server configuration.
     ///
     /// Used to initialize the Pingora server with KSBH-specific settings.
@@ -293,6 +305,37 @@ impl Config {
             ..Default::default()
         }
     }
+}
+
+fn deserialize_trusted_proxies<'de, D>(deserializer: D) -> Result<Vec<ipnet::IpNet>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    #[derive(serde::Deserialize)]
+    #[serde(untagged)]
+    enum TrustedProxiesInput {
+        Sequence(Vec<String>),
+        IndexedMap(::std::collections::BTreeMap<String, String>),
+    }
+
+    let values = match <TrustedProxiesInput as serde::Deserialize>::deserialize(deserializer)? {
+        TrustedProxiesInput::Sequence(values) => values,
+        TrustedProxiesInput::IndexedMap(values) => values.into_values().collect(),
+    };
+
+    values
+        .into_iter()
+        .map(|value| {
+            value
+                .parse::<ipnet::IpNet>()
+                .or_else(|_| value.parse::<::std::net::IpAddr>().map(ipnet::IpNet::from))
+                .map_err(|_| {
+                    serde::de::Error::custom(format!(
+                        "invalid trusted proxy '{value}', expected IP or CIDR"
+                    ))
+                })
+        })
+        .collect()
 }
 
 fn default_threads() -> usize {
@@ -361,4 +404,79 @@ fn default_config_path_static_content() -> ::std::path::PathBuf {
 
 fn default_url_path_modules() -> String {
     ConfigURLPaths::default().modules
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn trusted_proxies_accept_ip_and_cidr_strings() {
+        let cfg: crate::Config = serde_yaml_bw::from_str(
+            r#"
+cookie_key: "0123456789012345678901234567890101234567890123456789012345678901"
+pyroscope_url: null
+trusted_proxies:
+  - "10.0.0.10"
+  - "192.168.0.0/24"
+"#,
+        )
+        .expect("deserialize config with trusted proxies");
+
+        assert_eq!(cfg.trusted_proxies.len(), 2);
+        let trusted_ip: ::std::net::IpAddr = "10.0.0.10".parse().expect("parse trusted proxy ip");
+        assert!(cfg.trusted_proxies[0].contains(&trusted_ip));
+        let contained_ip: ::std::net::IpAddr =
+            "192.168.0.42".parse().expect("parse cidr contained ip");
+        assert!(cfg.trusted_proxies[1].contains(&contained_ip));
+    }
+
+    #[test]
+    fn trusted_proxies_accept_env_indexed_map_shape() {
+        let cfg: crate::Config = serde_json::from_value(serde_json::json!({
+            "cookie_key": "0123456789012345678901234567890101234567890123456789012345678901",
+            "pyroscope_url": null,
+            "trusted_proxies": {
+                "0": "10.0.0.10",
+                "1": "192.168.0.0/24"
+            }
+        }))
+        .expect("deserialize config with env-style trusted proxies");
+
+        assert_eq!(cfg.trusted_proxies.len(), 2);
+        let trusted_ip: ::std::net::IpAddr = "10.0.0.10".parse().expect("parse trusted proxy ip");
+        assert!(cfg.trusted_proxies[0].contains(&trusted_ip));
+        let contained_ip: ::std::net::IpAddr =
+            "192.168.0.42".parse().expect("parse cidr contained ip");
+        assert!(cfg.trusted_proxies[1].contains(&contained_ip));
+    }
+
+    #[test]
+    fn trusted_forwarded_headers_require_proxy_match() {
+        let cfg = crate::Config {
+            redis_url: None,
+            cookie_key: Some(
+                "0123456789012345678901234567890101234567890123456789012345678901".to_string(),
+            ),
+            constants: super::ConfigConstants::default(),
+            pyroscope_url: None,
+            ports: super::ConfigPorts::default(),
+            listen_addresses: super::ConfigListenAddresses::default(),
+            config_paths: super::ConfigFilePaths::default(),
+            url_paths: super::ConfigURLPaths::default(),
+            threads: 8,
+            performance: super::ConfigPerformance::default(),
+            trusted_proxies: vec!["10.0.0.0/8".parse().expect("parse trusted proxy network")],
+        };
+
+        assert!(cfg.trusts_forwarded_headers_from(Some(
+            "10.1.2.3".parse().expect("parse trusted client address"),
+        )));
+        assert!(
+            !cfg.trusts_forwarded_headers_from(Some(
+                "192.168.1.1"
+                    .parse()
+                    .expect("parse untrusted client address"),
+            ))
+        );
+        assert!(!cfg.trusts_forwarded_headers_from(None));
+    }
 }

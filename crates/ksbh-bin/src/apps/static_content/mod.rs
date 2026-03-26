@@ -548,11 +548,23 @@ impl pingora::apps::HttpServerApp for StaticHttpApp {
 
         let req_id = uuid::Uuid::new_v4();
         let req_headers = session.req_header();
+        let trust_forwarded_headers = self.config.trusts_forwarded_headers_from(
+            session
+                .client_addr()
+                .and_then(|addr| addr.as_inet().map(|sock_addr| sock_addr.ip())),
+        );
+        let downstream_tls = session
+            .server_addr()
+            .and_then(|addr| addr.as_inet().map(::std::net::SocketAddr::port))
+            .map(|port| port == self.config.listen_addresses.https.port())
+            .unwrap_or(false);
 
         let http_request_info = match ksbh_types::requests::http_request::HttpRequestView::new(
             req_headers,
             req_id,
             &self.config.ports.external,
+            downstream_tls,
+            trust_forwarded_headers,
         ) {
             Ok(info) => info,
             Err(e) => {
@@ -576,7 +588,12 @@ impl pingora::apps::HttpServerApp for StaticHttpApp {
             .get_param("file")
             .map(|s| s.to_string());
 
-        tracing::debug!("http_request_info: method={:?} path={}", method_str, path);
+        tracing::debug!(
+            "http_request_info: scheme={} method={} path={}",
+            http_request_info.scheme.0.as_str(),
+            method_str,
+            path
+        );
 
         if method_str == "GET" || head_only {
             match path.as_str() {

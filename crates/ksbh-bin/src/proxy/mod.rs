@@ -41,6 +41,12 @@ impl<'a> ksbh_types::prelude::ProxyProviderSession for PingoraSessionWrapper<'a>
         self.session.req_header_mut().set_uri(uri);
     }
 
+    fn server_addr(&self) -> Option<::std::net::SocketAddr> {
+        self.session
+            .server_addr()
+            .and_then(|addr| addr.as_inet().copied())
+    }
+
     fn response_sent(&self) -> bool {
         self.session.body_bytes_sent() > 0 || self.response_written().is_some()
     }

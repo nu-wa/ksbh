@@ -278,8 +278,9 @@ impl ::std::fmt::Display for RequestMetrics {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "{} - {} {} {} - {} {:.2} ms",
+            "{} - {} {} {} {} - {} {:.2} ms",
             self.request_information.client_information,
+            self.request_information.scheme,
             self.request_information.method,
             self.request_information.host,
             self.request_information.path,
@@ -293,8 +294,9 @@ impl ::std::fmt::Debug for RequestMetrics {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "{} - {} {} {} - {} {:.2} ms - {:?}",
+            "{} - {} {} {} {} - {} {:.2} ms - {:?}",
             self.request_information.client_information,
+            self.request_information.scheme,
             self.request_information.method,
             self.request_information.host,
             self.request_information.path,

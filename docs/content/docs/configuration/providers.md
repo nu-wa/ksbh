@@ -60,6 +60,9 @@ Create a YAML file with your configuration:
 
 ```yaml
 # /app/config/config.yaml
+trusted_proxies:
+  - "10.15.0.0/16"
+
 modules:
   - name: "rate-limiter"
     type: "ratelimit"
@@ -79,6 +82,9 @@ ingresses:
           name: "web"
           port: 80
 ```
+
+Runtime fields such as `trusted_proxies` can live alongside file-provider
+`modules` and `ingresses` in the same YAML file.
 
 ### Enabling File Provider
 
