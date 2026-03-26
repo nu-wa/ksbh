@@ -129,6 +129,13 @@ fn is_self_redirect(redirect_url: &str, request_uri: &str) -> bool {
     }
 }
 
+fn header_value_as_str(headers: &http::HeaderMap, name: impl http::header::AsHeaderName) -> &str {
+    headers
+        .get(name)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("-")
+}
+
 pub fn process(
     ctx: ksbh_modules_sdk::RequestContext,
 ) -> Result<ksbh_modules_sdk::ModuleResult, ksbh_modules_sdk::ModuleError> {
@@ -137,12 +144,35 @@ pub fn process(
     }
 
     let secure = is_secure_request(&ctx.request, &ctx.headers);
+    ctx.logger.debug(&format!(
+        "http_to_https decision input: host={} method={} path={} scheme={} port={} uri={} x-forwarded-proto={} x-forwarded-port={} x-forwarded-ssl={} forwarded={} secure={}",
+        ctx.request.host,
+        ctx.request.method,
+        ctx.request.path,
+        ctx.request.scheme,
+        ctx.request.port,
+        ctx.request.uri,
+        header_value_as_str(&ctx.headers, "x-forwarded-proto"),
+        header_value_as_str(&ctx.headers, "x-forwarded-port"),
+        header_value_as_str(&ctx.headers, "x-forwarded-ssl"),
+        header_value_as_str(&ctx.headers, http::header::FORWARDED),
+        secure
+    ));
 
     if !secure {
         let redirect_url = build_redirect_url(ctx.request.uri.as_str(), ctx.request.host.as_str());
-        if is_self_redirect(&redirect_url, ctx.request.uri.as_str()) {
+        let self_redirect = is_self_redirect(&redirect_url, ctx.request.uri.as_str());
+        if self_redirect {
+            ctx.logger.warn(&format!(
+                "http_to_https self-redirect suppressed: uri={} redirect={}",
+                ctx.request.uri, redirect_url
+            ));
             return Ok(ksbh_modules_sdk::ModuleResult::Pass);
         }
+        ctx.logger.info(&format!(
+            "http_to_https redirecting: uri={} redirect={}",
+            ctx.request.uri, redirect_url
+        ));
 
         let response = http::Response::builder()
             .status(http::StatusCode::MOVED_PERMANENTLY)
