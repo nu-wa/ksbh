@@ -74,93 +74,99 @@ impl super::ProxyService {
             session_id,
         );
         let modules = &valid_request_information.req_match.modules;
-        let requires_body = modules.iter().any(|m| m.mod_spec.requires_body);
-
-        let request_body = if requires_body {
-            match session.read_request_body().await {
-                Ok(Some(body)) => Some(body),
-                Ok(None) => None,
-                Err(e) => {
-                    tracing::error!("Failed to read request body: {e}");
-                    return Ok(ksbh_types::prelude::ProxyDecision::StopProcessing(
-                        http::StatusCode::BAD_REQUEST,
-                        bytes::Bytes::from_static(b"Bad Request"),
-                    ));
-                }
-            }
-        } else {
-            None
-        };
-
-        tracing::debug!(
-            "request_body: {:?}, requires_body: {:?}, modules: {:?}",
-            request_body,
-            requires_body,
-            modules
-        );
-
-        let modules_metrics = &mut ctx.modules_metrics;
-
         ctx.metrics_key = ctx.session_id_bytes.to_vec();
         let is_websocket_handshake =
             ctx.downstream_ws_kind != crate::proxy::DownstreamWebsocketKind::None;
 
-        let internal_path = self.config.url_paths.modules.as_str();
-        let req_ctx = crate::modules::abi::ModuleRequestContext::new(
-            session,
-            &http_request,
-            is_websocket_handshake,
-            ctx.needs_session_cookie,
-            ctx.session_id_bytes,
-            &ctx.metrics_key,
-            request_body,
-            internal_path,
-        );
-
         ctx.http_request = Some(http_request.clone());
         ctx.valid_request_information = Some(valid_request_information.clone());
 
-        for module in modules.iter() {
-            let start = ::std::time::Instant::now();
-
-            let params = crate::modules::abi::ModuleCallParams::new(
-                module.mod_spec.r#type.clone(),
-                module.config_kv_slice.clone(),
-                module.name.clone(),
+        if is_websocket_handshake {
+            tracing::debug!(
+                "websocket handshake detected, skipping module chain for host={} path={}",
+                valid_request_information.host,
+                valid_request_information.path
             );
-
-            let mod_call_result = self.modules.call_module(&req_ctx, &params, session).await;
-
-            let mod_exec_time = start.elapsed().as_secs_f64();
-
-            match mod_call_result {
-                Err(e) => {
-                    tracing::error!("Module {} error: {:?}", module.name, e);
+        } else {
+            let requires_body = modules.iter().any(|m| m.mod_spec.requires_body);
+            let request_body = if requires_body {
+                match session.read_request_body().await {
+                    Ok(Some(body)) => Some(body),
+                    Ok(None) => None,
+                    Err(e) => {
+                        tracing::error!("Failed to read request body: {e}");
+                        return Ok(ksbh_types::prelude::ProxyDecision::StopProcessing(
+                            http::StatusCode::BAD_REQUEST,
+                            bytes::Bytes::from_static(b"Bad Request"),
+                        ));
+                    }
                 }
-                Ok(()) => {
-                    tracing::debug!("Module {} executed successfully", module.name);
-                }
-            }
-
-            let decision = if session.response_written().is_some() {
-                tracing::debug!(
-                    "Module {} wrote a response, stopping module chain",
-                    module.name
-                );
-                Some(ksbh_types::prelude::ProxyDecision::ModuleReplied)
             } else {
                 None
             };
 
-            modules_metrics.push(crate::metrics::module_metric::ModuleMetric::new_request(
-                module.name.as_str(),
-                mod_exec_time,
-                true,
-                decision.is_some(),
-            ));
+            tracing::debug!(
+                "request_body: {:?}, requires_body: {:?}, modules: {:?}",
+                request_body,
+                requires_body,
+                modules
+            );
 
-            if decision.is_some() {
-                return Ok(ksbh_types::prelude::ProxyDecision::ModuleReplied);
+            let modules_metrics = &mut ctx.modules_metrics;
+            let internal_path = self.config.url_paths.modules.as_str();
+            let req_ctx = crate::modules::abi::ModuleRequestContext::new(
+                session,
+                &http_request,
+                is_websocket_handshake,
+                ctx.needs_session_cookie,
+                ctx.session_id_bytes,
+                &ctx.metrics_key,
+                request_body,
+                internal_path,
+            );
+
+            for module in modules.iter() {
+                let start = ::std::time::Instant::now();
+
+                let params = crate::modules::abi::ModuleCallParams::new(
+                    module.mod_spec.r#type.clone(),
+                    module.config_kv_slice.clone(),
+                    module.name.clone(),
+                );
+
+                let mod_call_result = self.modules.call_module(&req_ctx, &params, session).await;
+
+                let mod_exec_time = start.elapsed().as_secs_f64();
+
+                match mod_call_result {
+                    Err(e) => {
+                        tracing::error!("Module {} error: {:?}", module.name, e);
+                    }
+                    Ok(()) => {
+                        tracing::debug!("Module {} executed successfully", module.name);
+                    }
+                }
+
+                let decision = if session.response_written().is_some() {
+                    tracing::debug!(
+                        "Module {} wrote a response, stopping module chain",
+                        module.name
+                    );
+                    Some(ksbh_types::prelude::ProxyDecision::ModuleReplied)
+                } else {
+                    None
+                };
+
+                modules_metrics.push(crate::metrics::module_metric::ModuleMetric::new_request(
+                    module.name.as_str(),
+                    mod_exec_time,
+                    true,
+                    decision.is_some(),
+                ));
+
+                if decision.is_some() {
+                    return Ok(ksbh_types::prelude::ProxyDecision::ModuleReplied);
+                }
             }
         }
 

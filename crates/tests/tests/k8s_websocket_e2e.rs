@@ -610,6 +610,100 @@ async fn k8s_websocket_ingress_supports_multi_message_echo_and_close() {
 }
 
 #[tokio::test]
+#[ignore = "requires local kind e2e environment with websocket probe fixture and module support"]
+async fn k8s_websocket_ingress_bypasses_http_modules_on_handshake() {
+    let config = common::E2eConfig::from_env();
+    let client = common::build_http_client();
+    let kube_client = common::kube_client().await;
+    let ingress_name = common::unique_name("websocket-ingress");
+    let host = common::unique_host("websocket");
+    let module_name = common::unique_name("pow");
+    let secret_name = common::unique_name("pow-secret");
+
+    common::create_pow_module(
+        &kube_client,
+        &config.namespace,
+        &module_name,
+        &secret_name,
+        "websocket-bypass-secret",
+        1,
+    )
+    .await;
+
+    common::create_ingress_for_service(
+        &kube_client,
+        &config.namespace,
+        &ingress_name,
+        &host,
+        "e2e-websocket-probe",
+        &[module_name.as_str()],
+        &[],
+    )
+    .await;
+
+    let start = tokio::time::Instant::now();
+    let timeout = tokio::time::Duration::from_secs(45);
+    let mut last_status = reqwest::StatusCode::NOT_FOUND;
+    while start.elapsed() < timeout {
+        match common::get_with_host(&client, &config.http_addr, "/ws", &host).await {
+            Ok(response) => {
+                let status = response.status();
+                last_status = status;
+                if status != reqwest::StatusCode::NOT_FOUND {
+                    break;
+                }
+            }
+            Err(_) => {}
+        }
+        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+    }
+    assert_ne!(
+        last_status,
+        reqwest::StatusCode::NOT_FOUND,
+        "websocket ingress route was not available before websocket dial",
+    );
+
+    let ws_url = format!(
+        "{}/ws",
+        config
+            .http_addr
+            .replace("http://", "ws://")
+            .trim_end_matches('/')
+    );
+    let wss_url = format!(
+        "{}/ws",
+        config
+            .https_addr
+            .replace("https://", "wss://")
+            .trim_end_matches('/')
+    );
+
+    let (ws_socket, ws_transport) = connect_ws_with_host(&ws_url, &host)
+        .await
+        .expect("failed to establish ws websocket through ksbh");
+    assert!(
+        matches!(ws_transport.as_deref(), None | Some("h1")),
+        "expected ws downstream transport header to be absent or h1, got {:?}",
+        ws_transport
+    );
+    assert_websocket_roundtrip(ws_socket, &["ping"]).await;
+
+    let (wss_socket, wss_transport) = connect_wss_with_host(&wss_url, &host)
+        .await
+        .expect("failed to establish wss websocket through ksbh");
+    assert!(
+        matches!(wss_transport.as_deref(), None | Some("h1") | Some("h2")),
+        "expected downstream transport header to be absent/h1/h2, got {:?}",
+        wss_transport
+    );
+    assert_websocket_roundtrip(wss_socket, &["ping"]).await;
+
+    common::delete_ingress(&kube_client, &config.namespace, &ingress_name).await;
+    common::delete_module_configuration(&kube_client, &module_name).await;
+    common::delete_secret(&kube_client, &config.namespace, &secret_name).await;
+}
+
+#[tokio::test]
 #[ignore = "requires local kind e2e environment with websocket probe fixture"]
 async fn k8s_websocket_ingress_rejects_unknown_host_for_websocket_upgrade() {
     let config = common::E2eConfig::from_env();
