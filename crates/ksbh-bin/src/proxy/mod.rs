@@ -257,6 +257,26 @@ impl<P> PingoraWrapper<P> {
                 .map_err(ksbh_types::prelude::ProxyProviderError::from)?;
         }
 
+        // RFC 6455 handshake fields are mandatory on the H1 side. Some H2 extended
+        // CONNECT clients do not include them, so ensure they exist before bridging.
+        if !upstream_request
+            .headers
+            .contains_key("Sec-WebSocket-Version")
+        {
+            upstream_request
+                .insert_header("Sec-WebSocket-Version", "13")
+                .map_err(ksbh_types::prelude::ProxyProviderError::from)?;
+        }
+        if !upstream_request.headers.contains_key("Sec-WebSocket-Key") {
+            let websocket_key = base64::Engine::encode(
+                &base64::engine::general_purpose::STANDARD,
+                uuid::Uuid::new_v4().as_bytes(),
+            );
+            upstream_request
+                .insert_header("Sec-WebSocket-Key", websocket_key.as_str())
+                .map_err(ksbh_types::prelude::ProxyProviderError::from)?;
+        }
+
         {
             let mut session = PingoraSessionWrapper::new(pingora_session);
             self.provider

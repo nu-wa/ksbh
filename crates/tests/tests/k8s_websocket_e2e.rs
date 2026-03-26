@@ -183,9 +183,10 @@ async fn read_next_h2_websocket_text_frame(
     }
 }
 
-async fn connect_wss_h2_extended_with_host(
+async fn connect_wss_h2_extended_with_host_impl(
     url: &str,
     host: &str,
+    include_ws_handshake_headers: bool,
 ) -> (
     h2::SendStream<bytes::Bytes>,
     h2::RecvStream,
@@ -254,10 +255,18 @@ async fn connect_wss_h2_extended_with_host(
         .method(http::Method::CONNECT)
         .uri(format!("https://{host}{path_and_query}"))
         .header(http::header::HOST, host)
-        .header("sec-websocket-key", "dGhlIHNhbXBsZSBub25jZQ==")
-        .header("sec-websocket-version", "13")
         .body(())
         .expect("failed to build h2 extended CONNECT websocket request");
+    if include_ws_handshake_headers {
+        request.headers_mut().insert(
+            http::header::HeaderName::from_static("sec-websocket-key"),
+            http::HeaderValue::from_static("dGhlIHNhbXBsZSBub25jZQ=="),
+        );
+        request.headers_mut().insert(
+            http::header::HeaderName::from_static("sec-websocket-version"),
+            http::HeaderValue::from_static("13"),
+        );
+    }
     request
         .extensions_mut()
         .insert(h2::ext::Protocol::from_static("websocket"));
@@ -281,6 +290,17 @@ async fn connect_wss_h2_extended_with_host(
         .map(|value| value.to_string());
 
     (send_stream, response.into_body(), transport)
+}
+
+async fn connect_wss_h2_extended_with_host(
+    url: &str,
+    host: &str,
+) -> (
+    h2::SendStream<bytes::Bytes>,
+    h2::RecvStream,
+    Option<::std::string::String>,
+) {
+    connect_wss_h2_extended_with_host_impl(url, host, true).await
 }
 
 async fn assert_websocket_roundtrip(
@@ -483,6 +503,84 @@ async fn k8s_websocket_ingress_supports_wss_h2_extended_connect_roundtrip() {
 
     let (mut send_stream, mut recv_stream, transport) =
         connect_wss_h2_extended_with_host(&wss_url, &host).await;
+    assert_eq!(
+        transport.as_deref(),
+        Some("h2"),
+        "expected downstream websocket transport to be h2 for extended CONNECT",
+    );
+
+    let mut frame_buffer = Vec::new();
+    let ready = read_next_h2_websocket_text_frame(&mut recv_stream, &mut frame_buffer).await;
+    assert_eq!(ready, "ready", "unexpected websocket readiness frame");
+
+    send_stream
+        .send_data(build_masked_text_websocket_frame("ping"), false)
+        .expect("failed to send masked websocket text frame over h2 stream");
+    let echoed = read_next_h2_websocket_text_frame(&mut recv_stream, &mut frame_buffer).await;
+    assert_eq!(echoed, "echo:ping", "unexpected websocket echo payload");
+
+    send_stream
+        .send_data(build_masked_close_websocket_frame(), false)
+        .expect("failed to send masked websocket close frame over h2 stream");
+    send_stream
+        .send_data(bytes::Bytes::new(), true)
+        .expect("failed to finish h2 websocket stream");
+
+    common::delete_ingress(&kube_client, &config.namespace, &ingress_name).await;
+}
+
+#[tokio::test]
+#[ignore = "requires local kind e2e environment with websocket probe fixture"]
+async fn k8s_websocket_ingress_supports_wss_h2_extended_connect_without_ws_headers() {
+    let config = common::E2eConfig::from_env();
+    let client = common::build_http_client();
+    let kube_client = common::kube_client().await;
+    let ingress_name = common::unique_name("websocket-ingress");
+    let host = common::unique_host("websocket");
+
+    common::create_ingress_for_service(
+        &kube_client,
+        &config.namespace,
+        &ingress_name,
+        &host,
+        "e2e-websocket-probe",
+        &[],
+        &[],
+    )
+    .await;
+
+    let start = tokio::time::Instant::now();
+    let timeout = WEBSOCKET_ROUTE_READY_TIMEOUT;
+    let mut last_status = reqwest::StatusCode::NOT_FOUND;
+    while start.elapsed() < timeout {
+        match common::get_with_host(&client, &config.http_addr, "/ws", &host).await {
+            Ok(response) => {
+                let status = response.status();
+                last_status = status;
+                if status != reqwest::StatusCode::NOT_FOUND {
+                    break;
+                }
+            }
+            Err(_) => {}
+        }
+        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+    }
+    assert_ne!(
+        last_status,
+        reqwest::StatusCode::NOT_FOUND,
+        "websocket ingress route was not available before websocket dial",
+    );
+
+    let wss_url = format!(
+        "{}/ws",
+        config
+            .https_addr
+            .replace("https://", "wss://")
+            .trim_end_matches('/')
+    );
+
+    let (mut send_stream, mut recv_stream, transport) =
+        connect_wss_h2_extended_with_host_impl(&wss_url, &host, false).await;
     assert_eq!(
         transport.as_deref(),
         Some("h2"),

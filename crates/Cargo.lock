@@ -2584,6 +2584,7 @@ dependencies = [
  "askama",
  "async-compression",
  "async-trait",
+ "base64 0.22.1",
  "bytes",
  "futures",
  "h2 0.4.13",
