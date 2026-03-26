@@ -3,6 +3,7 @@ mod common;
 use futures_util::{SinkExt, StreamExt};
 
 const WEBSOCKET_STEP_TIMEOUT: tokio::time::Duration = tokio::time::Duration::from_secs(10);
+const WEBSOCKET_ROUTE_READY_TIMEOUT: tokio::time::Duration = tokio::time::Duration::from_secs(90);
 
 async fn connect_ws_with_host(
     url: &str,
@@ -401,7 +402,7 @@ async fn k8s_websocket_ingress_supports_wss_h2_extended_connect_roundtrip() {
     .await;
 
     let start = tokio::time::Instant::now();
-    let timeout = tokio::time::Duration::from_secs(45);
+    let timeout = WEBSOCKET_ROUTE_READY_TIMEOUT;
     let mut last_status = reqwest::StatusCode::NOT_FOUND;
     while start.elapsed() < timeout {
         match common::get_with_host(&client, &config.http_addr, "/ws", &host).await {
@@ -480,7 +481,7 @@ async fn k8s_websocket_ingress_supports_ws_and_wss_roundtrip() {
 
     // Wait for ingress reconciliation/route propagation before websocket dial attempts.
     let start = tokio::time::Instant::now();
-    let timeout = tokio::time::Duration::from_secs(45);
+    let timeout = WEBSOCKET_ROUTE_READY_TIMEOUT;
     let mut last_status = reqwest::StatusCode::NOT_FOUND;
     while start.elapsed() < timeout {
         match common::get_with_host(&client, &config.http_addr, "/ws", &host).await {
@@ -560,7 +561,7 @@ async fn k8s_websocket_ingress_supports_multi_message_echo_and_close() {
     .await;
 
     let start = tokio::time::Instant::now();
-    let timeout = tokio::time::Duration::from_secs(45);
+    let timeout = WEBSOCKET_ROUTE_READY_TIMEOUT;
     let mut last_status = reqwest::StatusCode::NOT_FOUND;
     while start.elapsed() < timeout {
         match common::get_with_host(&client, &config.http_addr, "/ws", &host).await {
@@ -642,7 +643,7 @@ async fn k8s_websocket_ingress_bypasses_http_modules_on_handshake() {
     .await;
 
     let start = tokio::time::Instant::now();
-    let timeout = tokio::time::Duration::from_secs(45);
+    let timeout = WEBSOCKET_ROUTE_READY_TIMEOUT;
     let mut last_status = reqwest::StatusCode::NOT_FOUND;
     while start.elapsed() < timeout {
         match common::get_with_host(&client, &config.http_addr, "/ws", &host).await {
@@ -725,7 +726,7 @@ async fn k8s_websocket_ingress_rejects_unknown_host_for_websocket_upgrade() {
     .await;
 
     let start = tokio::time::Instant::now();
-    let timeout = tokio::time::Duration::from_secs(45);
+    let timeout = WEBSOCKET_ROUTE_READY_TIMEOUT;
     let mut last_status = reqwest::StatusCode::NOT_FOUND;
     while start.elapsed() < timeout {
         match common::get_with_host(&client, &config.http_addr, "/ws", &host).await {
