@@ -6,7 +6,10 @@
 #USAGE flag "-s --skip-build" help="Skip rebuilding the release Docker image"
 
 set -Eeuo pipefail
-. "$(dirname "$0")/lib.sh"
+script_dir="$(
+  cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P
+)"
+. "${script_dir}/lib.sh"
 
 trap 'echo "e2e-kubernetes-provider failed (line ${BASH_LINENO[0]:-unknown}): ${BASH_COMMAND}" >&2' ERR
 
@@ -31,7 +34,18 @@ if ! command -v cargo >/dev/null 2>&1; then
   exit 1
 fi
 
-repo_root="$(cd "$(dirname "$0")/.." && pwd)"
+repo_root=""
+for candidate in "${MISE_ORIGINAL_CWD:-}" "${GITHUB_WORKSPACE:-}" "$(cd "${script_dir}/.." && pwd -P)"; do
+  if [ -n "${candidate}" ] && [ -f "${candidate}/tests/playwright/k8s-pow-browser.spec.cjs" ]; then
+    repo_root="$(cd -- "${candidate}" && pwd -P)"
+    break
+  fi
+done
+
+if [ -z "${repo_root}" ]; then
+  echo "could not resolve repository root with tests/playwright/k8s-pow-browser.spec.cjs" >&2
+  exit 1
+fi
 
 kubectl_context() {
   if [ -n "${KSBH_KUBECTL_CONTEXT:-}" ]; then
@@ -480,6 +494,13 @@ wait_for_http_status "http://${e2e_host}:18080/get" "401" 90 "${browser_host}"
 
 echo "running Playwright kubernetes PoW browser e2e"
 playwright_driver="${KSBH_E2E_PLAYWRIGHT_DRIVER:-container}"
+playwright_spec="${repo_root}/tests/playwright/k8s-pow-browser.spec.cjs"
+
+if [ ! -f "${playwright_spec}" ]; then
+  echo "Playwright spec not found: ${playwright_spec}" >&2
+  echo "resolved repo_root: ${repo_root}" >&2
+  exit 1
+fi
 
 if [ "${playwright_driver}" = "container" ]; then
   playwright_image="${KSBH_E2E_PLAYWRIGHT_IMAGE:-mcr.microsoft.com/playwright:v1.54.2-noble}"
@@ -511,7 +532,7 @@ else
   "${playwright_bin}" install chromium
 
   "${playwright_bin}" test \
-    "${repo_root}/tests/playwright/k8s-pow-browser.spec.cjs" \
+    "${playwright_spec}" \
     --workers=1
 fi
 
