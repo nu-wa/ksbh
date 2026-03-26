@@ -44,9 +44,13 @@ service:
     prometheus: null
 
 app:
+  # Runtime config injected as env vars in all modes (file and kubernetes).
+  # Exception: app.configPaths.config remains file-mode only because setting
+  # KSBH__CONFIG_PATHS__CONFIG selects the file provider.
   redisUrl: null
   pyroscopeUrl: null
   threads: 8
+  # Forwarded headers are trusted only when request source IP matches one of these entries.
   trustedProxies: []
 
   constants:

@@ -35,9 +35,14 @@ service:
   profiling: 8083
   prometheus: 8084
 
+app:
+  redisUrl: "redis://redis.ksbh.svc.cluster.local:6379/0"
+  threads: 8
+  trustedProxies:
+    - "10.0.0.0/8"
+
 configEnv:
-  KSBH__REDIS_URL: "redis://redis.ksbh.svc.cluster.local:6379/0"
-  KSBH__THREADS: "8"
+  KSBH__CONSTANTS__COOKIE_SECURE: "false"
 
 env:
   DEBUG_LEVEL: "info"
@@ -47,6 +52,15 @@ env:
 
 - `configProvider.mode=file`: mount a YAML config file and set `KSBH__CONFIG_PATHS__CONFIG`
 - `configProvider.mode=kubernetes`: let KSBH watch cluster resources
+
+Runtime env vars derived from chart `app.*` values (for example `app.redisUrl`,
+`app.pyroscopeUrl`, `app.threads`, `app.constants.*`, `app.ports.*`,
+`app.listenAddresses.*`, `app.configPaths.modules`, `app.configPaths.staticContent`,
+`app.urlPaths.modules`, `app.performance.*`, `app.trustedProxies`) are injected
+in both modes.
+
+`app.configPaths.config` is intentionally file-mode-only because setting
+`KSBH__CONFIG_PATHS__CONFIG` selects the file provider.
 
 ### File Mode Behavior
 

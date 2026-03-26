@@ -68,6 +68,7 @@ The deployment chart lives in `charts/ksbh`.
 - CRDs: `charts/ksbh/crds/`
 - Lint task: `mise run lint-helm-chart`
 - Service exposure ports are configured under `service.*`, while HTTP/HTTPS backend target ports are sourced from `app.ports.app.*`.
+- Chart runtime `app.*` values (`redisUrl`, `pyroscopeUrl`, `threads`, `trustedProxies`) are injected as env vars in both `configProvider.mode=file` and `configProvider.mode=kubernetes`; the app ConfigMap remains file-mode only.
 
 If chart structure, values, templates, or CRDs change, update the relevant `AGENTS.md`.
 

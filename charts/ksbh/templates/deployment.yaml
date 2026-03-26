@@ -88,6 +88,66 @@ spec:
           env:
             - name: DEBUG_LEVEL
               value: {{ .Values.env.DEBUG_LEVEL | quote }}
+            - name: KSBH__THREADS
+              value: {{ .Values.app.threads | quote }}
+            - name: KSBH__CONSTANTS__TCP_FASTOPEN_QUEUE_SIZE
+              value: {{ .Values.app.constants.tcpFastopenQueueSize | quote }}
+            - name: KSBH__CONSTANTS__COOKIE_NAME
+              value: {{ .Values.app.constants.cookieName | quote }}
+            - name: KSBH__CONSTANTS__COOKIE_SECURE
+              value: {{ .Values.app.constants.cookieSecure | quote }}
+            - name: KSBH__CONSTANTS__PROXY_HEADER_NAME
+              value: {{ .Values.app.constants.proxyHeaderName | quote }}
+            - name: KSBH__CONSTANTS__PROXY_HEADER_VALUE
+              value: {{ .Values.app.constants.proxyHeaderValue | quote }}
+            - name: KSBH__PORTS__APP__HTTP
+              value: {{ .Values.app.ports.app.http | quote }}
+            - name: KSBH__PORTS__APP__HTTPS
+              value: {{ .Values.app.ports.app.https | quote }}
+            - name: KSBH__PORTS__EXTERNAL__HTTP
+              value: {{ .Values.app.ports.external.http | quote }}
+            - name: KSBH__PORTS__EXTERNAL__HTTPS
+              value: {{ .Values.app.ports.external.https | quote }}
+            - name: KSBH__LISTEN_ADDRESSES__HTTP
+              value: {{ .Values.app.listenAddresses.http | quote }}
+            - name: KSBH__LISTEN_ADDRESSES__HTTPS
+              value: {{ .Values.app.listenAddresses.https | quote }}
+            - name: KSBH__LISTEN_ADDRESSES__INTERNAL
+              value: {{ .Values.app.listenAddresses.internal | quote }}
+            - name: KSBH__LISTEN_ADDRESSES__PROFILING
+              value: {{ .Values.app.listenAddresses.profiling | quote }}
+            - name: KSBH__LISTEN_ADDRESSES__PROMETHEUS
+              value: {{ .Values.app.listenAddresses.prometheus | quote }}
+            - name: KSBH__CONFIG_PATHS__MODULES
+              value: {{ .Values.app.configPaths.modules | quote }}
+            - name: KSBH__CONFIG_PATHS__STATIC_CONTENT
+              value: {{ .Values.app.configPaths.staticContent | quote }}
+            - name: KSBH__URL_PATHS__MODULES
+              value: {{ .Values.app.urlPaths.modules | quote }}
+            {{- if ne .Values.app.performance.tcpFastopen nil }}
+            - name: KSBH__PERFORMANCE__TCP_FASTOPEN
+              value: {{ .Values.app.performance.tcpFastopen | quote }}
+            {{- end }}
+            {{- if ne .Values.app.performance.soReuseport nil }}
+            - name: KSBH__PERFORMANCE__SO_REUSEPORT
+              value: {{ .Values.app.performance.soReuseport | quote }}
+            {{- end }}
+            {{- if ne .Values.app.performance.tcpKeepalive nil }}
+            - name: KSBH__PERFORMANCE__TCP_KEEPALIVE
+              value: {{ .Values.app.performance.tcpKeepalive | quote }}
+            {{- end }}
+            {{- with .Values.app.redisUrl }}
+            - name: KSBH__REDIS_URL
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.app.pyroscopeUrl }}
+            - name: KSBH__PYROSCOPE_URL
+              value: {{ . | quote }}
+            {{- end }}
+            {{- range $idx, $proxy := .Values.app.trustedProxies }}
+            - name: KSBH__TRUSTED_PROXIES__{{ $idx }}
+              value: {{ $proxy | quote }}
+            {{- end }}
             {{- range $name, $value := .Values.configEnv }}
             - name: {{ $name }}
               value: {{ $value | quote }}
