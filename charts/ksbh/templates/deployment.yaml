@@ -86,78 +86,122 @@ spec:
               containerPort: {{ .Values.service.profiling }}
               protocol: TCP
           env:
+            {{- $cfgEnv := .Values.configEnv }}
+            {{- if not (hasKey $cfgEnv "DEBUG_LEVEL") }}
             - name: DEBUG_LEVEL
               value: {{ .Values.env.DEBUG_LEVEL | quote }}
+            {{- end }}
+            {{- if not (hasKey $cfgEnv "KSBH__THREADS") }}
             - name: KSBH__THREADS
               value: {{ .Values.app.threads | quote }}
+            {{- end }}
+            {{- if not (hasKey $cfgEnv "KSBH__CONSTANTS__TCP_FASTOPEN_QUEUE_SIZE") }}
             - name: KSBH__CONSTANTS__TCP_FASTOPEN_QUEUE_SIZE
               value: {{ .Values.app.constants.tcpFastopenQueueSize | quote }}
+            {{- end }}
+            {{- if not (hasKey $cfgEnv "KSBH__CONSTANTS__COOKIE_NAME") }}
             - name: KSBH__CONSTANTS__COOKIE_NAME
               value: {{ .Values.app.constants.cookieName | quote }}
+            {{- end }}
+            {{- if not (hasKey $cfgEnv "KSBH__CONSTANTS__COOKIE_SECURE") }}
             - name: KSBH__CONSTANTS__COOKIE_SECURE
               value: {{ .Values.app.constants.cookieSecure | quote }}
+            {{- end }}
+            {{- if not (hasKey $cfgEnv "KSBH__CONSTANTS__PROXY_HEADER_NAME") }}
             - name: KSBH__CONSTANTS__PROXY_HEADER_NAME
               value: {{ .Values.app.constants.proxyHeaderName | quote }}
+            {{- end }}
+            {{- if not (hasKey $cfgEnv "KSBH__CONSTANTS__PROXY_HEADER_VALUE") }}
             - name: KSBH__CONSTANTS__PROXY_HEADER_VALUE
               value: {{ .Values.app.constants.proxyHeaderValue | quote }}
+            {{- end }}
+            {{- if not (hasKey $cfgEnv "KSBH__PORTS__APP__HTTP") }}
             - name: KSBH__PORTS__APP__HTTP
               value: {{ .Values.app.ports.app.http | quote }}
+            {{- end }}
+            {{- if not (hasKey $cfgEnv "KSBH__PORTS__APP__HTTPS") }}
             - name: KSBH__PORTS__APP__HTTPS
               value: {{ .Values.app.ports.app.https | quote }}
+            {{- end }}
+            {{- if not (hasKey $cfgEnv "KSBH__PORTS__EXTERNAL__HTTP") }}
             - name: KSBH__PORTS__EXTERNAL__HTTP
               value: {{ .Values.app.ports.external.http | quote }}
+            {{- end }}
+            {{- if not (hasKey $cfgEnv "KSBH__PORTS__EXTERNAL__HTTPS") }}
             - name: KSBH__PORTS__EXTERNAL__HTTPS
               value: {{ .Values.app.ports.external.https | quote }}
+            {{- end }}
+            {{- if not (hasKey $cfgEnv "KSBH__LISTEN_ADDRESSES__HTTP") }}
             - name: KSBH__LISTEN_ADDRESSES__HTTP
               value: {{ .Values.app.listenAddresses.http | quote }}
+            {{- end }}
+            {{- if not (hasKey $cfgEnv "KSBH__LISTEN_ADDRESSES__HTTPS") }}
             - name: KSBH__LISTEN_ADDRESSES__HTTPS
               value: {{ .Values.app.listenAddresses.https | quote }}
+            {{- end }}
+            {{- if not (hasKey $cfgEnv "KSBH__LISTEN_ADDRESSES__INTERNAL") }}
             - name: KSBH__LISTEN_ADDRESSES__INTERNAL
               value: {{ .Values.app.listenAddresses.internal | quote }}
+            {{- end }}
+            {{- if not (hasKey $cfgEnv "KSBH__LISTEN_ADDRESSES__PROFILING") }}
             - name: KSBH__LISTEN_ADDRESSES__PROFILING
               value: {{ .Values.app.listenAddresses.profiling | quote }}
+            {{- end }}
+            {{- if not (hasKey $cfgEnv "KSBH__LISTEN_ADDRESSES__PROMETHEUS") }}
             - name: KSBH__LISTEN_ADDRESSES__PROMETHEUS
               value: {{ .Values.app.listenAddresses.prometheus | quote }}
+            {{- end }}
+            {{- if not (hasKey $cfgEnv "KSBH__CONFIG_PATHS__MODULES") }}
             - name: KSBH__CONFIG_PATHS__MODULES
               value: {{ .Values.app.configPaths.modules | quote }}
+            {{- end }}
+            {{- if not (hasKey $cfgEnv "KSBH__CONFIG_PATHS__STATIC_CONTENT") }}
             - name: KSBH__CONFIG_PATHS__STATIC_CONTENT
               value: {{ .Values.app.configPaths.staticContent | quote }}
+            {{- end }}
+            {{- if not (hasKey $cfgEnv "KSBH__URL_PATHS__MODULES") }}
             - name: KSBH__URL_PATHS__MODULES
               value: {{ .Values.app.urlPaths.modules | quote }}
-            {{- if ne .Values.app.performance.tcpFastopen nil }}
+            {{- end }}
+            {{- if and (ne .Values.app.performance.tcpFastopen nil) (not (hasKey $cfgEnv "KSBH__PERFORMANCE__TCP_FASTOPEN")) }}
             - name: KSBH__PERFORMANCE__TCP_FASTOPEN
               value: {{ .Values.app.performance.tcpFastopen | quote }}
             {{- end }}
-            {{- if ne .Values.app.performance.soReuseport nil }}
+            {{- if and (ne .Values.app.performance.soReuseport nil) (not (hasKey $cfgEnv "KSBH__PERFORMANCE__SO_REUSEPORT")) }}
             - name: KSBH__PERFORMANCE__SO_REUSEPORT
               value: {{ .Values.app.performance.soReuseport | quote }}
             {{- end }}
-            {{- if ne .Values.app.performance.tcpKeepalive nil }}
+            {{- if and (ne .Values.app.performance.tcpKeepalive nil) (not (hasKey $cfgEnv "KSBH__PERFORMANCE__TCP_KEEPALIVE")) }}
             - name: KSBH__PERFORMANCE__TCP_KEEPALIVE
               value: {{ .Values.app.performance.tcpKeepalive | quote }}
             {{- end }}
-            {{- with .Values.app.redisUrl }}
+            {{- if and .Values.app.redisUrl (not (hasKey $cfgEnv "KSBH__REDIS_URL")) }}
             - name: KSBH__REDIS_URL
-              value: {{ . | quote }}
+              value: {{ .Values.app.redisUrl | quote }}
             {{- end }}
-            {{- with .Values.app.pyroscopeUrl }}
+            {{- if and .Values.app.pyroscopeUrl (not (hasKey $cfgEnv "KSBH__PYROSCOPE_URL")) }}
             - name: KSBH__PYROSCOPE_URL
-              value: {{ . | quote }}
+              value: {{ .Values.app.pyroscopeUrl | quote }}
             {{- end }}
             {{- range $idx, $proxy := .Values.app.trustedProxies }}
-            - name: KSBH__TRUSTED_PROXIES__{{ $idx }}
+            {{- $proxyEnvName := printf "KSBH__TRUSTED_PROXIES__%d" $idx }}
+            {{- if not (hasKey $cfgEnv $proxyEnvName) }}
+            - name: {{ $proxyEnvName }}
               value: {{ $proxy | quote }}
+            {{- end }}
             {{- end }}
             {{- range $name, $value := .Values.configEnv }}
             - name: {{ $name }}
               value: {{ $value | quote }}
             {{- end }}
+            {{- if not (hasKey $cfgEnv "KSBH__COOKIE_KEY") }}
             - name: KSBH__COOKIE_KEY
               valueFrom:
                 secretKeyRef:
                   name: {{ include "ksbh.cookieKeySecretName" . }}
                   key: {{ .Values.cookieKeySecret.key }}
-            {{- if eq .Values.configProvider.mode "file" }}
+            {{- end }}
+            {{- if and (eq .Values.configProvider.mode "file") (not (hasKey $cfgEnv "KSBH__CONFIG_PATHS__CONFIG")) }}
             - name: KSBH__CONFIG_PATHS__CONFIG
               value: {{ .Values.app.configPaths.config | quote }}
             {{- end }}
