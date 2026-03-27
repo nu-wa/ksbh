@@ -16,4 +16,7 @@ pub const HEADER_X_FORWARDED_PROTO: &str = "X-Forwarded-Proto";
 pub const HEADER_X_FORWARDED_SSL: &str = "X-Forwarded-Ssl";
 pub const HEADER_X_FORWARDED_FOR: &str = "X-Forwarded-For";
 pub const HEADER_X_FORWARDED_HOST: &str = "X-Forwarded-Host";
+pub const HEADER_X_FORWARDED_PORT: &str = "X-Forwarded-Port";
+pub const HEADER_X_REAL_IP: &str = "X-Real-IP";
+pub const HEADER_FORWARDED: &str = "Forwarded";
 pub const HEADER_X_KSBH_WS_DOWNSTREAM_TRANSPORT: &str = "x-ksbh-ws-downstream-transport";

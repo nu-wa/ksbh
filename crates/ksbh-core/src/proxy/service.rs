@@ -74,6 +74,68 @@ impl ProxyService {
         ksbh_ui::error_pages::render_error_page_html(&status_code.to_string())
             .map(bytes::Bytes::from)
     }
+
+    fn append_header_value_if_trusted(
+        existing_value: Option<&http::header::HeaderValue>,
+        appended_value: &str,
+        trust_forwarded_headers: bool,
+    ) -> String {
+        if !trust_forwarded_headers {
+            return appended_value.to_string();
+        }
+
+        let Some(existing_value) = existing_value else {
+            return appended_value.to_string();
+        };
+
+        let Ok(existing_value) = existing_value.to_str() else {
+            return appended_value.to_string();
+        };
+        let existing_value = existing_value.trim();
+        if existing_value.is_empty() {
+            return appended_value.to_string();
+        }
+
+        format!("{existing_value}, {appended_value}")
+    }
+
+    fn format_forwarded_for_value(ip: &::std::net::IpAddr) -> String {
+        match ip {
+            ::std::net::IpAddr::V4(v4) => v4.to_string(),
+            ::std::net::IpAddr::V6(v6) => format!("\"[{v6}]\""),
+        }
+    }
+
+    fn escape_forwarded_value(raw: &str) -> String {
+        let mut escaped = String::with_capacity(raw.len());
+        for char in raw.chars() {
+            match char {
+                '\\' => escaped.push_str("\\\\"),
+                '"' => escaped.push_str("\\\""),
+                _ => escaped.push(char),
+            }
+        }
+
+        escaped
+    }
+
+    fn forwarded_header_entry(
+        client_ip: Option<::std::net::IpAddr>,
+        proto: &str,
+        host: &str,
+    ) -> String {
+        let mut parts = Vec::with_capacity(3);
+
+        match client_ip {
+            Some(ip) => parts.push(format!("for={}", Self::format_forwarded_for_value(&ip))),
+            None => parts.push("for=unknown".to_string()),
+        };
+
+        parts.push(format!("proto=\"{}\"", Self::escape_forwarded_value(proto)));
+        parts.push(format!("host=\"{}\"", Self::escape_forwarded_value(host)));
+
+        parts.join(";")
+    }
 }
 
 #[async_trait::async_trait]
@@ -326,13 +388,32 @@ impl ksbh_types::prelude::ProxyProvider for ProxyService {
         let trust_forwarded_headers = self
             .config
             .trusts_forwarded_headers_from(session.client_addr());
-        if let Some(client_addr) =
-            crate::utils::get_client_ip_from_session(session, trust_forwarded_headers)
-        {
+        let direct_client_ip = session.client_addr();
+        let effective_client_ip =
+            crate::utils::get_client_ip_from_session(session, trust_forwarded_headers);
+
+        if let Some(effective_client_ip) = effective_client_ip {
+            upstream_request
+                .insert_header(
+                    crate::constants::HEADER_X_REAL_IP,
+                    http::HeaderValue::from_str(effective_client_ip.to_string().as_str())
+                        .map_err(ksbh_types::prelude::ProxyProviderError::from)?,
+                )
+                .map_err(ksbh_types::prelude::ProxyProviderError::from)?;
+        }
+
+        if let Some(client_addr) = direct_client_ip.or(effective_client_ip) {
+            let forwarded_for = Self::append_header_value_if_trusted(
+                session
+                    .header_map()
+                    .get(crate::constants::HEADER_X_FORWARDED_FOR),
+                client_addr.to_string().as_str(),
+                trust_forwarded_headers,
+            );
             upstream_request
                 .insert_header(
                     crate::constants::HEADER_X_FORWARDED_FOR,
-                    http::HeaderValue::from_str(client_addr.to_string().as_str())
+                    http::HeaderValue::from_str(forwarded_for.as_str())
                         .map_err(ksbh_types::prelude::ProxyProviderError::from)?,
                 )
                 .map_err(ksbh_types::prelude::ProxyProviderError::from)?;
@@ -347,8 +428,32 @@ impl ksbh_types::prelude::ProxyProvider for ProxyService {
             .map_err(ksbh_types::prelude::ProxyProviderError::from)?;
         upstream_request
             .insert_header(
+                crate::constants::HEADER_X_FORWARDED_PORT,
+                http::HeaderValue::from_str(http_req.port.to_string().as_str())
+                    .map_err(ksbh_types::prelude::ProxyProviderError::from)?,
+            )
+            .map_err(ksbh_types::prelude::ProxyProviderError::from)?;
+        upstream_request
+            .insert_header(
                 http::header::HOST,
                 http::HeaderValue::from_str(host_with_port.as_str())
+                    .map_err(ksbh_types::prelude::ProxyProviderError::from)?,
+            )
+            .map_err(ksbh_types::prelude::ProxyProviderError::from)?;
+        let forwarded_entry = Self::forwarded_header_entry(
+            direct_client_ip.or(effective_client_ip),
+            proto,
+            &host_with_port,
+        );
+        let forwarded_value = Self::append_header_value_if_trusted(
+            session.header_map().get(crate::constants::HEADER_FORWARDED),
+            &forwarded_entry,
+            trust_forwarded_headers,
+        );
+        upstream_request
+            .insert_header(
+                crate::constants::HEADER_FORWARDED,
+                http::HeaderValue::from_str(forwarded_value.as_str())
                     .map_err(ksbh_types::prelude::ProxyProviderError::from)?,
             )
             .map_err(ksbh_types::prelude::ProxyProviderError::from)?;
@@ -411,5 +516,56 @@ impl ksbh_types::prelude::ProxyProvider for ProxyService {
 
         session.write_response(response).await?;
         Ok(true)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn append_header_value_ignores_untrusted_existing_value() {
+        let mut headers = http::HeaderMap::new();
+        headers.insert(
+            crate::constants::HEADER_X_FORWARDED_FOR,
+            http::HeaderValue::from_static("198.51.100.9"),
+        );
+
+        let appended = super::ProxyService::append_header_value_if_trusted(
+            headers.get(crate::constants::HEADER_X_FORWARDED_FOR),
+            "203.0.113.8",
+            false,
+        );
+
+        assert_eq!(appended, "203.0.113.8");
+    }
+
+    #[test]
+    fn append_header_value_appends_for_trusted_proxy() {
+        let mut headers = http::HeaderMap::new();
+        headers.insert(
+            crate::constants::HEADER_X_FORWARDED_FOR,
+            http::HeaderValue::from_static("198.51.100.9"),
+        );
+
+        let appended = super::ProxyService::append_header_value_if_trusted(
+            headers.get(crate::constants::HEADER_X_FORWARDED_FOR),
+            "203.0.113.8",
+            true,
+        );
+
+        assert_eq!(appended, "198.51.100.9, 203.0.113.8");
+    }
+
+    #[test]
+    fn forwarded_entry_formats_ipv6_and_quotes_host_and_proto() {
+        let entry = super::ProxyService::forwarded_header_entry(
+            Some("2001:db8::1".parse().expect("parse IPv6 address")),
+            "https",
+            "example.test:443",
+        );
+
+        assert_eq!(
+            entry,
+            "for=\"[2001:db8::1]\";proto=\"https\";host=\"example.test:443\""
+        );
     }
 }
