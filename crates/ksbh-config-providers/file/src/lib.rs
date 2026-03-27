@@ -132,7 +132,6 @@ impl FileConfigProvider {
                 r#type: module_type,
                 weight: module.weight,
                 global: module.global,
-                requires_proper_request: true,
                 secret_ref: None,
                 config: None,
                 requires_body: module.requires_body,
@@ -284,7 +283,7 @@ impl FileConfigProvider {
                 ))
             })?;
 
-        let (mut domains, wildcards) = extract_domains_from_cert(&cert_chain);
+        let (mut domains, wildcards) = ::ksbh_core::certs::extract_domains_from_cert(&cert_chain);
         if domains.is_empty() && wildcards.is_empty() {
             tracing::warn!(
                 "Ingress '{}' certificate has no SAN DNS names; falling back to ingress host '{}'",
@@ -378,27 +377,4 @@ impl ::ksbh_core::config_provider::ConfigProvider for FileConfigProvider {
 
         self_arc.watch_config_file(router, certs, shutdown).await;
     }
-}
-
-fn extract_domains_from_cert(
-    certs: &[::pingora_core::tls::x509::X509],
-) -> (Vec<::ksbh_types::KsbhStr>, Vec<::ksbh_types::KsbhStr>) {
-    let mut wildcards: Vec<::ksbh_types::KsbhStr> = Vec::new();
-    let mut domains: Vec<::ksbh_types::KsbhStr> = Vec::new();
-
-    if let Some(leaf) = certs.first()
-        && let Some(sans) = leaf.subject_alt_names()
-    {
-        for san in sans {
-            if let Some(dns_name) = san.dnsname() {
-                if dns_name.starts_with("*.") {
-                    wildcards.push(::ksbh_types::KsbhStr::new(dns_name));
-                } else {
-                    domains.push(::ksbh_types::KsbhStr::new(dns_name));
-                }
-            }
-        }
-    }
-
-    (domains, wildcards)
 }

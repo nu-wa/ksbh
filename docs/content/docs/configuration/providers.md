@@ -178,7 +178,6 @@ spec:
 | `spec.weight` | integer | Higher values run earlier within the same scope |
 | `spec.global` | boolean | Apply to all ingresses |
 | `spec.secretRef` | object | Reference to Kubernetes Secret for config |
-| `spec.requiresProperRequest` | boolean | Requires proper request headers |
 | `spec.requiresBody` | boolean | Requires request body |
 
 ### Module Type Casing

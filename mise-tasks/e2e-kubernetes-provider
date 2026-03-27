@@ -519,7 +519,6 @@ spec:
   type: POW
   weight: 80
   global: false
-  requiresProperRequest: false
   requiresBody: true
   secretRef:
     name: pow-browser-secret

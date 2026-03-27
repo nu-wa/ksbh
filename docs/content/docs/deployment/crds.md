@@ -23,7 +23,6 @@ kubectl apply -f charts/ksbh/crds/
 | `spec.weight` | integer | Higher values run earlier within the same scope |
 | `spec.global` | boolean | Whether the module is global |
 | `spec.requiresBody` | boolean | Whether the module needs the request body |
-| `spec.requiresProperRequest` | boolean | Whether the module expects a proper request |
 | `spec.secretRef` | object | Secret reference for module config |
 
 ## Built-In Types

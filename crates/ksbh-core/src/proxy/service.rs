@@ -15,8 +15,6 @@ pub struct ProxyService {
         >,
     >,
     #[allow(dead_code)]
-    pub(super) modules_configs_registry: crate::modules::registry::ModuleRegistryReader,
-    #[allow(dead_code)]
     pub(super) config: ::std::sync::Arc<crate::Config>,
     #[allow(dead_code)]
     pub(super) hosts: crate::routing::RouterReader,
@@ -35,7 +33,6 @@ impl ProxyService {
         config: ::std::sync::Arc<crate::Config>,
         storage: ::std::sync::Arc<crate::Storage>,
         hosts: crate::routing::RouterReader,
-        modules_configs_registry: crate::modules::registry::ModuleRegistryReader,
         metrics_sender: tokio::sync::mpsc::Sender<crate::metrics::RequestMetrics>,
         sessions: ::std::sync::Arc<
             crate::storage::redis_hashmap::RedisHashMap<
@@ -59,11 +56,23 @@ impl ProxyService {
             config: config.clone(),
             hosts,
             metrics_sender,
-            modules_configs_registry,
             cookie_settings,
             proxy_header_name,
             proxy_header_value,
         }
+    }
+
+    fn has_explicitly_empty_body(headers: &http::HeaderMap) -> bool {
+        headers
+            .get(http::header::CONTENT_LENGTH)
+            .and_then(|value| value.to_str().ok())
+            .map(|value| value.trim() == "0")
+            .unwrap_or(false)
+    }
+
+    fn render_error_page_html(status_code: u16) -> Option<bytes::Bytes> {
+        ksbh_ui::error_pages::render_error_page_html(&status_code.to_string())
+            .map(bytes::Bytes::from)
     }
 }
 
@@ -227,6 +236,46 @@ impl ksbh_types::prelude::ProxyProvider for ProxyService {
             )
             .map_err(ksbh_types::prelude::ProxyProviderError::from)?;
 
+        ctx.upstream_response_body_seen = false;
+        ctx.fallback_error_page_body = None;
+        if (response.status.is_client_error() || response.status.is_server_error())
+            && Self::has_explicitly_empty_body(&response.headers)
+            && let Some(page_bytes) = Self::render_error_page_html(response.status.as_u16())
+        {
+            response.headers.remove(http::header::CONTENT_LENGTH);
+            response.headers.remove(http::header::CONTENT_TYPE);
+            response
+                .headers
+                .try_insert(
+                    http::header::CONTENT_TYPE,
+                    http::HeaderValue::from_static("text/html; charset=utf-8"),
+                )
+                .map_err(ksbh_types::prelude::ProxyProviderError::from)?;
+            ctx.fallback_error_page_body = Some(page_bytes);
+        }
+
+        Ok(())
+    }
+
+    fn response_body_filter(
+        &self,
+        body: &mut Option<bytes::Bytes>,
+        end_of_stream: bool,
+        ctx: &mut Self::ProxyContext,
+    ) -> Result<(), ksbh_types::prelude::ProxyProviderError> {
+        if body.as_ref().is_some_and(|chunk| !chunk.is_empty()) {
+            ctx.upstream_response_body_seen = true;
+        }
+
+        if end_of_stream
+            && !ctx.upstream_response_body_seen
+            && body.as_ref().is_none_or(bytes::Bytes::is_empty)
+            && let Some(fallback_body) = ctx.fallback_error_page_body.take()
+        {
+            *body = Some(fallback_body);
+            ctx.upstream_response_body_seen = true;
+        }
+
         Ok(())
     }
 
@@ -322,18 +371,45 @@ impl ksbh_types::prelude::ProxyProvider for ProxyService {
         let duration = ctx.req_start.elapsed();
 
         if let Some(valid_req_information) = ctx.valid_request_information.take()
-            && let Some(response_header) = session.response_written()
+            && let Some(response_status) = session.response_status()
             && let Err(e) = self
                 .metrics_sender
                 .send(crate::metrics::RequestMetrics::new(
                     valid_req_information,
                     ::std::mem::take(&mut ctx.modules_metrics),
-                    response_header.status(),
+                    response_status,
                     duration.as_secs_f64(),
                 ))
                 .await
         {
             tracing::error!("There was an error sending request_metric {}", e);
         }
+    }
+
+    async fn fail_to_proxy(
+        &self,
+        session: &mut dyn ksbh_types::prelude::ProxyProviderSession,
+        error_code: u16,
+        _ctx: &mut Self::ProxyContext,
+    ) -> Result<bool, ksbh_types::prelude::ProxyProviderError> {
+        if !(400..=599).contains(&error_code) {
+            return Ok(false);
+        }
+
+        let Some(body) = Self::render_error_page_html(error_code) else {
+            return Ok(false);
+        };
+        let status = http::StatusCode::from_u16(error_code)
+            .unwrap_or(http::StatusCode::INTERNAL_SERVER_ERROR);
+        let response = http::Response::builder()
+            .status(status)
+            .header(http::header::CONTENT_TYPE, "text/html; charset=utf-8")
+            .body(body)
+            .map_err(|e| {
+                ksbh_types::prelude::ProxyProviderError::InternalErrorDetailed(e.to_string())
+            })?;
+
+        session.write_response(response).await?;
+        Ok(true)
     }
 }

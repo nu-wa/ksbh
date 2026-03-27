@@ -225,6 +225,10 @@ where
     }
 
     pub fn set_redis_sync(&self, key: K, value: V) -> bool {
+        self.set_redis_sync_ref(&key, &value)
+    }
+
+    pub fn set_redis_sync_ref(&self, key: &K, value: &V) -> bool {
         let redis = match self.redis_connection.as_ref() {
             Some(r) => r,
             None => return false,
@@ -235,11 +239,11 @@ where
             Ok(c) => c,
             Err(_) => return false,
         };
-        let key_bytes = match rmp_serde::to_vec(&key) {
+        let key_bytes = match rmp_serde::to_vec(key) {
             Ok(k) => k,
             Err(_) => return false,
         };
-        let encoded = match rmp_serde::to_vec(&value) {
+        let encoded = match rmp_serde::to_vec(value) {
             Ok(v) => v,
             Err(_) => return false,
         };
@@ -252,6 +256,10 @@ where
     }
 
     pub fn set_redis_sync_with_ttl(&self, key: K, value: V, ttl_secs: u64) -> bool {
+        self.set_redis_sync_with_ttl_ref(&key, &value, ttl_secs)
+    }
+
+    pub fn set_redis_sync_with_ttl_ref(&self, key: &K, value: &V, ttl_secs: u64) -> bool {
         let redis = match self.redis_connection.as_ref() {
             Some(r) => r,
             None => return false,
@@ -261,11 +269,11 @@ where
             Ok(c) => c,
             Err(_) => return false,
         };
-        let key_bytes = match rmp_serde::to_vec(&key) {
+        let key_bytes = match rmp_serde::to_vec(key) {
             Ok(k) => k,
             Err(_) => return false,
         };
-        let encoded = match rmp_serde::to_vec(&value) {
+        let encoded = match rmp_serde::to_vec(value) {
             Ok(v) => v,
             Err(_) => return false,
         };

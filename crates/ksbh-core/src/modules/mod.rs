@@ -58,9 +58,6 @@ pub struct ModuleConfigurationSpec {
     pub weight: i32,
     #[schemars(default)]
     pub global: bool,
-    #[serde(default = "default_true")]
-    #[schemars(default = "default_true")]
-    pub requires_proper_request: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub secret_ref: Option<k8s_openapi::api::core::v1::SecretReference>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -68,8 +65,4 @@ pub struct ModuleConfigurationSpec {
     #[serde(default)]
     #[schemars(default)]
     pub requires_body: bool,
-}
-
-fn default_true() -> bool {
-    true
 }

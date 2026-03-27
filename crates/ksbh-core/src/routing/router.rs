@@ -55,7 +55,7 @@ pub struct RouterWriter {
 #[derive(Debug, Clone)]
 pub(super) struct Ingress {
     name: ::std::sync::Arc<str>,
-    pub merged_modules: ::std::sync::Arc<Vec<super::request_match::RequestMatchModule>>,
+    pub merged_modules: super::request_match::RequestMatchModules,
 }
 
 #[derive(Debug, Clone)]
@@ -171,7 +171,7 @@ impl Router {
                     if let Some(backend) = entry.paths.find(path) {
                         return Some(super::RequestMatch {
                             backend: backend.clone(),
-                            modules: (*entry.ingress.merged_modules).clone(),
+                            modules: entry.ingress.merged_modules.clone(),
                         });
                     }
                 }
@@ -232,7 +232,7 @@ impl Router {
         self.ingress_module_config
             .upsert_sync(ingress_name.clone(), module_config);
 
-        let merged_modules = ::std::sync::Arc::new(self.get_ingress_modules(&ingress_name));
+        let merged_modules = self.get_ingress_modules(&ingress_name);
         let ingress = ::std::sync::Arc::new(Ingress {
             name: ingress_name,
             merged_modules,
@@ -311,7 +311,7 @@ impl Router {
     fn get_ingress_modules(
         &self,
         ingress_name: &::std::sync::Arc<str>,
-    ) -> Vec<super::request_match::RequestMatchModule> {
+    ) -> super::request_match::RequestMatchModules {
         let module_config = self
             .ingress_module_config
             .read_sync(ingress_name, |_, v| v.clone())
@@ -335,6 +335,7 @@ impl Router {
             &global_modules,
             &module_definitions,
         )
+        .into()
     }
 
     fn reload_ingresses(&self) {
@@ -363,7 +364,7 @@ impl Router {
 
         let mut ingress_modules: ::std::collections::HashMap<
             ::std::sync::Arc<str>,
-            ::std::sync::Arc<Vec<super::request_match::RequestMatchModule>>,
+            super::request_match::RequestMatchModules,
         > = ::std::collections::HashMap::new();
 
         for (ingress_name, module_config) in ingress_configs {
@@ -374,7 +375,7 @@ impl Router {
                 &module_definitions,
             );
 
-            ingress_modules.insert(ingress_name, ::std::sync::Arc::new(list));
+            ingress_modules.insert(ingress_name, list.into());
         }
 
         let mut host_keys: Vec<ksbh_types::KsbhStr> = Vec::new();
@@ -398,7 +399,7 @@ impl Router {
                     let merged = ingress_modules
                         .get(&entry.ingress.name)
                         .cloned()
-                        .unwrap_or_else(|| ::std::sync::Arc::new(global_modules.clone()));
+                        .unwrap_or_else(|| ::std::sync::Arc::from(global_modules.clone()));
 
                     HostEntry {
                         ingress: ::std::sync::Arc::new(Ingress {
@@ -591,7 +592,6 @@ mod tests {
                 r#type: crate::modules::ModuleConfigurationType::RobotsDotTXT,
                 weight: 100,
                 global: false,
-                requires_proper_request: false,
                 secret_ref: None,
                 config: None,
                 requires_body: false,
@@ -637,7 +637,6 @@ mod tests {
                 r#type: crate::modules::ModuleConfigurationType::Custom("global-low".to_string()),
                 weight: 10,
                 global: true,
-                requires_proper_request: false,
                 secret_ref: None,
                 config: None,
                 requires_body: false,
@@ -652,7 +651,6 @@ mod tests {
                 r#type: crate::modules::ModuleConfigurationType::Custom("global-high".to_string()),
                 weight: 100,
                 global: true,
-                requires_proper_request: false,
                 secret_ref: None,
                 config: None,
                 requires_body: false,
@@ -667,7 +665,6 @@ mod tests {
                 r#type: crate::modules::ModuleConfigurationType::Custom("ingress-high".to_string()),
                 weight: 1000,
                 global: false,
-                requires_proper_request: false,
                 secret_ref: None,
                 config: None,
                 requires_body: false,
@@ -682,7 +679,6 @@ mod tests {
                 r#type: crate::modules::ModuleConfigurationType::Custom("ingress-low".to_string()),
                 weight: 1,
                 global: false,
-                requires_proper_request: false,
                 secret_ref: None,
                 config: None,
                 requires_body: false,
@@ -734,7 +730,6 @@ mod tests {
                 r#type: crate::modules::ModuleConfigurationType::Custom("beta".to_string()),
                 weight: 5,
                 global: true,
-                requires_proper_request: false,
                 secret_ref: None,
                 config: None,
                 requires_body: false,
@@ -749,7 +744,6 @@ mod tests {
                 r#type: crate::modules::ModuleConfigurationType::Custom("alpha".to_string()),
                 weight: 5,
                 global: true,
-                requires_proper_request: false,
                 secret_ref: None,
                 config: None,
                 requires_body: false,

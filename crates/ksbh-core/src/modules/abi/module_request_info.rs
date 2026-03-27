@@ -23,6 +23,10 @@ impl QueryParams {
         }
     }
 
+    pub fn from_vec(params: Vec<super::ModuleKvSlice>) -> Self {
+        Self { params }
+    }
+
     pub fn as_slice(&self) -> &[super::ModuleKvSlice] {
         &self.params
     }
@@ -84,7 +88,7 @@ impl RequestInfo {
     /// Create from owned HttpRequest (not HttpRequestView).
     pub fn new_owned(
         request: &ksbh_types::requests::http_request::HttpRequest,
-        query_params_data: &[super::ModuleKvSlice],
+        query_params_data: Vec<super::ModuleKvSlice>,
         is_websocket_handshake: bool,
     ) -> Self {
         Self {
@@ -92,7 +96,7 @@ impl RequestInfo {
             host: super::ModuleBuffer::from_ref(request.host.as_str()),
             method: super::ModuleBuffer::from_ref(request.method.0.as_str()),
             path: super::ModuleBuffer::from_ref(request.query.path.as_str()),
-            query_params: QueryParams::new(query_params_data),
+            query_params: QueryParams::from_vec(query_params_data),
             scheme: super::ModuleBuffer::from_ref(request.scheme.0.as_str()),
             port: request.port,
             is_websocket_handshake,

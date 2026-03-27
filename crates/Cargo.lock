@@ -2679,6 +2679,7 @@ dependencies = [
  "k8s-openapi",
  "ksbh-core",
  "ksbh-types",
+ "ksbh-ui",
  "kube",
  "lazy_static",
  "libloading",
@@ -2744,6 +2745,9 @@ dependencies = [
 [[package]]
 name = "ksbh-ui"
 version = "0.1.0"
+dependencies = [
+ "askama",
+]
 
 [[package]]
 name = "kube"

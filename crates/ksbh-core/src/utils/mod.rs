@@ -184,7 +184,7 @@ pub fn get_client_ip_from_session(
     }
 
     let mut client_addr: Option<::std::net::IpAddr> = session.client_addr();
-    let req_headers = &session.headers().headers;
+    let req_headers = session.header_map();
 
     let forwarded_for_header = req_headers.get("x-forwarded-for");
     let real_ip = req_headers.get("x-real-ip");
@@ -214,6 +214,10 @@ mod tests {
             self.parts.clone()
         }
 
+        fn header_map(&self) -> &http::HeaderMap {
+            &self.parts.headers
+        }
+
         fn get_header(&self, header_name: http::HeaderName) -> Option<&http::header::HeaderValue> {
             self.parts.headers.get(header_name)
         }
@@ -226,7 +230,11 @@ mod tests {
             None
         }
 
-        fn response_written(&self) -> Option<http::Response<bytes::Bytes>> {
+        fn response_written(&self) -> bool {
+            false
+        }
+
+        fn response_status(&self) -> Option<http::StatusCode> {
             None
         }
 

@@ -38,6 +38,29 @@ impl Default for CertsRegistry {
     }
 }
 
+pub fn extract_domains_from_cert(
+    certs: &[pingora_core::tls::x509::X509],
+) -> (Vec<ksbh_types::KsbhStr>, Vec<ksbh_types::KsbhStr>) {
+    let mut wildcards: Vec<ksbh_types::KsbhStr> = Vec::new();
+    let mut domains: Vec<ksbh_types::KsbhStr> = Vec::new();
+
+    if let Some(leaf) = certs.first()
+        && let Some(sans) = leaf.subject_alt_names()
+    {
+        for san in sans {
+            if let Some(dns_name) = san.dnsname() {
+                if dns_name.starts_with("*.") {
+                    wildcards.push(ksbh_types::KsbhStr::new(dns_name));
+                } else {
+                    domains.push(ksbh_types::KsbhStr::new(dns_name));
+                }
+            }
+        }
+    }
+
+    (domains, wildcards)
+}
+
 impl CertsRegistry {
     pub fn create() -> (CertsReader, CertsWriter) {
         let registry = ::std::sync::Arc::new(CertsRegistry::default());

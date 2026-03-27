@@ -35,7 +35,7 @@ impl serde::Serialize for ModuleSessionKey {
     where
         S: serde::Serializer,
     {
-        serializer.serialize_str(&format!("{}:{}", self.module_name, self.session_id))
+        serializer.serialize_str(&self.to_storage_key())
     }
 }
 
@@ -58,7 +58,7 @@ impl<'de> serde::Deserialize<'de> for ModuleSessionKey {
 }
 
 impl ModuleSessionKey {
-    pub fn as_str(&self) -> String {
+    pub fn to_storage_key(&self) -> String {
         format!("{}:{}", self.module_name, self.session_id)
     }
 }

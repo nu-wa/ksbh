@@ -19,6 +19,7 @@ cargo test \
   -p tests \
   --test binary_baseline_e2e \
   --test binary_static_content_e2e \
+  --test binary_upstream_errors_e2e \
   -- \
   --nocapture \
   --test-threads=1

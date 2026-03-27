@@ -87,6 +87,10 @@ impl BinaryFixture {
         &self.static_dir
     }
 
+    pub fn modules_dir(&self) -> &::std::path::Path {
+        &self.modules_dir
+    }
+
     pub fn http_base_addr(&self) -> ::std::string::String {
         format!("http://{}", self.http_addr)
     }

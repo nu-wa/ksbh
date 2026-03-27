@@ -19,6 +19,7 @@ Current e2e test binaries:
 
 - `binary_baseline_e2e`
 - `binary_static_content_e2e`
+- `binary_upstream_errors_e2e`
 - `k8s_baseline_e2e`
 - `k8s_ingress_lifecycle_e2e`
 - `k8s_http_to_https_e2e`

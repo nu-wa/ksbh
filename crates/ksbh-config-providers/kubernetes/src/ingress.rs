@@ -208,7 +208,7 @@ async fn process_tls_configs(
             }
         };
 
-        let (domains, wildcards) = extract_domains_from_cert(&certs);
+        let (domains, wildcards) = ksbh_core::certs::extract_domains_from_cert(&certs);
 
         if let Err(e) = ctx
             .certs
@@ -311,29 +311,6 @@ pub(crate) fn load_certificate(
         .map_err(|e| format!("Error when getting secret {}; '{}'", secret_name, e))?;
 
     Ok((private_key, certs))
-}
-
-pub(crate) fn extract_domains_from_cert(
-    certs: &[pingora::tls::x509::X509],
-) -> (Vec<ksbh_types::KsbhStr>, Vec<ksbh_types::KsbhStr>) {
-    let mut wildcards: Vec<ksbh_types::KsbhStr> = Vec::new();
-    let mut domains: Vec<ksbh_types::KsbhStr> = Vec::new();
-
-    if let Some(leaf) = &certs.first()
-        && let Some(sans) = &leaf.subject_alt_names()
-    {
-        for san in sans {
-            if let Some(dns_name) = san.dnsname() {
-                if dns_name.starts_with("*.") {
-                    wildcards.push(ksbh_types::KsbhStr::new(dns_name));
-                } else {
-                    domains.push(ksbh_types::KsbhStr::new(dns_name));
-                }
-            }
-        }
-    }
-
-    (domains, wildcards)
 }
 
 async fn process_rules(

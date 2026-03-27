@@ -20,6 +20,10 @@ impl<'a> ksbh_types::prelude::ProxyProviderSession for PingoraSessionWrapper<'a>
         self.session.req_header().as_owned_parts()
     }
 
+    fn header_map(&self) -> &http::HeaderMap {
+        &self.session.req_header().headers
+    }
+
     fn get_header(&self, header: http::HeaderName) -> Option<&http::HeaderValue> {
         self.session.get_header(header)
     }
@@ -31,10 +35,14 @@ impl<'a> ksbh_types::prelude::ProxyProviderSession for PingoraSessionWrapper<'a>
         }
     }
 
-    fn response_written(&self) -> Option<http::Response<bytes::Bytes>> {
-        self.session.response_written().map(|response_written| {
-            http::Response::from_parts(response_written.as_owned_parts(), bytes::Bytes::new())
-        })
+    fn response_written(&self) -> bool {
+        self.session.response_written().is_some()
+    }
+
+    fn response_status(&self) -> Option<http::StatusCode> {
+        self.session
+            .response_written()
+            .map(|response| response.status)
     }
 
     fn set_request_uri(&mut self, uri: http::Uri) {
@@ -48,7 +56,7 @@ impl<'a> ksbh_types::prelude::ProxyProviderSession for PingoraSessionWrapper<'a>
     }
 
     fn response_sent(&self) -> bool {
-        self.session.body_bytes_sent() > 0 || self.response_written().is_some()
+        self.session.body_bytes_sent() > 0 || self.response_written()
     }
 
     async fn write_response(
@@ -79,13 +87,29 @@ impl<'a> ksbh_types::prelude::ProxyProviderSession for PingoraSessionWrapper<'a>
             return Ok(None);
         }
 
-        match self.session.read_request_body().await {
-            Ok(body) => return Ok(body),
-            Err(e) => {
-                return Err(
-                    ksbh_types::prelude::ProxyProviderError::InternalErrorDetailed(e.to_string()),
-                );
+        let mut body_buffer = bytes::BytesMut::new();
+        loop {
+            match self.session.read_request_body().await {
+                Ok(Some(chunk)) => {
+                    if !chunk.is_empty() {
+                        body_buffer.extend_from_slice(chunk.as_ref());
+                    }
+                }
+                Ok(None) => break,
+                Err(e) => {
+                    return Err(
+                        ksbh_types::prelude::ProxyProviderError::InternalErrorDetailed(
+                            e.to_string(),
+                        ),
+                    );
+                }
             }
+        }
+
+        if body_buffer.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(body_buffer.freeze()))
         }
     }
 }
@@ -578,11 +602,38 @@ where
         Ok(())
     }
 
+    async fn request_body_filter(
+        &self,
+        _pingora_session: &mut pingora::proxy::Session,
+        body: &mut Option<bytes::Bytes>,
+        end_of_stream: bool,
+        ctx: &mut Self::CTX,
+    ) -> pingora::prelude::Result<()> {
+        let should_inject_buffered_body =
+            body.as_ref().map(|chunk| chunk.is_empty()).unwrap_or(true);
+
+        if should_inject_buffered_body && let Some(buffered_body) = ctx.buffered_request_body.take()
+        {
+            *body = Some(buffered_body);
+            return Ok(());
+        }
+
+        if end_of_stream {
+            ctx.buffered_request_body = None;
+        }
+
+        Ok(())
+    }
+
     async fn request_filter(
         &self,
         pingora_session: &mut pingora::proxy::Session,
         ctx: &mut Self::CTX,
     ) -> pingora::prelude::Result<bool> {
+        // Enable retry buffering before modules read the request body so consumed
+        // bytes are still available for upstream forwarding.
+        pingora_session.as_mut().enable_retry_buffering();
+
         ctx.downstream_transport = smol_str::SmolStr::new(
             if pingora_session.req_header().version == http::Version::HTTP_2 {
                 "h2"
@@ -780,8 +831,10 @@ where
         ctx: &mut Self::CTX,
     ) -> pingora::prelude::Result<()> {
         let mut session = PingoraSessionWrapper::new(pingora_session);
-        let original_response = pingora_response.clone();
-        let mut response_parts = original_response.as_owned_parts();
+        let reason_phrase = pingora_response
+            .get_reason_phrase()
+            .map(::std::string::String::from);
+        let mut response_parts = pingora_response.as_owned_parts();
 
         match self
             .provider
@@ -789,17 +842,8 @@ where
             .await
         {
             Ok(_) => {
-                let headers_count = response_parts.headers.len();
-                let mut rebuilt_response = pingora::http::ResponseHeader::build(
-                    response_parts.status,
-                    Some(headers_count),
-                )?;
-                rebuilt_response.set_version(response_parts.version);
-                rebuilt_response.set_reason_phrase(original_response.get_reason_phrase())?;
-
-                for (header_name, header_value) in &response_parts.headers {
-                    rebuilt_response.append_header(header_name.clone(), header_value.clone())?;
-                }
+                let mut rebuilt_response = pingora::http::ResponseHeader::from(response_parts);
+                rebuilt_response.set_reason_phrase(reason_phrase.as_deref())?;
 
                 *pingora_response = rebuilt_response;
 
@@ -812,6 +856,102 @@ where
                 Some(pingora::ImmutStr::Owned(e.to_string().into())),
                 None,
             )),
+        }
+    }
+
+    async fn upstream_response_filter(
+        &self,
+        _pingora_session: &mut pingora::proxy::Session,
+        pingora_upstream_response: &mut pingora::http::ResponseHeader,
+        _ctx: &mut Self::CTX,
+    ) -> pingora::prelude::Result<()> {
+        let status = pingora_upstream_response.status;
+        let has_explicit_empty_body = pingora_upstream_response
+            .headers
+            .get(http::header::CONTENT_LENGTH)
+            .and_then(|value| value.to_str().ok())
+            .map(|value| value.trim() == "0")
+            .unwrap_or(false);
+        if (status.is_client_error() || status.is_server_error()) && has_explicit_empty_body {
+            return Err(pingora::Error::create(
+                pingora::ErrorType::HTTPStatus(status.as_u16()),
+                pingora::ErrorSource::Upstream,
+                Some(pingora::ImmutStr::Owned(
+                    "upstream returned error status with explicit empty body".into(),
+                )),
+                None,
+            ));
+        }
+
+        Ok(())
+    }
+
+    fn response_body_filter(
+        &self,
+        _pingora_session: &mut pingora::proxy::Session,
+        body: &mut Option<bytes::Bytes>,
+        end_of_stream: bool,
+        ctx: &mut Self::CTX,
+    ) -> pingora::prelude::Result<Option<std::time::Duration>> {
+        self.provider
+            .response_body_filter(body, end_of_stream, ctx)
+            .map_err(|e| {
+                pingora::Error::create(
+                    pingora::ErrorType::Custom("InternalError"),
+                    pingora::ErrorSource::Internal,
+                    Some(pingora::ImmutStr::Owned(e.to_string().into())),
+                    None,
+                )
+            })?;
+
+        Ok(None)
+    }
+
+    async fn fail_to_proxy(
+        &self,
+        pingora_session: &mut pingora::proxy::Session,
+        pingora_error: &pingora::Error,
+        ctx: &mut Self::CTX,
+    ) -> pingora::proxy::FailToProxy {
+        let error_code = match pingora_error.etype() {
+            pingora::ErrorType::HTTPStatus(code) => *code,
+            _ => match pingora_error.esource() {
+                pingora::ErrorSource::Upstream => http::StatusCode::BAD_GATEWAY.as_u16(),
+                pingora::ErrorSource::Downstream => match pingora_error.etype() {
+                    pingora::ErrorType::WriteError
+                    | pingora::ErrorType::ReadError
+                    | pingora::ErrorType::ConnectionClosed => 0,
+                    _ => http::StatusCode::BAD_REQUEST.as_u16(),
+                },
+                pingora::ErrorSource::Internal | pingora::ErrorSource::Unset => {
+                    http::StatusCode::INTERNAL_SERVER_ERROR.as_u16()
+                }
+            },
+        };
+
+        let mut session = PingoraSessionWrapper::new(pingora_session);
+        let handled_by_provider = match self
+            .provider
+            .fail_to_proxy(&mut session, error_code, ctx)
+            .await
+        {
+            Ok(handled) => handled,
+            Err(error) => {
+                tracing::error!("proxy provider fail_to_proxy returned error: {}", error);
+                false
+            }
+        };
+
+        if !handled_by_provider
+            && error_code > 0
+            && let Err(write_error) = session.session.respond_error(error_code).await
+        {
+            tracing::error!("failed to send error response to downstream: {write_error}");
+        }
+
+        pingora::proxy::FailToProxy {
+            error_code,
+            can_reuse_downstream: false,
         }
     }
 }

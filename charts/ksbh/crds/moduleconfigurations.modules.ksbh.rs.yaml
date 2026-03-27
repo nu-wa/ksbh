@@ -34,9 +34,6 @@ spec:
               requiresBody:
                 default: false
                 type: boolean
-              requiresProperRequest:
-                default: true
-                type: boolean
               secretRef:
                 description: SecretReference represents a Secret Reference. It has enough information to retrieve secret in any namespace
                 nullable: true

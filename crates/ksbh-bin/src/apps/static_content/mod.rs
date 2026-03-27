@@ -1,6 +1,9 @@
 mod errors;
 mod file_cache;
-mod html;
+
+pub(crate) fn render_error_page_html(page: &str) -> Option<String> {
+    ksbh_ui::error_pages::render_error_page_html(page)
+}
 
 #[derive(PartialEq, Eq)]
 enum Compression {
@@ -62,67 +65,16 @@ impl StaticHttpApp {
     pub fn new(
         config: ::std::sync::Arc<ksbh_core::Config>,
     ) -> Result<Self, errors::StaticHttpAppError> {
-        use askama::Template;
         let templates = scc::HashMap::with_capacity(7);
 
-        templates.upsert_sync(
-            "400",
-            html::ErrorTemplate::new(
-                "400",
-                "Bad Request",
-                "The request could not be parsed or accepted by the static content app.",
-            )
-            .render()?,
-        );
-        templates.upsert_sync(
-            "401",
-            html::ErrorTemplate::new(
-                "401",
-                "Unauthorized",
-                "Authentication is required before this resource can be returned.",
-            )
-            .render()?,
-        );
-        templates.upsert_sync(
-            "403",
-            html::ErrorTemplate::new("403", "Forbidden", "The request was understood, but this resource is not available to the current client.").render()?,
-        );
-        templates.upsert_sync(
-            "405",
-            html::ErrorTemplate::new(
-                "405",
-                "Method Not Allowed",
-                "This static endpoint only accepts GET and HEAD requests.",
-            )
-            .render()?,
-        );
-        templates.upsert_sync(
-            "404",
-            html::ErrorTemplate::new(
-                "404",
-                "Not Found",
-                "No static asset or matching page was found for this request path.",
-            )
-            .render()?,
-        );
-        templates.upsert_sync(
-            "500",
-            html::ErrorTemplate::new(
-                "500",
-                "Internal Server Error",
-                "The static content app failed while preparing a response.",
-            )
-            .render()?,
-        );
-        templates.upsert_sync(
-            "502",
-            html::ErrorTemplate::new(
-                "502",
-                "Bad Gateway",
-                "The proxy could not get a valid upstream response for this request.",
-            )
-            .render()?,
-        );
+        for page in ["400", "401", "403", "404", "405", "500", "502"] {
+            let rendered = render_error_page_html(page).ok_or_else(|| {
+                errors::StaticHttpAppError::Internal(ksbh_types::KsbhStr::new(format!(
+                    "missing or failed to render static error template for code {page}"
+                )))
+            })?;
+            templates.upsert_sync(page, rendered);
+        }
 
         Ok(Self {
             config: config.clone(),

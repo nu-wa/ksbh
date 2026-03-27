@@ -198,8 +198,8 @@ pub unsafe extern "C" fn host_session_set(
     let data_slice = unsafe { ::std::slice::from_raw_parts(data_ptr, data_len) };
     let data_vec = data_slice.to_vec();
 
-    store.set_sync(key.clone(), data_vec.clone());
-    let _ = store.set_redis_sync(key, data_vec);
+    let _ = store.set_redis_sync_ref(&key, &data_vec);
+    store.set_sync(key, data_vec);
     true
 }
 
@@ -258,8 +258,8 @@ pub unsafe extern "C" fn host_session_set_with_ttl(
     let data_slice = unsafe { ::std::slice::from_raw_parts(data_ptr, data_len) };
     let data_vec = data_slice.to_vec();
 
-    store.set_with_ttl_sync(key.clone(), data_vec.clone(), ttl);
-    let _ = store.set_redis_sync_with_ttl(key, data_vec, ttl);
+    let _ = store.set_redis_sync_with_ttl_ref(&key, &data_vec, ttl);
+    store.set_with_ttl_sync(key, data_vec, ttl);
     true
 }
 
@@ -313,8 +313,8 @@ pub unsafe extern "C" fn host_metrics_good_boy(
     {
         let new_value = crate::metrics::AtomicU64Wrapper::new(score.load().saturating_sub(50));
         if let Ok(encoded) = rmp_serde::to_vec(&new_value) {
-            let _ = store.set_sync(key.clone(), encoded.clone());
-            let _ = store.set_redis_sync(key, encoded);
+            let _ = store.set_redis_sync_ref(&key, &encoded);
+            let _ = store.set_sync(key, encoded);
             return true;
         }
     }

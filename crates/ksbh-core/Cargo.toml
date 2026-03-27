@@ -27,6 +27,7 @@ psl = "2.1.198"
 
 # KSBH
 ksbh-types = { workspace = true }
+ksbh-ui = { path = "../ksbh-ui" }
 
 # Workspace
 async-trait = { workspace = true }

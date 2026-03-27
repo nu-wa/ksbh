@@ -25,7 +25,6 @@ pub fn start_pingora(
     ));
     let (router_r, router_w) = ksbh_core::routing::Router::create();
     let (certs_r, certs_w) = ksbh_core::certs::CertsRegistry::create();
-    let (modules_r, _modules_w) = ksbh_core::modules::registry::ModuleRegistry::create();
 
     // Determine which config provider to use based on KSBH__CONFIG_PATHS__CONFIG env var
     let config_provider: Box<dyn ksbh_core::config_provider::ConfigProvider> =
@@ -114,7 +113,6 @@ pub fn start_pingora(
                 tls_settings,
                 storage,
                 router_r,
-                modules_r,
                 tx,
                 sessions,
                 modules,

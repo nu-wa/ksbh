@@ -5,8 +5,10 @@ pub struct RequestMatchModule {
     pub config_kv_slice: ::std::sync::Arc<Vec<crate::modules::abi::ModuleKvSlice>>,
 }
 
+pub type RequestMatchModules = ::std::sync::Arc<[RequestMatchModule]>;
+
 #[derive(Debug, Clone)]
 pub struct RequestMatch {
     pub backend: super::ServiceBackendType,
-    pub modules: Vec<RequestMatchModule>,
+    pub modules: RequestMatchModules,
 }

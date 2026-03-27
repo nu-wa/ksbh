@@ -91,6 +91,85 @@ fn effective_request_scheme(
     Ok(scheme)
 }
 
+fn parse_host_and_port<'a>(
+    req_header: &'a http::request::Parts,
+) -> Result<(&'a str, Option<u16>), error::HttpRequestError> {
+    let uri = &req_header.uri;
+    let mut port = uri.port_u16();
+
+    let mut host = match uri.authority() {
+        Some(authority) => authority.as_str(),
+        None => match uri.host() {
+            Some(host) => host,
+            None => match req_header.headers.get("Host") {
+                Some(host_header) => host_header.to_str()?,
+                None => return Err(error::HttpRequestError::InvalidRequest),
+            },
+        },
+    };
+
+    // In case we get an authority and a port; i.e. 'user@password:example.com:8081',
+    // should not happen but let's try to handle it.
+    if host.contains(':') {
+        let authority_without_user = host.rsplit('@').next().unwrap_or(host);
+
+        if let Some(port_from_req) = authority_without_user.rsplit(':').next() {
+            port = port_from_req.parse::<u16>().ok();
+        }
+
+        if let Some(host_without_port) = authority_without_user.split(':').next() {
+            host = host_without_port;
+        }
+    }
+
+    Ok((host, port))
+}
+
+fn resolve_scheme_and_port(
+    req_header: &http::request::Parts,
+    config: &crate::Ports,
+    downstream_tls: bool,
+    trust_forwarded_headers: bool,
+    parsed_port: Option<u16>,
+) -> Result<(String, u16, crate::prelude::HttpScheme), error::HttpRequestError> {
+    let scheme_string = effective_request_scheme(
+        req_header,
+        downstream_tls || parsed_port.map(|p| p == config.https).unwrap_or(false),
+        trust_forwarded_headers,
+        parsed_port,
+    )?;
+    let scheme_str = scheme_string.as_str();
+
+    let is_secure_proto =
+        scheme_str.eq_ignore_ascii_case("https") || scheme_str.eq_ignore_ascii_case("wss");
+    let target_config_port = if is_secure_proto {
+        config.https
+    } else {
+        config.http
+    };
+    let effective_port = parsed_port.unwrap_or(target_config_port);
+    let final_scheme = if is_secure_proto {
+        crate::prelude::HttpScheme(http::uri::Scheme::HTTPS)
+    } else {
+        crate::prelude::HttpScheme(http::uri::Scheme::HTTP)
+    };
+
+    Ok((scheme_string, effective_port, final_scheme))
+}
+
+fn build_base_url(scheme: &str, host: &str, effective_port: u16) -> String {
+    let is_standard = (scheme.eq_ignore_ascii_case("https") && effective_port == 443)
+        || (scheme.eq_ignore_ascii_case("http") && effective_port == 80)
+        || (scheme.eq_ignore_ascii_case("wss") && effective_port == 443)
+        || (scheme.eq_ignore_ascii_case("ws") && effective_port == 80);
+
+    if is_standard {
+        format!("{scheme}://{host}")
+    } else {
+        format!("{scheme}://{host}:{effective_port}")
+    }
+}
+
 /// A "parsed" HTTP request with owned data for use in plugins/modules.
 ///
 /// Parsed from a [pingora session](https://docs.rs/pingora-proxy/latest/pingora_proxy/struct.Session.html#method.req_header),
@@ -133,82 +212,17 @@ impl HttpRequest {
         downstream_tls: bool,
         trust_forwarded_headers: bool,
     ) -> Result<Self, error::HttpRequestError> {
-        let uri = &req_header.uri;
         let query = crate::prelude::HttpQuery::new(req_header)?;
-        let mut port = uri.port_u16();
-
-        let mut host = match uri.authority() {
-            Some(authority) => authority.to_string(),
-            None => match uri.host() {
-                Some(host) => host.to_string(),
-                None => match req_header.headers.get("Host") {
-                    Some(host_header) => match host_header.to_str() {
-                        Ok(host_header) => host_header.to_string(),
-                        Err(e) => return Err(e.into()),
-                    },
-                    None => return Err(error::HttpRequestError::InvalidRequest),
-                },
-            },
-        };
-
-        // In case we get an authority and a port; i.e. 'user@password:example.com:8081',
-        // should not happen but let's try to handle it.
-        if host.contains(":") {
-            let authority_split: Vec<&str> = host.split("@").collect();
-            let split: Vec<&str> = match authority_split.is_empty() {
-                true => host.split(":").collect(),
-                false => {
-                    let mut index = 0;
-                    if authority_split.len() > 1 {
-                        index = authority_split.len() - 1;
-                    }
-                    authority_split[index].split(":").collect()
-                }
-            };
-
-            if let Some(port_from_req) = split.last() {
-                port = port_from_req.parse::<u16>().ok();
-            }
-
-            if let Some(host_without_port) = split.first() {
-                host = host_without_port.to_string();
-            }
-        }
-
-        let scheme_string = effective_request_scheme(
+        let (host, parsed_port) = parse_host_and_port(req_header)?;
+        let (scheme_string, effective_port, final_scheme) = resolve_scheme_and_port(
             req_header,
-            downstream_tls || port.map(|p| p == config.https).unwrap_or(false),
+            config,
+            downstream_tls,
             trust_forwarded_headers,
-            port,
+            parsed_port,
         )?;
-        let scheme_str = scheme_string.as_str();
-
-        let is_secure_proto =
-            scheme_str.eq_ignore_ascii_case("https") || scheme_str.eq_ignore_ascii_case("wss");
-        let target_config_port = if is_secure_proto {
-            config.https
-        } else {
-            config.http
-        };
-        let effective_port = port.unwrap_or(target_config_port);
-
-        let base_url = format!("{}://{}{}", scheme_str, host, {
-            let is_standard = (is_secure_proto && effective_port == 443)
-                || (!is_secure_proto && effective_port == 80);
-            if !is_standard {
-                format!(":{}", effective_port)
-            } else {
-                String::new()
-            }
-        });
-
-        let full_uri = format!("{}{}", base_url, query);
-
-        let final_scheme = if is_secure_proto {
-            crate::prelude::HttpScheme(http::uri::Scheme::HTTPS)
-        } else {
-            crate::prelude::HttpScheme(http::uri::Scheme::HTTP)
-        };
+        let base_url = build_base_url(&scheme_string, host, effective_port);
+        let full_uri = format!("{base_url}{query}");
 
         Ok(Self {
             uri: crate::KsbhStr::new(full_uri),
@@ -272,79 +286,17 @@ impl<'a> HttpRequestView<'a> {
         downstream_tls: bool,
         trust_forwarded_headers: bool,
     ) -> Result<Self, error::HttpRequestError> {
-        let uri = &req_header.uri;
         let query = crate::requests::http_query::HttpQueryView::new(req_header)?;
-        let mut port = uri.port_u16();
-
-        let mut host = match uri.authority() {
-            Some(authority) => authority.as_str(),
-            None => match uri.host() {
-                Some(host) => host,
-                None => match req_header.headers.get("Host") {
-                    Some(host_header) => host_header.to_str()?,
-                    None => return Err(error::HttpRequestError::InvalidRequest),
-                },
-            },
-        };
-
-        // In case we get an authority and a port; i.e. 'user@password:example.com:8081',
-        // should not happen but let's try to handle it.
-        if host.contains(":") {
-            let authority_split: Vec<&str> = host.split("@").collect();
-            let split: Vec<&str> = match authority_split.is_empty() {
-                true => host.split(":").collect(),
-                false => {
-                    let mut index = 0;
-                    if authority_split.len() > 1 {
-                        index = authority_split.len() - 1;
-                    }
-                    authority_split[index].split(":").collect()
-                }
-            };
-
-            if let Some(port_from_req) = split.last() {
-                port = port_from_req.parse::<u16>().ok();
-            }
-
-            if let Some(host_without_port) = split.first() {
-                host = host_without_port;
-            }
-        }
-
-        let scheme_string = effective_request_scheme(
+        let (host, parsed_port) = parse_host_and_port(req_header)?;
+        let (scheme_string, effective_port, final_scheme) = resolve_scheme_and_port(
             req_header,
-            downstream_tls || port.map(|p| p == config.https).unwrap_or(false),
+            config,
+            downstream_tls,
             trust_forwarded_headers,
-            port,
+            parsed_port,
         )?;
-        let scheme_str = scheme_string.as_str();
-
-        let is_secure_proto =
-            scheme_str.eq_ignore_ascii_case("https") || scheme_str.eq_ignore_ascii_case("wss");
-        let target_config_port = if is_secure_proto {
-            config.https
-        } else {
-            config.http
-        };
-        let effective_port = port.unwrap_or(target_config_port);
-
-        let base_url = format!("{}://{}{}", scheme_str, host, {
-            let is_standard = (is_secure_proto && effective_port == 443)
-                || (!is_secure_proto && effective_port == 80);
-            if !is_standard {
-                format!(":{}", effective_port)
-            } else {
-                String::new()
-            }
-        });
-
-        let full_uri = format!("{}{}", base_url, query);
-
-        let final_scheme = if is_secure_proto {
-            crate::prelude::HttpScheme(http::uri::Scheme::HTTPS)
-        } else {
-            crate::prelude::HttpScheme(http::uri::Scheme::HTTP)
-        };
+        let base_url = build_base_url(&scheme_string, host, effective_port);
+        let full_uri = format!("{base_url}{query}");
 
         Ok(Self {
             uri: full_uri,

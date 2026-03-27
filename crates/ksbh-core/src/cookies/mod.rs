@@ -86,7 +86,7 @@ impl ProxyCookie {
 
         let mut jar = cookie::CookieJar::new();
 
-        for cookie in session.headers().headers.get_all(http::header::COOKIE) {
+        for cookie in session.header_map().get_all(http::header::COOKIE) {
             let cookie_str = std::str::from_utf8(cookie.as_bytes())
                 .map_err(|_| ProxyCookieError::CookieError("Invalid UTF-8".into()))?;
 

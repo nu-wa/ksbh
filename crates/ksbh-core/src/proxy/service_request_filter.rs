@@ -118,6 +118,8 @@ impl super::ProxyService {
                 None
             };
 
+            ctx.buffered_request_body = request_body.clone();
+
             tracing::debug!(
                 "request_body: {:?}, requires_body: {:?}, modules: {:?}",
                 request_body,
@@ -160,7 +162,7 @@ impl super::ProxyService {
                     }
                 }
 
-                let decision = if session.response_written().is_some() {
+                let decision = if session.response_written() {
                     tracing::debug!(
                         "Module {} wrote a response, stopping module chain",
                         module.name

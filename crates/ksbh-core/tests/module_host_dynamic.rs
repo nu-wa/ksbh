@@ -40,6 +40,10 @@ impl ksbh_types::prelude::ProxyProviderSession for TestSession {
         self.request_header.as_owned_parts()
     }
 
+    fn header_map(&self) -> &http::HeaderMap {
+        &self.request_header.headers
+    }
+
     fn get_header(&self, header_name: http::HeaderName) -> Option<&http::header::HeaderValue> {
         self.request_header.headers.get(header_name)
     }
@@ -52,8 +56,12 @@ impl ksbh_types::prelude::ProxyProviderSession for TestSession {
         self.server_addr
     }
 
-    fn response_written(&self) -> Option<http::Response<bytes::Bytes>> {
-        self.response.clone()
+    fn response_written(&self) -> bool {
+        self.response.is_some()
+    }
+
+    fn response_status(&self) -> Option<http::StatusCode> {
+        self.response.as_ref().map(|response| response.status())
     }
 
     fn response_sent(&self) -> bool {

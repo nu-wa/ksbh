@@ -90,11 +90,13 @@ pub type ProxyProviderResult = Result<ProxyDecision, ProxyProviderError>;
 #[async_trait::async_trait]
 pub trait ProxyProviderSession: Send + Sync {
     fn headers(&self) -> http::request::Parts;
+    fn header_map(&self) -> &http::HeaderMap;
     fn get_header(&self, header_name: http::HeaderName) -> Option<&http::header::HeaderValue>;
     fn set_request_uri(&mut self, uri: http::Uri);
     fn server_addr(&self) -> Option<::std::net::SocketAddr>;
 
-    fn response_written(&self) -> Option<http::Response<bytes::Bytes>>;
+    fn response_written(&self) -> bool;
+    fn response_status(&self) -> Option<http::StatusCode>;
 
     fn response_sent(&self) -> bool;
 
@@ -135,12 +137,30 @@ pub trait ProxyProvider: Send + Sync {
         ctx: &mut Self::ProxyContext,
     ) -> Result<(), ProxyProviderError>;
 
+    fn response_body_filter(
+        &self,
+        _body: &mut Option<bytes::Bytes>,
+        _end_of_stream: bool,
+        _ctx: &mut Self::ProxyContext,
+    ) -> Result<(), ProxyProviderError> {
+        Ok(())
+    }
+
     async fn upstream_request_filter(
         &self,
         session: &mut dyn ProxyProviderSession,
         response: &mut pingora::prelude::RequestHeader,
         ctx: &mut Self::ProxyContext,
     ) -> Result<(), ProxyProviderError>;
+
+    async fn fail_to_proxy(
+        &self,
+        _session: &mut dyn ProxyProviderSession,
+        _error_code: u16,
+        _ctx: &mut Self::ProxyContext,
+    ) -> Result<bool, ProxyProviderError> {
+        Ok(false)
+    }
 
     async fn logging(
         &self,

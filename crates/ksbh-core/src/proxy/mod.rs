@@ -42,6 +42,9 @@ pub struct ProxyContext {
     pub tunnel_plan: Option<WebsocketTunnelPlan>,
     pub session_id_bytes: [u8; 16],
     pub metrics_key: Vec<u8>,
+    pub buffered_request_body: Option<bytes::Bytes>,
+    pub fallback_error_page_body: Option<bytes::Bytes>,
+    pub upstream_response_body_seen: bool,
 }
 
 #[derive(Debug, Clone, Copy, serde::Deserialize, serde::Serialize)]
@@ -66,6 +69,9 @@ impl ProxyContext {
             tunnel_plan: None,
             session_id_bytes: [0u8; 16],
             metrics_key: Vec::new(),
+            buffered_request_body: None,
+            fallback_error_page_body: None,
+            upstream_response_body_seen: false,
         }
     }
 }
@@ -142,8 +148,7 @@ impl PartialClientInformation {
         Some(Self {
             ip: crate::utils::get_client_ip_from_session(session, trust_forwarded_headers)?,
             user_agent: match session
-                .headers()
-                .headers
+                .header_map()
                 .get(http::header::USER_AGENT)
                 .map(|ua| ua.to_str().ok())
             {
@@ -164,8 +169,7 @@ impl ClientInformation {
             ip: crate::utils::get_client_ip_from_session(session, trust_forwarded_headers)?,
             user_agent: smol_str::SmolStr::new(
                 session
-                    .headers()
-                    .headers
+                    .header_map()
                     .get(http::header::USER_AGENT)?
                     .to_str()
                     .ok()?,

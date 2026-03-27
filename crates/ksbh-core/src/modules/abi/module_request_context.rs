@@ -15,9 +15,6 @@ pub struct ModuleRequestContext<'req> {
     /// HTTP headers as FFI-compatible slices (pointers into original headers)
     pub headers: Vec<ModuleKvSlice>,
 
-    /// Query parameters as FFI-compatible slices
-    pub query_params: Vec<ModuleKvSlice>,
-
     /// Pre-built RequestInfo for FFI
     pub request_info: RequestInfo,
 
@@ -54,7 +51,7 @@ impl<'req> ModuleRequestContext<'req> {
         internal_path: &str,
     ) -> Self {
         let mut headers_vec = Vec::with_capacity(32);
-        for (name, value) in session.headers().headers.iter() {
+        for (name, value) in session.header_map().iter() {
             headers_vec.push(ModuleKvSlice {
                 key: bytes::Bytes::copy_from_slice(name.as_str().as_bytes()),
                 value: bytes::Bytes::copy_from_slice(value.as_bytes()),
@@ -72,11 +69,10 @@ impl<'req> ModuleRequestContext<'req> {
         }
 
         let request_info =
-            RequestInfo::new_owned(http_request, &query_params_vec, is_websocket_handshake);
+            RequestInfo::new_owned(http_request, query_params_vec, is_websocket_handshake);
 
         let cookie_header = session
-            .headers()
-            .headers
+            .header_map()
             .get(http::header::COOKIE)
             .and_then(|c| c.to_str().ok())
             .map(smol_str::SmolStr::new)
@@ -84,7 +80,6 @@ impl<'req> ModuleRequestContext<'req> {
 
         Self {
             headers: headers_vec,
-            query_params: query_params_vec,
             request_info,
             cookie_header,
             needs_session_cookie,

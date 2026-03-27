@@ -4,7 +4,6 @@ pub fn create_service(
     tls_settings: pingora::listeners::tls::TlsSettings,
     storage: ::std::sync::Arc<ksbh_core::Storage>,
     hosts: ksbh_core::routing::RouterReader,
-    modules_configs_registry: ksbh_core::modules::registry::ModuleRegistryReader,
     metrics_sender: tokio::sync::mpsc::Sender<ksbh_core::metrics::RequestMetrics>,
     sessions: ::std::sync::Arc<
         ksbh_core::storage::redis_hashmap::RedisHashMap<
@@ -28,7 +27,6 @@ pub fn create_service(
         config.clone(),
         storage,
         hosts,
-        modules_configs_registry,
         metrics_sender,
         sessions,
         modules,
