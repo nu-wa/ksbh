@@ -44,6 +44,7 @@ if [ "${KSBH_CI_USE_PREBUILT:-false}" = "true" ]; then
     echo "prebuilt test binary not found for module_host_dynamic in ${deps_dir}" >&2
     exit 1
   fi
+  chmod +x "${test_bin}" || true
   "${test_bin}" --nocapture --test-threads=1
 else
   cargo test \

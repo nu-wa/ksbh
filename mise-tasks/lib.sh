@@ -98,7 +98,7 @@ resolve_test_binary() {
   local deps_dir="$1"
   local prefix="$2"
 
-  find "${deps_dir}" -maxdepth 1 -type f -name "${prefix}-*" -perm -u+x \
+  find "${deps_dir}" -maxdepth 1 -type f -name "${prefix}-*" \
     ! -name '*.d' \
     ! -name '*.rlib' \
     ! -name '*.rmeta' \

@@ -118,7 +118,7 @@ jobs:
               uses: https://data.forgejo.org/actions/download-artifact@v3-node20
               with:
                   name: rust-prebuilt
-                  path: .
+                  path: crates/target/debug
 
             - name: Run direct-binary e2e task
               uses: ./.forgejo/actions/run-mise-task
@@ -144,14 +144,7 @@ jobs:
               uses: https://data.forgejo.org/actions/download-artifact@v3-node20
               with:
                   name: rust-prebuilt
-                  path: .
-
-            - name: Verify prebuilt artifact layout
-              shell: bash
-              run: |
-                  set -euo pipefail
-                  ls -la crates/target/debug | sed -n '1,80p'
-                  test -d crates/target/debug/deps
+                  path: crates/target/debug
 
             - name: Run native dynamic-module smoke task
               uses: ./.forgejo/actions/run-mise-task
@@ -192,14 +185,7 @@ jobs:
               uses: https://data.forgejo.org/actions/download-artifact@v3-node20
               with:
                   name: rust-prebuilt
-                  path: .
-
-            - name: Verify prebuilt artifact layout
-              shell: bash
-              run: |
-                  set -euo pipefail
-                  ls -la crates/target/debug | sed -n '1,80p'
-                  test -d crates/target/debug/deps
+                  path: crates/target/debug
 
             - name: Download release image artifact
               uses: https://data.forgejo.org/actions/download-artifact@v3-node20

@@ -20,6 +20,7 @@ if [ "${KSBH_CI_USE_PREBUILT:-false}" = "true" ]; then
     exit 1
   fi
 
+  chmod +x "${ffi_miri_bin}" "${sdk_libtest_bin}" "${host_unhappy_bin}" "${core_libtest_bin}" || true
   "${ffi_miri_bin}" --nocapture --test-threads=1
   "${sdk_libtest_bin}" proptest_parse_ --nocapture --test-threads=1
   "${host_unhappy_bin}" --nocapture --test-threads=1

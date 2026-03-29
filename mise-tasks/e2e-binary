@@ -13,10 +13,18 @@ deps_dir="$repo_root/crates/target/debug/deps"
 export KSBH_E2E_BIN="$repo_root/crates/target/debug/ksbh"
 
 if [ "${KSBH_CI_USE_PREBUILT:-false}" = "true" ]; then
-  if [ ! -x "${KSBH_E2E_BIN}" ]; then
+  if [ ! -f "${KSBH_E2E_BIN}" ]; then
+    alt_bin="$(find "${repo_root}" -maxdepth 8 -type f -path "*/crates/target/debug/ksbh" | head -n 1 || true)"
+    if [ -n "${alt_bin}" ]; then
+      export KSBH_E2E_BIN="${alt_bin}"
+    fi
+  fi
+
+  if [ ! -f "${KSBH_E2E_BIN}" ]; then
     echo "prebuilt ksbh binary not found: ${KSBH_E2E_BIN}" >&2
     exit 1
   fi
+  chmod +x "${KSBH_E2E_BIN}" || true
 
   for test_name in binary_baseline_e2e binary_static_content_e2e binary_upstream_errors_e2e; do
     test_bin="$(resolve_test_binary "${deps_dir}" "${test_name}")"
@@ -24,6 +32,7 @@ if [ "${KSBH_CI_USE_PREBUILT:-false}" = "true" ]; then
       echo "prebuilt test binary not found for ${test_name} in ${deps_dir}" >&2
       exit 1
     fi
+    chmod +x "${test_bin}" || true
     "${test_bin}" --nocapture --test-threads=1
   done
 else
