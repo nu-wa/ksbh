@@ -66,11 +66,33 @@ jobs:
                   mkdir -p dist/docker
                   docker save "${KSBH_RELEASE_IMAGE_LOCAL:-ksbh:release}" -o dist/docker/ksbh-release.tar
 
-            - name: Upload Rust target artifact
+            - name: Upload Rust prebuilt artifact
               uses: https://data.forgejo.org/actions/upload-artifact@v3-node20
               with:
-                  name: rust-target
-                  path: crates/target/**
+                  name: rust-prebuilt
+                  path: |
+                      crates/target/debug/ksbh
+                      crates/target/debug/libdynamic_ffi_smoke.*
+                      crates/target/debug/*.so
+                      crates/target/debug/*.dylib
+                      crates/target/debug/deps/*.so
+                      crates/target/debug/deps/*.dylib
+                      crates/target/debug/deps/binary_baseline_e2e-*
+                      crates/target/debug/deps/binary_static_content_e2e-*
+                      crates/target/debug/deps/binary_upstream_errors_e2e-*
+                      crates/target/debug/deps/k8s_baseline_e2e-*
+                      crates/target/debug/deps/k8s_ingress_lifecycle_e2e-*
+                      crates/target/debug/deps/k8s_static_content_e2e-*
+                      crates/target/debug/deps/k8s_robots_txt_e2e-*
+                      crates/target/debug/deps/k8s_pow_http_e2e-*
+                      crates/target/debug/deps/k8s_http_to_https_e2e-*
+                      crates/target/debug/deps/k8s_trusted_proxies_e2e-*
+                      crates/target/debug/deps/k8s_websocket_e2e-*
+                      crates/target/debug/deps/module_host_dynamic-*
+                      crates/target/debug/deps/ffi_miri-*
+                      crates/target/debug/deps/ksbh_modules_sdk-*
+                      crates/target/debug/deps/host_functions_unhappy-*
+                      crates/target/debug/deps/ksbh_core-*
                   if-no-files-found: error
 
             - name: Upload release image artifact
@@ -92,10 +114,10 @@ jobs:
             - name: Check out repository
               uses: https://data.forgejo.org/actions/checkout@v4
 
-            - name: Download Rust target artifact
+            - name: Download Rust prebuilt artifact
               uses: https://data.forgejo.org/actions/download-artifact@v3-node20
               with:
-                  name: rust-target
+                  name: rust-prebuilt
                   path: .
 
             - name: Run direct-binary e2e task
@@ -118,11 +140,18 @@ jobs:
             - name: Check out repository
               uses: https://data.forgejo.org/actions/checkout@v4
 
-            - name: Download Rust target artifact
+            - name: Download Rust prebuilt artifact
               uses: https://data.forgejo.org/actions/download-artifact@v3-node20
               with:
-                  name: rust-target
+                  name: rust-prebuilt
                   path: .
+
+            - name: Verify prebuilt artifact layout
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  ls -la crates/target/debug | sed -n '1,80p'
+                  test -d crates/target/debug/deps
 
             - name: Run native dynamic-module smoke task
               uses: ./.forgejo/actions/run-mise-task
@@ -159,11 +188,18 @@ jobs:
             - name: Check out repository
               uses: https://data.forgejo.org/actions/checkout@v4
 
-            - name: Download Rust target artifact
+            - name: Download Rust prebuilt artifact
               uses: https://data.forgejo.org/actions/download-artifact@v3-node20
               with:
-                  name: rust-target
+                  name: rust-prebuilt
                   path: .
+
+            - name: Verify prebuilt artifact layout
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  ls -la crates/target/debug | sed -n '1,80p'
+                  test -d crates/target/debug/deps
 
             - name: Download release image artifact
               uses: https://data.forgejo.org/actions/download-artifact@v3-node20
