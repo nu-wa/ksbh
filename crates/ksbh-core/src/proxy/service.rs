@@ -368,6 +368,22 @@ impl ksbh_types::prelude::ProxyProvider for ProxyService {
         } else {
             http_req.host.to_string()
         };
+        let upstream_host_with_port = ctx
+            .valid_request_information
+            .as_ref()
+            .and_then(|valid_request_information| {
+                match &valid_request_information.req_match.backend {
+                    crate::routing::ServiceBackendType::ServiceBackend(service_backend) => Some(
+                        if service_backend.port == 80 || service_backend.port == 443 {
+                            service_backend.name.to_string()
+                        } else {
+                            format!("{}:{}", service_backend.name, service_backend.port)
+                        },
+                    ),
+                    _ => None,
+                }
+            })
+            .unwrap_or_else(|| host_with_port.clone());
 
         upstream_request
             .insert_header(
@@ -436,7 +452,7 @@ impl ksbh_types::prelude::ProxyProvider for ProxyService {
         upstream_request
             .insert_header(
                 http::header::HOST,
-                http::HeaderValue::from_str(host_with_port.as_str())
+                http::HeaderValue::from_str(upstream_host_with_port.as_str())
                     .map_err(ksbh_types::prelude::ProxyProviderError::from)?,
             )
             .map_err(ksbh_types::prelude::ProxyProviderError::from)?;
