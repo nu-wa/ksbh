@@ -107,7 +107,7 @@ Notable tasks:
 `e2e-authentik` provisions kind + ksbh + Authentik (Helm), wires an Authentik ingress through ksbh, runs HTTP/HTTPS flow reachability checks, ensures a deterministic local login user exists via `manage.py shell`, and then executes a Playwright login/session-authenticated check through ksbh.
 `e2e-binary` builds `ksbh` and runs direct-binary integration tests that spawn `./ksbh` with file-provider config and per-test loopback ports. In CI, setting `KSBH_CI_USE_PREBUILT=true` switches to run-only mode using prebuilt test binaries from `crates/target`.
 `dynamic-modules-smoke` builds the test-only `dynamic-ffi-smoke` `cdylib` under `crates/ksbh-modules/test-modules/` and runs the native `ksbh-core` integration test that loads it through `ModuleHost`. It accepts `KSBH_DYNAMIC_SMOKE_LOOPS` to increase repeated real `.so` call/free cycles in CI.
-`miri-modules-sdk-ffi` runs directly in the CI base image with nightly+Miri preinstalled and executes the in-process `ksbh-modules-sdk` FFI smoke test. That suite now covers custom-type export stability, pass/error response conversion, and repeated response allocation/free loops. It does not attempt to run the compiled `ksbh` binary or dynamically loaded module `.so` files under Miri.
+`miri-modules-sdk-ffi` bootstraps nightly+Miri at task runtime (via `mise`) and executes the in-process `ksbh-modules-sdk` FFI smoke test in an isolated rustup/cargo target root. That suite now covers custom-type export stability, pass/error response conversion, and repeated response allocation/free loops. It does not attempt to run the compiled `ksbh` binary or dynamically loaded module `.so` files under Miri.
 
 Current Forgejo workflows:
 
@@ -122,7 +122,7 @@ Current Forgejo workflows:
   - `helm-chart-artifacts`
 
 The `ci-base-image.yaml` workflow builds `docker/build/ci.Dockerfile` when that Dockerfile changes (or manually via dispatch). Branch runs publish `:latest` and `:<sha>` tags to Harbor; pull requests only validate the build.
-That CI base image now includes nightly Rust + Miri tooling used by `miri-modules-sdk-ffi`, plus Playwright (`@playwright/test`) with Chromium for browser e2e.
+That CI base image includes Node/npm plus browser runtime system libraries for browser e2e; Playwright itself is installed at task runtime, and nightly Rust + Miri are provisioned inside `miri-modules-sdk-ffi`.
 The `ci.yaml` workflow consumes the published `:latest` CI image across jobs.
 The `build-once` job compiles once per workflow run, builds the release image once, and publishes per-run artifacts (`crates/target` and the release image tarball). Downstream jobs download those artifacts instead of relying on cross-job caches, and set `KSBH_CI_USE_PREBUILT=true` for run-only task paths where available.
 The `modules-memory-check` job now runs the targeted `p0-unhappy-tests` task (SDK FFI matrix + parser property tests + host callback unhappy-path tests) in addition to `dynamic-modules-smoke` and `miri-modules-sdk-ffi`.

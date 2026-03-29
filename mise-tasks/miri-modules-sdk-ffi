@@ -6,17 +6,23 @@
 set -euo pipefail
 . "$(dirname "$0")/lib.sh"
 
-require_cmd cargo
+require_cmd mise
 
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
-miri_target_dir="${KSBH_MIRI_TARGET_DIR:-${repo_root}/crates/target/miri-ci-$(date +%s)-$$}"
+miri_run_root="${KSBH_MIRI_RUN_ROOT:-/tmp/ksbh-miri-$(date +%s)-$$}"
+miri_target_dir="${KSBH_MIRI_TARGET_DIR:-${miri_run_root}/target}"
+mkdir -p "${miri_run_root}" "${miri_target_dir}"
 
-mkdir -p "${miri_target_dir}"
+# Fully isolate rustup/cargo/miri state to avoid shared sysroot lock/settings conflicts.
+export RUSTUP_HOME="${miri_run_root}/rustup"
+export CARGO_HOME="${miri_run_root}/cargo"
 export CARGO_TARGET_DIR="${miri_target_dir}"
 export CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-1}"
 unset RUSTFLAGS
 unset CARGO_ENCODED_RUSTFLAGS
 
-MIRI_SYSROOT="$(cargo +nightly miri setup --print-sysroot)"
-export MIRI_SYSROOT
-cargo +nightly miri test --manifest-path crates/Cargo.toml -p ksbh-modules-sdk --test ffi_miri -- --nocapture --test-threads=1
+env -u GH_TOKEN -u GITHUB_TOKEN mise install
+mise x rust@nightly -- rustup toolchain install nightly --profile minimal
+mise x rust@nightly -- rustup component add miri rust-src --toolchain nightly
+mise x rust@nightly -- cargo +nightly miri setup
+mise x rust@nightly -- cargo +nightly miri test --manifest-path crates/Cargo.toml -p ksbh-modules-sdk --test ffi_miri -- --nocapture --test-threads=1
