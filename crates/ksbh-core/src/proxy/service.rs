@@ -136,6 +136,35 @@ impl ProxyService {
 
         parts.join(";")
     }
+
+    fn normalize_cookie_header_for_upstream(
+        upstream_request: &mut pingora_http::RequestHeader,
+    ) -> Result<(), ksbh_types::prelude::ProxyProviderError> {
+        let merged_cookie = upstream_request
+            .headers
+            .get_all(http::header::COOKIE)
+            .iter()
+            .filter_map(|value| value.to_str().ok())
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .collect::<Vec<&str>>()
+            .join("; ");
+
+        if merged_cookie.is_empty() {
+            return Ok(());
+        }
+
+        upstream_request.remove_header(&http::header::COOKIE);
+        upstream_request
+            .insert_header(
+                http::header::COOKIE,
+                http::HeaderValue::from_str(merged_cookie.as_str())
+                    .map_err(ksbh_types::prelude::ProxyProviderError::from)?,
+            )
+            .map_err(ksbh_types::prelude::ProxyProviderError::from)?;
+
+        Ok(())
+    }
 }
 
 #[async_trait::async_trait]
@@ -351,6 +380,8 @@ impl ksbh_types::prelude::ProxyProvider for ProxyService {
             return Ok(());
         }
 
+        Self::normalize_cookie_header_for_upstream(upstream_request)?;
+
         let http_req = match &ctx.http_request {
             Some(req) => req,
             None => return Ok(()),
@@ -537,6 +568,33 @@ impl ksbh_types::prelude::ProxyProvider for ProxyService {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn normalize_cookie_header_for_upstream_merges_multiple_headers() {
+        let mut request = pingora_http::RequestHeader::build_no_case(
+            http::Method::GET,
+            b"/",
+            Some(4),
+        )
+        .expect("request build should succeed");
+        request
+            .append_header(http::header::COOKIE, "ksbh=abc")
+            .expect("append cookie should succeed");
+        request
+            .append_header(http::header::COOKIE, "authentik_session=def")
+            .expect("append cookie should succeed");
+
+        super::ProxyService::normalize_cookie_header_for_upstream(&mut request)
+            .expect("normalization should succeed");
+
+        let cookies: Vec<&http::HeaderValue> =
+            request.headers.get_all(http::header::COOKIE).iter().collect();
+        assert_eq!(cookies.len(), 1);
+        assert_eq!(
+            cookies[0].to_str().expect("cookie must be utf-8"),
+            "ksbh=abc; authentik_session=def"
+        );
+    }
+
     #[test]
     fn append_header_value_ignores_untrusted_existing_value() {
         let mut headers = http::HeaderMap::new();
