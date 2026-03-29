@@ -8,4 +8,13 @@ set -euo pipefail
 
 require_cmd cargo
 
+repo_root="$(cd "$(dirname "$0")/.." && pwd)"
+miri_target_dir="${KSBH_MIRI_TARGET_DIR:-${repo_root}/crates/target/miri-ci}"
+
+# Isolate Miri sysroot/test artifacts from shared default paths to avoid stale/concurrent lock conflicts.
+rm -rf "${miri_target_dir}"
+mkdir -p "${miri_target_dir}"
+export CARGO_TARGET_DIR="${miri_target_dir}"
+
+cargo +nightly miri setup
 cargo +nightly miri test --manifest-path crates/Cargo.toml -p ksbh-modules-sdk --test ffi_miri -- --nocapture --test-threads=1

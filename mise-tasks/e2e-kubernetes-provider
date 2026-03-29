@@ -549,15 +549,11 @@ if [ "${playwright_driver}" = "container" ]; then
     '
 else
   local_playwright_bin="${repo_root}/tests/playwright/node_modules/.bin/playwright"
-  if [ -x "${local_playwright_bin}" ]; then
-    playwright_bin="${local_playwright_bin}"
-  elif command -v playwright >/dev/null 2>&1; then
-    playwright_bin="$(command -v playwright)"
-  else
+  if [ ! -x "${local_playwright_bin}" ]; then
     echo "installing Playwright npm package"
     npm install --prefix "${repo_root}/tests/playwright"
-    playwright_bin="${local_playwright_bin}"
   fi
+  playwright_bin="${local_playwright_bin}"
 
   echo "ensuring Playwright Chromium browser is installed"
   "${playwright_bin}" install chromium
