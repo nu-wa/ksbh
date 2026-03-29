@@ -4,6 +4,7 @@
 FROM ghcr.io/catthehacker/ubuntu:act-latest
 
 ENV DEBIAN_FRONTEND=noninteractive
+ENV PLAYWRIGHT_VERSION=1.54.2
 
 RUN apt-get update -y \
   && asound_pkg="libasound2" \
@@ -43,4 +44,14 @@ RUN apt-get update -y \
 RUN echo "y" | sh -c "$(curl -fsSL https://mise.run)" \
   && ln -sf /root/.local/bin/mise /usr/local/bin/mise
 
-ENV PATH="/root/.local/bin:${PATH}"
+RUN if ! command -v rustup >/dev/null 2>&1; then \
+      curl https://sh.rustup.rs -sSf | sh -s -- -y --profile minimal; \
+    fi \
+  && /root/.cargo/bin/rustup toolchain install nightly --profile minimal \
+  && /root/.cargo/bin/rustup component add miri rust-src --toolchain nightly \
+  && /root/.cargo/bin/cargo +nightly miri setup
+
+RUN npm install --global "@playwright/test@${PLAYWRIGHT_VERSION}" \
+  && playwright install chromium
+
+ENV PATH="/root/.local/bin:/root/.cargo/bin:${PATH}"

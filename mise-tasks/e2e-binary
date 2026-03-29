@@ -3,23 +3,41 @@
 #MISE tools={rust="1.92.0"}
 
 set -euo pipefail
+. "$(dirname "$0")/lib.sh"
 
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 
 cd "$repo_root"
-
-echo "building ksbh binary for direct-binary e2e"
-cargo build --manifest-path crates/Cargo.toml -p ksbh
+deps_dir="$repo_root/crates/target/debug/deps"
 
 export KSBH_E2E_BIN="$repo_root/crates/target/debug/ksbh"
 
-echo "running direct-binary integration tests"
-cargo test \
-  --manifest-path crates/Cargo.toml \
-  -p tests \
-  --test binary_baseline_e2e \
-  --test binary_static_content_e2e \
-  --test binary_upstream_errors_e2e \
-  -- \
-  --nocapture \
-  --test-threads=1
+if [ "${KSBH_CI_USE_PREBUILT:-false}" = "true" ]; then
+  if [ ! -x "${KSBH_E2E_BIN}" ]; then
+    echo "prebuilt ksbh binary not found: ${KSBH_E2E_BIN}" >&2
+    exit 1
+  fi
+
+  for test_name in binary_baseline_e2e binary_static_content_e2e binary_upstream_errors_e2e; do
+    test_bin="$(resolve_test_binary "${deps_dir}" "${test_name}")"
+    if [ -z "${test_bin}" ]; then
+      echo "prebuilt test binary not found for ${test_name} in ${deps_dir}" >&2
+      exit 1
+    fi
+    "${test_bin}" --nocapture --test-threads=1
+  done
+else
+  echo "building ksbh binary for direct-binary e2e"
+  cargo build --manifest-path crates/Cargo.toml -p ksbh
+
+  echo "running direct-binary integration tests"
+  cargo test \
+    --manifest-path crates/Cargo.toml \
+    -p tests \
+    --test binary_baseline_e2e \
+    --test binary_static_content_e2e \
+    --test binary_upstream_errors_e2e \
+    -- \
+    --nocapture \
+    --test-threads=1
+fi

@@ -1,0 +1,87 @@
+name: ci-base-image
+
+on:
+    push:
+        branches:
+            - main
+            - dev
+        paths:
+            - docker/build/ci.Dockerfile
+    pull_request:
+        paths:
+            - docker/build/ci.Dockerfile
+    workflow_dispatch:
+
+env:
+    HARBOR_HOST: ${{ vars.HARBOR_HOST || env.HARBOR_HOST }}
+    HARBOR_USERNAME: ${{ secrets.HARBOR_USERNAME || env.HARBOR_USERNAME }}
+    HARBOR_PASSWORD: ${{ secrets.HARBOR_PASSWORD || env.HARBOR_PASSWORD }}
+    LOCAL_SHA: ${{ forge.sha || env.FORGEJO_SHA || env.LOCAL_SHA }}
+
+jobs:
+    build-ci-base-image:
+        runs-on: cocaine
+        container:
+            image: ghcr.io/catthehacker/ubuntu:act-latest
+        permissions:
+            contents: read
+        steps:
+            - name: Check out repository
+              uses: https://data.forgejo.org/actions/checkout@v4
+
+            - name: Ensure docker cli exists
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  if command -v docker >/dev/null 2>&1; then
+                    docker --version
+                    exit 0
+                  fi
+
+                  apt-get update
+                  apt-get install -y docker.io
+                  docker --version
+
+            - name: Build CI base image (pull request)
+              if: ${{ forge.event_name == 'pull_request' }}
+              shell: bash
+              run: |
+                  set -euo pipefail
+
+                  ci_image_latest="ksbh-ci:pr-check"
+                  docker build --pull --file docker/build/ci.Dockerfile --tag "${ci_image_latest}" .
+
+            - name: Build and push CI base image (branch)
+              if: ${{ forge.event_name != 'pull_request' }}
+              shell: bash
+              run: |
+                  set -euo pipefail
+
+                  source_docker_config="${DOCKER_CONFIG:-/root/.docker}"
+                  writable_docker_config="/tmp/ksbh-docker-config"
+                  writable_buildx_config="/tmp/ksbh-docker-buildx"
+                  mkdir -p "${writable_docker_config}" "${writable_buildx_config}"
+                  if [ -f "${source_docker_config}/config.json" ]; then
+                    cp "${source_docker_config}/config.json" "${writable_docker_config}/config.json"
+                  fi
+                  export DOCKER_CONFIG="${writable_docker_config}"
+                  export BUILDX_CONFIG="${writable_buildx_config}"
+
+                  if [ -z "${HARBOR_HOST:-}" ]; then
+                    echo "HARBOR_HOST is required to publish the CI base image" >&2
+                    exit 1
+                  fi
+
+                  ci_image_repository="${HARBOR_HOST}/registry/ksbh-ci"
+                  ci_image_latest="${ci_image_repository}:latest"
+                  ci_image_sha="${ci_image_repository}:${LOCAL_SHA}"
+
+                  if [ -n "${HARBOR_USERNAME:-}" ] && [ -n "${HARBOR_PASSWORD:-}" ]; then
+                    echo "${HARBOR_PASSWORD}" | docker login "${HARBOR_HOST}" --username "${HARBOR_USERNAME}" --password-stdin
+                  else
+                    echo "HARBOR_USERNAME/HARBOR_PASSWORD not set, relying on preconfigured Docker auth"
+                  fi
+
+                  docker build --pull --file docker/build/ci.Dockerfile --tag "${ci_image_latest}" --tag "${ci_image_sha}" .
+                  docker push "${ci_image_latest}"
+                  docker push "${ci_image_sha}"

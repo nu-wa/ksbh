@@ -3,15 +3,19 @@
 #MISE tools={rust="1.92.0"}
 
 set -euo pipefail
+. "$(dirname "$0")/lib.sh"
 
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 
 cd "$repo_root"
+deps_dir="$repo_root/crates/target/debug/deps"
 
 dynamic_smoke_loops="${KSBH_DYNAMIC_SMOKE_LOOPS:-200}"
 
-echo "building dynamic ffi smoke module"
-cargo build --manifest-path crates/Cargo.toml -p dynamic-ffi-smoke
+if [ "${KSBH_CI_USE_PREBUILT:-false}" != "true" ]; then
+  echo "building dynamic ffi smoke module"
+  cargo build --manifest-path crates/Cargo.toml -p dynamic-ffi-smoke
+fi
 
 case "$(uname -s)" in
   Darwin)
@@ -28,11 +32,25 @@ esac
 export KSBH_DYNAMIC_MODULE_LIB="$repo_root/crates/target/debug/libdynamic_ffi_smoke.${dynamic_module_ext}"
 export KSBH_DYNAMIC_SMOKE_LOOPS="$dynamic_smoke_loops"
 
+if [ ! -f "${KSBH_DYNAMIC_MODULE_LIB}" ]; then
+  echo "dynamic module library not found: ${KSBH_DYNAMIC_MODULE_LIB}" >&2
+  exit 1
+fi
+
 echo "running native host-side dynamic module integration test with loops=$KSBH_DYNAMIC_SMOKE_LOOPS"
-cargo test \
-  --manifest-path crates/Cargo.toml \
-  -p ksbh-core \
-  --test module_host_dynamic \
-  -- \
-  --nocapture \
-  --test-threads=1
+if [ "${KSBH_CI_USE_PREBUILT:-false}" = "true" ]; then
+  test_bin="$(resolve_test_binary "${deps_dir}" "module_host_dynamic")"
+  if [ -z "${test_bin}" ]; then
+    echo "prebuilt test binary not found for module_host_dynamic in ${deps_dir}" >&2
+    exit 1
+  fi
+  "${test_bin}" --nocapture --test-threads=1
+else
+  cargo test \
+    --manifest-path crates/Cargo.toml \
+    -p ksbh-core \
+    --test module_host_dynamic \
+    -- \
+    --nocapture \
+    --test-threads=1
+fi

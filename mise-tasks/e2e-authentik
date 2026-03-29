@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+#MISE description="Run local authentik reverse-proxy e2e with kind + Helm"
+#MISE alias="e2ea"
+#MISE tools={helm="latest",kubectl="latest",kind="latest",rust="1.92.0"}
+#USAGE flag "-k --keep-cluster" help="Keep the kind cluster after the task exits"
+#USAGE flag "-s --skip-build" help="Skip rebuilding the release Docker image"
+
+set -euo pipefail
+
+script_dir="$(
+  cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P
+)"
+"${script_dir}/e2e-authentik-provider" "$@"

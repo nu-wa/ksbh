@@ -3,11 +3,30 @@
 #MISE tools={rust="1.92.0"}
 
 set -euo pipefail
+. "$(dirname "$0")/lib.sh"
 
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$repo_root"
+deps_dir="$repo_root/crates/target/debug/deps"
 
-cargo test --manifest-path crates/Cargo.toml -p ksbh-modules-sdk --test ffi_miri
-cargo test --manifest-path crates/Cargo.toml -p ksbh-modules-sdk proptest_parse_
-cargo test --manifest-path crates/Cargo.toml -p ksbh-core --test host_functions_unhappy
-cargo test --manifest-path crates/Cargo.toml -p ksbh-core response_sets_proxy_cookie
+if [ "${KSBH_CI_USE_PREBUILT:-false}" = "true" ]; then
+  ffi_miri_bin="$(resolve_test_binary "${deps_dir}" "ffi_miri")"
+  sdk_libtest_bin="$(resolve_test_binary "${deps_dir}" "ksbh_modules_sdk")"
+  host_unhappy_bin="$(resolve_test_binary "${deps_dir}" "host_functions_unhappy")"
+  core_libtest_bin="$(resolve_test_binary "${deps_dir}" "ksbh_core")"
+
+  if [ -z "${ffi_miri_bin}" ] || [ -z "${sdk_libtest_bin}" ] || [ -z "${host_unhappy_bin}" ] || [ -z "${core_libtest_bin}" ]; then
+    echo "one or more prebuilt test binaries are missing in ${deps_dir}" >&2
+    exit 1
+  fi
+
+  "${ffi_miri_bin}" --nocapture --test-threads=1
+  "${sdk_libtest_bin}" proptest_parse_ --nocapture --test-threads=1
+  "${host_unhappy_bin}" --nocapture --test-threads=1
+  "${core_libtest_bin}" response_sets_proxy_cookie --nocapture --test-threads=1
+else
+  cargo test --manifest-path crates/Cargo.toml -p ksbh-modules-sdk --test ffi_miri
+  cargo test --manifest-path crates/Cargo.toml -p ksbh-modules-sdk proptest_parse_
+  cargo test --manifest-path crates/Cargo.toml -p ksbh-core --test host_functions_unhappy
+  cargo test --manifest-path crates/Cargo.toml -p ksbh-core response_sets_proxy_cookie
+fi

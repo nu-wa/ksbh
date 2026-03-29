@@ -422,78 +422,44 @@ export KSBH_E2E_NAMESPACE="${namespace}"
 export KSBH_E2E_BROWSER_BASE_URL="http://${browser_host}:18080"
 export KSBH_E2E_BROWSER_HOST_RULE="MAP ${browser_host} ${browser_host_ip}"
 
+run_k8s_test() {
+  local test_name="$1"
+
+  if [ "${KSBH_CI_USE_PREBUILT:-false}" = "true" ]; then
+    local deps_dir="${repo_root}/crates/target/debug/deps"
+    local test_bin
+    test_bin="$(resolve_test_binary "${deps_dir}" "${test_name}")"
+    if [ -z "${test_bin}" ]; then
+      echo "prebuilt test binary not found for ${test_name} in ${deps_dir}" >&2
+      exit 1
+    fi
+
+    "${test_bin}" --ignored --nocapture --test-threads=1
+  else
+    cargo test \
+      --manifest-path "${repo_root}/crates/Cargo.toml" \
+      -p tests \
+      --test "${test_name}" \
+      -- \
+      --ignored \
+      --nocapture \
+      --test-threads=1
+  fi
+}
+
 echo "running Rust kubernetes e2e tests"
-cargo test \
-  --manifest-path "${repo_root}/crates/Cargo.toml" \
-  -p tests \
-  --test k8s_baseline_e2e \
-  -- \
-  --ignored \
-  --nocapture \
-  --test-threads=1
-
-cargo test \
-  --manifest-path "${repo_root}/crates/Cargo.toml" \
-  -p tests \
-  --test k8s_ingress_lifecycle_e2e \
-  -- \
-  --ignored \
-  --nocapture \
-  --test-threads=1
-
-cargo test \
-  --manifest-path "${repo_root}/crates/Cargo.toml" \
-  -p tests \
-  --test k8s_static_content_e2e \
-  -- \
-  --ignored \
-  --nocapture \
-  --test-threads=1
-
-cargo test \
-  --manifest-path "${repo_root}/crates/Cargo.toml" \
-  -p tests \
-  --test k8s_robots_txt_e2e \
-  -- \
-  --ignored \
-  --nocapture \
-  --test-threads=1
-
-cargo test \
-  --manifest-path "${repo_root}/crates/Cargo.toml" \
-  -p tests \
-  --test k8s_pow_http_e2e \
-  -- \
-  --ignored \
-  --nocapture \
-  --test-threads=1
-
-cargo test \
-  --manifest-path "${repo_root}/crates/Cargo.toml" \
-  -p tests \
-  --test k8s_http_to_https_e2e \
-  -- \
-  --ignored \
-  --nocapture \
-  --test-threads=1
-
-cargo test \
-  --manifest-path "${repo_root}/crates/Cargo.toml" \
-  -p tests \
-  --test k8s_trusted_proxies_e2e \
-  -- \
-  --ignored \
-  --nocapture \
-  --test-threads=1
-
-cargo test \
-  --manifest-path "${repo_root}/crates/Cargo.toml" \
-  -p tests \
-  --test k8s_websocket_e2e \
-  -- \
-  --ignored \
-  --nocapture \
-  --test-threads=1
+for test_name in \
+  k8s_baseline_e2e \
+  k8s_ingress_lifecycle_e2e \
+  k8s_static_content_e2e \
+  k8s_robots_txt_e2e \
+  k8s_pow_http_e2e \
+  k8s_http_to_https_e2e \
+  k8s_trusted_proxies_e2e \
+  k8s_websocket_e2e
+do
+  run_k8s_test "${test_name}"
+done
 
 echo "creating browser PoW fixture"
 kctl delete ingress pow-browser-ingress --namespace "${namespace}" --ignore-not-found >/dev/null 2>&1 || true
@@ -581,11 +547,15 @@ if [ "${playwright_driver}" = "container" ]; then
       npx playwright test ./k8s-pow-browser.spec.cjs --workers=1
     '
 else
-  playwright_bin="${repo_root}/tests/playwright/node_modules/.bin/playwright"
-
-  if [ ! -x "${playwright_bin}" ]; then
+  local_playwright_bin="${repo_root}/tests/playwright/node_modules/.bin/playwright"
+  if [ -x "${local_playwright_bin}" ]; then
+    playwright_bin="${local_playwright_bin}"
+  elif command -v playwright >/dev/null 2>&1; then
+    playwright_bin="$(command -v playwright)"
+  else
     echo "installing Playwright npm package"
     npm install --prefix "${repo_root}/tests/playwright"
+    playwright_bin="${local_playwright_bin}"
   fi
 
   echo "ensuring Playwright Chromium browser is installed"

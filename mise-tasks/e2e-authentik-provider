@@ -1,0 +1,518 @@
+#!/usr/bin/env bash
+#MISE description="Run local authentik reverse-proxy smoke checks through ksbh"
+#MISE alias="e2eak"
+#MISE tools={helm="latest",kubectl="latest",kind="latest",rust="1.92.0"}
+#USAGE flag "-k --keep-cluster" help="Keep the kind cluster after the task exits"
+#USAGE flag "-s --skip-build" help="Skip rebuilding the release Docker image"
+
+set -Eeuo pipefail
+script_dir="$(
+  cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P
+)"
+. "${script_dir}/lib.sh"
+
+trap 'echo "e2e-authentik-provider failed (line ${BASH_LINENO[0]:-unknown}): ${BASH_COMMAND}" >&2' ERR
+
+require_docker
+require_kind
+require_helm
+require_kubectl
+require_curl
+
+repo_root=""
+for candidate in "${MISE_ORIGINAL_CWD:-}" "${GITHUB_WORKSPACE:-}" "$(cd "${script_dir}/.." && pwd -P)"; do
+  if [ -n "${candidate}" ] && [ -f "${candidate}/tests/playwright/k8s-authentik-login.spec.cjs" ]; then
+    repo_root="$(cd -- "${candidate}" && pwd -P)"
+    break
+  fi
+done
+
+if [ -z "${repo_root}" ]; then
+  echo "could not resolve repository root with tests/playwright/k8s-authentik-login.spec.cjs" >&2
+  exit 1
+fi
+
+kubectl_context() {
+  if [ -n "${KSBH_KUBECTL_CONTEXT:-}" ]; then
+    printf '%s\n' "${KSBH_KUBECTL_CONTEXT}"
+    return 0
+  fi
+
+  printf 'kind-%s\n' "$(kind_cluster_name)"
+}
+
+kctl() {
+  kubectl --context "$(kubectl_context)" "$@"
+}
+
+wait_for_host_status_any() {
+  local url="$1"
+  local host_header="$2"
+  local expected_csv="$3"
+  local timeout_secs="${4:-300}"
+  local start_ts now_ts status elapsed
+
+  start_ts="$(date +%s)"
+  echo "waiting for ${url} host=${host_header} status in {${expected_csv}} (timeout=${timeout_secs}s)"
+  while true; do
+    status="$(
+      curl -k -sS \
+        --connect-timeout 3 \
+        --max-time 8 \
+        -o /dev/null \
+        -w '%{http_code}' \
+        -H "Host: ${host_header}" \
+        "${url}" \
+        || true
+    )"
+
+    case ",${expected_csv}," in
+      *",${status},"*)
+        elapsed="$(( $(date +%s) - start_ts ))"
+        echo "host route ready: status=${status} after ${elapsed}s (${url})"
+        return 0
+        ;;
+    esac
+
+    now_ts="$(date +%s)"
+    elapsed="$((now_ts - start_ts))"
+    if [ $((elapsed % 10)) -eq 0 ]; then
+      echo "still waiting: elapsed=${elapsed}s status=${status} (${url})"
+    fi
+    if [ $((now_ts - start_ts)) -ge "${timeout_secs}" ]; then
+      echo "timed out waiting for ${url} host=${host_header} status in {${expected_csv}}, last status=${status}" >&2
+      return 1
+    fi
+
+    sleep 2
+  done
+}
+
+dump_route_debug() {
+  local url="$1"
+  local host_header="$2"
+  local label="$3"
+  local headers_file body_file
+
+  headers_file="$(mktemp)"
+  body_file="$(mktemp)"
+
+  echo "---- ${label}: request ----"
+  echo "url=${url}"
+  echo "host=${host_header}"
+
+  if ! curl -k -sS \
+    --connect-timeout 5 \
+    --max-time 15 \
+    -D "${headers_file}" \
+    -o "${body_file}" \
+    -H "Host: ${host_header}" \
+    "${url}" >/dev/null; then
+    echo "curl request failed for ${label}" >&2
+  fi
+
+  echo "---- ${label}: response headers ----"
+  cat "${headers_file}" || true
+  echo "---- ${label}: response body (first 200 lines) ----"
+  sed -n '1,200p' "${body_file}" || true
+
+  rm -f "${headers_file}" "${body_file}"
+}
+
+dump_k8s_debug() {
+  local ns="$1"
+  local ksbh_release="$2"
+  local auth_release="$3"
+  local ksbh_pod auth_pod
+
+  echo "---- kubernetes debug: pods ----"
+  kctl get pods --namespace "${ns}" -o wide || true
+
+  echo "---- kubernetes debug: services ----"
+  kctl get svc --namespace "${ns}" || true
+
+  echo "---- kubernetes debug: ingress ----"
+  kctl get ingress --namespace "${ns}" || true
+
+  ksbh_pod="$(
+    kctl get pods --namespace "${ns}" \
+      -l "app.kubernetes.io/instance=${ksbh_release}" \
+      -o jsonpath='{.items[0].metadata.name}' \
+      2>/dev/null || true
+  )"
+  if [ -n "${ksbh_pod}" ]; then
+    echo "---- ksbh logs (${ksbh_pod}, tail=120) ----"
+    kctl logs --namespace "${ns}" "${ksbh_pod}" --tail=120 || true
+  fi
+
+  auth_pod="$(
+    kctl get pods --namespace "${ns}" \
+      -l "app.kubernetes.io/instance=${auth_release}" \
+      -o jsonpath='{.items[0].metadata.name}' \
+      2>/dev/null || true
+  )"
+  if [ -n "${auth_pod}" ]; then
+    echo "---- authentik logs (${auth_pod}, tail=120) ----"
+    kctl logs --namespace "${ns}" "${auth_pod}" --tail=120 || true
+  fi
+}
+
+dump_ksbh_rollout_debug() {
+  local ns="$1"
+  local release_name="$2"
+  local pod_name
+
+  echo "---- ksbh rollout debug: deployment describe ----"
+  kctl describe deployment "${release_name}" --namespace "${ns}" || true
+
+  echo "---- ksbh rollout debug: pods for release ----"
+  kctl get pods --namespace "${ns}" -l "app.kubernetes.io/instance=${release_name}" -o wide || true
+
+  echo "---- ksbh rollout debug: pod describe ----"
+  pod_name="$(
+    kctl get pods --namespace "${ns}" \
+      -l "app.kubernetes.io/instance=${release_name}" \
+      -o jsonpath='{.items[0].metadata.name}' \
+      2>/dev/null || true
+  )"
+  if [ -n "${pod_name}" ]; then
+    kctl describe pod "${pod_name}" --namespace "${ns}" || true
+    echo "---- ksbh rollout debug: pod logs (${pod_name}, tail=120) ----"
+    kctl logs "${pod_name}" --namespace "${ns}" --tail=120 || true
+  fi
+
+  echo "---- ksbh rollout debug: pvc ----"
+  kctl get pvc --namespace "${ns}" || true
+
+  echo "---- ksbh rollout debug: recent events ----"
+  kctl get events --namespace "${ns}" --sort-by=.lastTimestamp | tail -n 80 || true
+}
+
+cluster_name="$(kind_cluster_name)"
+namespace="${KSBH_AUTHENTIK_E2E_NAMESPACE:-ksbh-authentik}"
+ksbh_release_name="${KSBH_AUTHENTIK_E2E_KSBH_RELEASE:-ksbh-authentik}"
+auth_release_name="${KSBH_AUTHENTIK_E2E_AUTH_RELEASE:-authentik}"
+auth_host="${KSBH_AUTHENTIK_E2E_HOST:-sso.test.local}"
+ksbh_http_addr="${KSBH_AUTHENTIK_E2E_HTTP_ADDR:-http://127.0.0.1:18080}"
+ksbh_https_addr="${KSBH_AUTHENTIK_E2E_HTTPS_ADDR:-https://127.0.0.1:18443}"
+auth_flow_path="${KSBH_AUTHENTIK_E2E_FLOW_PATH:-/if/flow/default-authentication-flow/}"
+image_name="$(release_image_name)"
+image_repository="$(release_image_repository)"
+image_tag="$(release_image_tag)"
+temp_values=""
+auth_service_name=""
+auth_service_port=""
+auth_bootstrap_username="${KSBH_AUTHENTIK_E2E_USERNAME:-akadmin}"
+auth_bootstrap_email="${KSBH_AUTHENTIK_E2E_EMAIL:-admin@example.local}"
+auth_bootstrap_password="${KSBH_AUTHENTIK_E2E_PASSWORD:-insecure-admin-password}"
+
+wait_for_authentik_flow() {
+  local base_url="$1"
+  local host_header="$2"
+  local timeout_secs="$3"
+  local path
+  local candidates=(
+    "${auth_flow_path}"
+    "/if/user/"
+    "/if/flow/"
+    "/"
+  )
+
+  for path in "${candidates[@]}"; do
+    if wait_for_host_status_any "${base_url%/}${path}" "${host_header}" "200,301,302,303,307,308" "${timeout_secs}"; then
+      echo "authentik route check passed using path: ${path}"
+      return 0
+    fi
+  done
+
+  return 1
+}
+
+run_authentik_login_playwright() {
+  local playwright_driver playwright_spec local_playwright_bin playwright_bin playwright_image playwright_spec_b64
+  playwright_driver="${KSBH_AUTHENTIK_E2E_PLAYWRIGHT_DRIVER:-container}"
+  playwright_spec="${repo_root}/tests/playwright/k8s-authentik-login.spec.cjs"
+
+  if [ ! -f "${playwright_spec}" ]; then
+    echo "Playwright spec not found: ${playwright_spec}" >&2
+    exit 1
+  fi
+
+  if [ "${playwright_driver}" = "container" ]; then
+    playwright_image="${KSBH_AUTHENTIK_E2E_PLAYWRIGHT_IMAGE:-mcr.microsoft.com/playwright:v1.54.2-noble}"
+    playwright_spec_b64="$(base64 < "${playwright_spec}" | tr -d '\n')"
+    if [ -z "${playwright_spec_b64}" ]; then
+      echo "failed to encode Playwright spec: ${playwright_spec}" >&2
+      exit 1
+    fi
+    echo "running Authentik login Playwright test in container (${playwright_image})"
+    docker run --rm \
+      --network host \
+      --add-host "${auth_host}:127.0.0.1" \
+      -e KSBH_AUTHENTIK_E2E_BROWSER_HOST="${auth_host}" \
+      -e KSBH_AUTHENTIK_E2E_BROWSER_PORT="18443" \
+      -e KSBH_AUTHENTIK_E2E_BROWSER_HOST_RULE="MAP ${auth_host} 127.0.0.1" \
+      -e KSBH_AUTHENTIK_E2E_FLOW_PATH="${auth_flow_path}" \
+      -e KSBH_AUTHENTIK_E2E_USERNAME="${auth_bootstrap_username}" \
+      -e KSBH_AUTHENTIK_E2E_PASSWORD="${auth_bootstrap_password}" \
+      -e KSBH_E2E_PLAYWRIGHT_SPEC_B64="${playwright_spec_b64}" \
+      "${playwright_image}" \
+      /bin/bash -lc '
+        set -Eeuo pipefail
+        mkdir -p /tmp/ksbh-playwright
+        cd /tmp/ksbh-playwright
+        npm init -y >/dev/null 2>&1
+        npm install --no-audit --no-fund @playwright/test@1.54.2 >/dev/null
+        printf "%s" "${KSBH_E2E_PLAYWRIGHT_SPEC_B64}" | base64 -d > ./k8s-authentik-login.spec.cjs
+        npx playwright test ./k8s-authentik-login.spec.cjs --workers=1
+      '
+    return 0
+  fi
+
+  local_playwright_bin="${repo_root}/tests/playwright/node_modules/.bin/playwright"
+  if [ -x "${local_playwright_bin}" ]; then
+    playwright_bin="${local_playwright_bin}"
+  elif command -v playwright >/dev/null 2>&1; then
+    playwright_bin="$(command -v playwright)"
+  else
+    if ! command -v npm >/dev/null 2>&1; then
+      echo "npm is required for local Playwright driver but was not found" >&2
+      exit 1
+    fi
+    echo "installing Playwright npm package"
+    npm install --prefix "${repo_root}/tests/playwright"
+    playwright_bin="${local_playwright_bin}"
+  fi
+
+  echo "ensuring Playwright Chromium browser is installed"
+  "${playwright_bin}" install chromium
+
+  KSBH_AUTHENTIK_E2E_BROWSER_HOST="${auth_host}" \
+    KSBH_AUTHENTIK_E2E_BROWSER_PORT="18443" \
+    KSBH_AUTHENTIK_E2E_BROWSER_HOST_RULE="MAP ${auth_host} 127.0.0.1" \
+    KSBH_AUTHENTIK_E2E_FLOW_PATH="${auth_flow_path}" \
+    KSBH_AUTHENTIK_E2E_USERNAME="${auth_bootstrap_username}" \
+    KSBH_AUTHENTIK_E2E_PASSWORD="${auth_bootstrap_password}" \
+    "${playwright_bin}" test \
+      "${playwright_spec}" \
+      --workers=1
+}
+
+ensure_authentik_login_user() {
+  local ns="$1"
+  local release_name="$2"
+  local pod_name
+
+  pod_name="$(
+    kctl get pods --namespace "${ns}" \
+      -l "app.kubernetes.io/instance=${release_name},app.kubernetes.io/component=server" \
+      -o jsonpath='{.items[0].metadata.name}' \
+      2>/dev/null || true
+  )"
+
+  if [ -z "${pod_name}" ]; then
+    echo "failed to resolve authentik server pod for release ${release_name}" >&2
+    return 1
+  fi
+
+  echo "ensuring authentik login user exists (${auth_bootstrap_username})"
+  kctl exec -i --namespace "${ns}" "${pod_name}" -- python /manage.py shell <<PY
+from django.contrib.auth import get_user_model
+from django.contrib.auth import authenticate
+
+User = get_user_model()
+user = User.objects.filter(username="${auth_bootstrap_username}").first()
+created = False
+if user is None:
+    manager = User.objects
+    if hasattr(manager, "create_superuser"):
+        user = manager.create_superuser(
+            username="${auth_bootstrap_username}",
+            email="${auth_bootstrap_email}",
+            password="${auth_bootstrap_password}",
+        )
+    elif hasattr(manager, "create_user"):
+        user = manager.create_user(
+            username="${auth_bootstrap_username}",
+            email="${auth_bootstrap_email}",
+            password="${auth_bootstrap_password}",
+        )
+    else:
+        user = User(username="${auth_bootstrap_username}", email="${auth_bootstrap_email}")
+    created = True
+
+user.email = "${auth_bootstrap_email}"
+user.is_active = True
+user.set_password("${auth_bootstrap_password}")
+user.save()
+
+print("authentik user", user.username, "created" if created else "updated")
+verified = authenticate(username="${auth_bootstrap_username}", password="${auth_bootstrap_password}")
+print("authentik credential check:", "ok" if verified is not None else "failed")
+PY
+}
+
+cleanup() {
+  if command -v helm >/dev/null 2>&1; then
+    helm uninstall "${ksbh_release_name}" --namespace "${namespace}" >/dev/null 2>&1 || true
+    helm uninstall "${auth_release_name}" --namespace "${namespace}" >/dev/null 2>&1 || true
+  fi
+  if command -v kubectl >/dev/null 2>&1; then
+    kctl delete ingress authentik-through-ksbh --namespace "${namespace}" --ignore-not-found >/dev/null 2>&1 || true
+  fi
+
+  if [ -n "${temp_values}" ] && [ -f "${temp_values}" ]; then
+    rm -f "${temp_values}"
+  fi
+
+  if [ "${usage_keep_cluster:-false}" = "true" ]; then
+    echo "keeping kind cluster '${cluster_name}'"
+    return 0
+  fi
+
+  delete_kind_cluster
+}
+
+trap cleanup EXIT
+
+ensure_kind_cluster
+
+if [ "${usage_skip_build:-false}" != "true" ]; then
+  "${script_dir}/build-release-image"
+fi
+
+kind load docker-image "${image_name}" --name "${cluster_name}"
+
+helm upgrade --install "${ksbh_release_name}" charts/ksbh --kube-context "$(kubectl_context)" --namespace "${namespace}" --create-namespace --set configProvider.mode=kubernetes --set image.repository="${image_repository}" --set image.tag="${image_tag}" --set image.pullPolicy=IfNotPresent --set persistence.enabled=false --set-string configEnv.KSBH__CONSTANTS__COOKIE_SECURE=false --set service.type=NodePort --set service.nodePorts.http=30080 --set service.nodePorts.https=30443 --set service.nodePorts.profiling=30083 --set service.nodePorts.prometheus=30084
+
+if ! kctl rollout status "deployment/${ksbh_release_name}" --namespace "${namespace}" --timeout=240s; then
+  dump_ksbh_rollout_debug "${namespace}" "${ksbh_release_name}"
+  exit 1
+fi
+kctl wait --namespace "${namespace}" --for=condition=Ready pod --selector='app.kubernetes.io/instance='"${ksbh_release_name}" --timeout=240s
+
+helm repo add authentik https://charts.goauthentik.io >/dev/null 2>&1 || true
+helm repo update authentik >/dev/null 2>&1
+
+temp_values="$(mktemp)"
+cat > "${temp_values}" <<EOF
+postgresql:
+  enabled: true
+  primary:
+    persistence:
+      enabled: false
+  auth:
+    database: authentik
+    username: authentik
+    password: insecure-authentik-db-password
+redis:
+  enabled: true
+authentik:
+  secret_key: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+  bootstrap_email: "${auth_bootstrap_email}"
+  bootstrap_password: "${auth_bootstrap_password}"
+  postgresql:
+    host: "${auth_release_name}-postgresql"
+    name: authentik
+    user: authentik
+    password: insecure-authentik-db-password
+    port: 5432
+  error_reporting:
+    enabled: false
+server:
+  ingress:
+    enabled: false
+EOF
+
+helm upgrade --install "${auth_release_name}" authentik/authentik --kube-context "$(kubectl_context)" --namespace "${namespace}" --create-namespace --values "${temp_values}" --wait --timeout 12m
+ensure_authentik_login_user "${namespace}" "${auth_release_name}"
+
+auth_service_name="$(
+  kctl get svc --namespace "${namespace}" \
+    -l "app.kubernetes.io/instance=${auth_release_name},app.kubernetes.io/component=server" \
+    -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' \
+    | head -n 1
+)"
+if [ -z "${auth_service_name}" ]; then
+  auth_service_name="$(
+    kctl get svc --namespace "${namespace}" \
+      -l "app.kubernetes.io/instance=${auth_release_name}" \
+      -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' \
+      | grep -Ev '(postgresql|redis)' \
+      | grep -E '(server|authentik)' \
+      | head -n 1
+  )"
+fi
+if [ -z "${auth_service_name}" ]; then
+  echo "failed to resolve authentik service name for release ${auth_release_name}" >&2
+  echo "available services for release ${auth_release_name}:" >&2
+  kctl get svc --namespace "${namespace}" -l "app.kubernetes.io/instance=${auth_release_name}" -o name >&2 || true
+  exit 1
+fi
+
+auth_service_port="$(
+  kctl get svc "${auth_service_name}" --namespace "${namespace}" \
+    -o jsonpath='{.spec.ports[?(@.name=="http")].port}'
+)"
+if [ -z "${auth_service_port}" ]; then
+  auth_service_port="$(
+    kctl get svc "${auth_service_name}" --namespace "${namespace}" \
+      -o jsonpath='{.spec.ports[0].port}'
+  )"
+fi
+if [ -z "${auth_service_port}" ]; then
+  echo "failed to resolve authentik service port for service ${auth_service_name}" >&2
+  exit 1
+fi
+echo "resolved authentik upstream service: ${auth_service_name}:${auth_service_port}"
+
+kctl apply --namespace "${namespace}" -f - <<EOF
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: authentik-through-ksbh
+spec:
+  ingressClassName: ksbh
+  rules:
+    - host: ${auth_host}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: ${auth_service_name}
+                port:
+                  number: ${auth_service_port}
+EOF
+
+if ! wait_for_http_status "${ksbh_http_addr}/" "404" 120; then
+  echo "ksbh base route readiness check failed on HTTP root" >&2
+  dump_route_debug "${ksbh_http_addr}/" "${auth_host}" "http-root"
+  dump_k8s_debug "${namespace}" "${ksbh_release_name}" "${auth_release_name}"
+  exit 1
+fi
+echo "ksbh base route readiness passed (${ksbh_http_addr}/ => 404)"
+
+if ! wait_for_authentik_flow "${ksbh_http_addr}" "${auth_host}" 300; then
+  echo "authentik route smoke check failed on HTTP" >&2
+  dump_route_debug "${ksbh_http_addr%/}${auth_flow_path}" "${auth_host}" "http-flow"
+  dump_k8s_debug "${namespace}" "${ksbh_release_name}" "${auth_release_name}"
+  exit 1
+fi
+
+if ! wait_for_authentik_flow "${ksbh_https_addr}" "${auth_host}" 300; then
+  echo "authentik route smoke check failed on HTTPS" >&2
+  dump_route_debug "${ksbh_https_addr%/}${auth_flow_path}" "${auth_host}" "https-flow"
+  dump_k8s_debug "${namespace}" "${ksbh_release_name}" "${auth_release_name}"
+  exit 1
+fi
+
+echo "authentik through ksbh looks reachable"
+echo "host: ${auth_host}"
+echo "http: ${ksbh_http_addr%/}${auth_flow_path}"
+echo "https: ${ksbh_https_addr%/}${auth_flow_path}"
+
+echo "running authenticated login verification through ksbh"
+run_authentik_login_playwright
+echo "authenticated login verification passed"

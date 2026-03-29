@@ -94,6 +94,18 @@ e2e_release_name() {
   printf '%s\n' "${KSBH_E2E_RELEASE_NAME:-ksbh}"
 }
 
+resolve_test_binary() {
+  local deps_dir="$1"
+  local prefix="$2"
+
+  find "${deps_dir}" -maxdepth 1 -type f -name "${prefix}-*" -perm -u+x \
+    ! -name '*.d' \
+    ! -name '*.rlib' \
+    ! -name '*.rmeta' \
+    | sort \
+    | head -n 1
+}
+
 wait_for_http_status() {
   local url="$1"
   local expected_status="$2"
