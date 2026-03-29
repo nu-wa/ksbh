@@ -1,5 +1,13 @@
 #!/usr/bin/env bash
 
+require_cmd() {
+  local cmd="$1"
+  if ! command -v "${cmd}" >/dev/null 2>&1; then
+    echo "${cmd} is not installed or not in PATH" >&2
+    exit 1
+  fi
+}
+
 require_docker() {
   if ! command -v docker >/dev/null 2>&1; then
     echo "docker is not installed or not in PATH" >&2

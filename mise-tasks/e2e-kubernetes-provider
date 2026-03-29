@@ -434,6 +434,7 @@ run_k8s_test() {
       exit 1
     fi
 
+    chmod +x "${test_bin}" || true
     "${test_bin}" --ignored --nocapture --test-threads=1
   else
     cargo test \

@@ -30,6 +30,18 @@ jobs:
             - name: Check out repository
               uses: https://data.forgejo.org/actions/checkout@v4
 
+            - name: Restore Rust build cache
+              uses: https://data.forgejo.org/actions/cache@v4
+              with:
+                  path: |
+                      /root/.cargo/registry
+                      /root/.cargo/git
+                      crates/target
+                  key: rust-build-${{ forge.ref_name }}-${{ hashFiles('crates/Cargo.lock') }}
+                  restore-keys: |
+                      rust-build-${{ forge.ref_name }}-
+                      rust-build-
+
             - name: Build once
               shell: bash
               run: |
