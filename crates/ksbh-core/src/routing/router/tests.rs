@@ -2,7 +2,7 @@
 mod tests {
     #[test]
     fn runtime_snapshot_tracks_modules_and_ingresses() {
-        let (reader, writer) = super::Router::create();
+        let (reader, writer) = crate::routing::Router::create();
 
         let mut module_config = hashbrown::HashMap::new();
         module_config.insert(
@@ -34,11 +34,10 @@ mod tests {
         writer.insert_ingress(
             "ingress-a",
             vec![(::std::sync::Arc::from("example.local"), host_paths)],
-            super::IngressModuleConfig {
+            crate::routing::IngressModuleConfig {
                 modules: vec![::std::sync::Arc::from("robots-test")],
                 excluded_modules: vec![],
             },
-            false,
             None,
         );
 
@@ -55,7 +54,7 @@ mod tests {
 
     #[test]
     fn merged_modules_keep_global_and_ingress_scopes_separate() {
-        let (_reader, writer) = super::Router::create();
+        let (_reader, writer) = crate::routing::Router::create();
 
         writer.upsert_module(
             "global-low",
@@ -123,14 +122,13 @@ mod tests {
         writer.insert_ingress(
             "ingress-a",
             vec![(::std::sync::Arc::from("example.local"), host_paths)],
-            super::IngressModuleConfig {
+            crate::routing::IngressModuleConfig {
                 modules: vec![
                     ::std::sync::Arc::from("ingress-low"),
                     ::std::sync::Arc::from("ingress-high"),
                 ],
                 excluded_modules: vec![],
             },
-            false,
             None,
         );
 
@@ -150,7 +148,7 @@ mod tests {
 
     #[test]
     fn equal_weights_are_tiebroken_by_name() {
-        let (_reader, writer) = super::Router::create();
+        let (_reader, writer) = crate::routing::Router::create();
 
         writer.upsert_module(
             "beta",
