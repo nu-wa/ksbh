@@ -1,3 +1,9 @@
+pub mod router_reader;
+pub mod router_writer;
+
+#[cfg(test)]
+pub mod tests;
+
 #[derive(Debug, Clone)]
 pub struct ModuleInnerConfig {
     pub spec: ::std::sync::Arc<crate::modules::ModuleConfigurationSpec>,
@@ -42,25 +48,8 @@ pub struct Router {
 }
 
 #[derive(Debug, Clone)]
-pub struct RouterReader {
-    router: ::std::sync::Arc<Router>,
-}
-
-#[derive(Debug, Clone)]
-pub struct RouterWriter {
-    router: ::std::sync::Arc<Router>,
-}
-
-#[derive(Debug, Clone)]
-pub(super) struct Ingress {
-    name: ::std::sync::Arc<str>,
-    pub merged_modules: super::request_match::RequestMatchModules,
-    pub https: bool,
-}
-
-#[derive(Debug, Clone)]
 struct HostEntry {
-    ingress: ::std::sync::Arc<Ingress>,
+    ingress: ::std::sync::Arc<super::ingress::Ingress>,
     paths: super::HostPaths,
 }
 
@@ -143,14 +132,14 @@ impl Router {
     }
 
     /// Creates a new RouterReader/RouterWriter pair for concurrent access.
-    pub fn create() -> (RouterReader, RouterWriter) {
+    pub fn create() -> (router_reader::RouterReader, router_writer::RouterWriter) {
         let _self = ::std::sync::Arc::new(Router::default());
 
         (
-            RouterReader {
+            router_reader::RouterReader {
                 router: _self.clone(),
             },
-            RouterWriter { router: _self },
+            router_writer::RouterWriter { router: _self },
         )
     }
 
@@ -172,7 +161,7 @@ impl Router {
                         return Some(super::RequestMatch {
                             backend: backend.clone(),
                             modules: entry.ingress.merged_modules.clone(),
-                            https: entry.ingress.https,
+                            peer_options: entry.ingress.peer_options.clone(),
                         });
                     }
                 }
@@ -227,7 +216,7 @@ impl Router {
         ingress_name: &str,
         hosts: Vec<(::std::sync::Arc<str>, super::HostPaths)>,
         module_config: IngressModuleConfig,
-        https: bool,
+        peer_options: Option<ksbh_types::providers::proxy::peer_options::PeerOptions>,
     ) {
         let ingress_name: ::std::sync::Arc<str> = ::std::sync::Arc::from(ingress_name);
 
@@ -235,10 +224,10 @@ impl Router {
             .upsert_sync(ingress_name.clone(), module_config);
 
         let merged_modules = self.get_ingress_modules(&ingress_name);
-        let ingress = ::std::sync::Arc::new(Ingress {
+        let ingress = ::std::sync::Arc::new(super::ingress::Ingress {
             name: ingress_name,
             merged_modules,
-            https,
+            peer_options,
         });
 
         for (host_name, paths) in hosts {
@@ -405,10 +394,10 @@ impl Router {
                         .unwrap_or_else(|| ::std::sync::Arc::from(global_modules.clone()));
 
                     HostEntry {
-                        ingress: ::std::sync::Arc::new(Ingress {
+                        ingress: ::std::sync::Arc::new(super::ingress::Ingress {
                             name: entry.ingress.name.clone(),
                             merged_modules: merged,
-                            https: entry.ingress.https,
+                            peer_options: entry.ingress.peer_options.clone(),
                         }),
                         paths: entry.paths,
                     }
@@ -522,26 +511,6 @@ impl Router {
     }
 }
 
-impl RouterReader {
-    /// Main routing decision method. Finds the best matching route for an HTTP request
-    /// based on host and path, returning the backend service and attached modules.
-    pub fn find_route(
-        &self,
-        http_request: &ksbh_types::requests::http_request::HttpRequest,
-    ) -> Option<super::request_match::RequestMatch> {
-        self.router.find_route(http_request)
-    }
-
-    /// Returns the list of global module configurations that apply to all ingresses.
-    pub fn get_global_modules_configs(&self) -> Vec<super::request_match::RequestMatchModule> {
-        self.router.get_global_modules()
-    }
-
-    pub fn snapshot_runtime_state(&self) -> RuntimeStateSnapshot {
-        self.router.snapshot_runtime_state()
-    }
-}
-
 impl Default for Router {
     fn default() -> Self {
         Self {
@@ -553,7 +522,7 @@ impl Default for Router {
     }
 }
 
-impl From<&::std::sync::Arc<Router>> for RouterReader {
+impl From<&::std::sync::Arc<Router>> for router_reader::RouterReader {
     fn from(value: &::std::sync::Arc<Router>) -> Self {
         Self {
             router: ::std::sync::Arc::clone(value),
@@ -561,240 +530,10 @@ impl From<&::std::sync::Arc<Router>> for RouterReader {
     }
 }
 
-impl From<&::std::sync::Arc<Router>> for RouterWriter {
+impl From<&::std::sync::Arc<Router>> for router_writer::RouterWriter {
     fn from(value: &::std::sync::Arc<Router>) -> Self {
         Self {
             router: ::std::sync::Arc::clone(value),
         }
-    }
-}
-
-#[cfg(test)]
-#[allow(clippy::items_after_test_module)]
-mod tests {
-    #[test]
-    fn runtime_snapshot_tracks_modules_and_ingresses() {
-        let (reader, writer) = super::Router::create();
-
-        let mut module_config = hashbrown::HashMap::new();
-        module_config.insert(
-            ksbh_types::KsbhStr::new("content"),
-            ksbh_types::KsbhStr::new("hello"),
-        );
-
-        writer.upsert_module(
-            "robots-test",
-            false,
-            ::std::sync::Arc::new(module_config),
-            crate::modules::ModuleConfigurationSpec {
-                name: "robots-test".to_string(),
-                r#type: crate::modules::ModuleConfigurationType::RobotsDotTXT,
-                weight: 100,
-                global: false,
-                secret_ref: None,
-                config: None,
-                requires_body: false,
-            },
-        );
-
-        let mut host_paths = crate::routing::HostPaths::default();
-        host_paths.prefix.push((
-            ksbh_types::KsbhStr::new("/"),
-            crate::routing::ServiceBackendType::Static,
-        ));
-
-        writer.insert_ingress(
-            "ingress-a",
-            vec![(::std::sync::Arc::from("example.local"), host_paths)],
-            super::IngressModuleConfig {
-                modules: vec![::std::sync::Arc::from("robots-test")],
-                excluded_modules: vec![],
-            },
-            false,
-        );
-
-        let snapshot = reader.snapshot_runtime_state();
-
-        assert_eq!(snapshot.modules.len(), 1);
-        assert_eq!(snapshot.modules[0].name, "robots-test");
-        assert_eq!(snapshot.ingresses.len(), 1);
-        assert_eq!(snapshot.ingresses[0].ingress_name, "ingress-a");
-        assert_eq!(snapshot.ingresses[0].host, "example.local");
-        assert_eq!(snapshot.ingresses[0].attached_modules, vec!["robots-test"]);
-        assert_eq!(snapshot.ingresses[0].merged_modules, vec!["robots-test"]);
-    }
-
-    #[test]
-    fn merged_modules_keep_global_and_ingress_scopes_separate() {
-        let (_reader, writer) = super::Router::create();
-
-        writer.upsert_module(
-            "global-low",
-            true,
-            ::std::sync::Arc::new(hashbrown::HashMap::new()),
-            crate::modules::ModuleConfigurationSpec {
-                name: "global-low".to_string(),
-                r#type: crate::modules::ModuleConfigurationType::Custom("global-low".to_string()),
-                weight: 10,
-                global: true,
-                secret_ref: None,
-                config: None,
-                requires_body: false,
-            },
-        );
-        writer.upsert_module(
-            "global-high",
-            true,
-            ::std::sync::Arc::new(hashbrown::HashMap::new()),
-            crate::modules::ModuleConfigurationSpec {
-                name: "global-high".to_string(),
-                r#type: crate::modules::ModuleConfigurationType::Custom("global-high".to_string()),
-                weight: 100,
-                global: true,
-                secret_ref: None,
-                config: None,
-                requires_body: false,
-            },
-        );
-        writer.upsert_module(
-            "ingress-high",
-            false,
-            ::std::sync::Arc::new(hashbrown::HashMap::new()),
-            crate::modules::ModuleConfigurationSpec {
-                name: "ingress-high".to_string(),
-                r#type: crate::modules::ModuleConfigurationType::Custom("ingress-high".to_string()),
-                weight: 1000,
-                global: false,
-                secret_ref: None,
-                config: None,
-                requires_body: false,
-            },
-        );
-        writer.upsert_module(
-            "ingress-low",
-            false,
-            ::std::sync::Arc::new(hashbrown::HashMap::new()),
-            crate::modules::ModuleConfigurationSpec {
-                name: "ingress-low".to_string(),
-                r#type: crate::modules::ModuleConfigurationType::Custom("ingress-low".to_string()),
-                weight: 1,
-                global: false,
-                secret_ref: None,
-                config: None,
-                requires_body: false,
-            },
-        );
-
-        let mut host_paths = crate::routing::HostPaths::default();
-        host_paths.prefix.push((
-            ksbh_types::KsbhStr::new("/"),
-            crate::routing::ServiceBackendType::Static,
-        ));
-
-        writer.insert_ingress(
-            "ingress-a",
-            vec![(::std::sync::Arc::from("example.local"), host_paths)],
-            super::IngressModuleConfig {
-                modules: vec![
-                    ::std::sync::Arc::from("ingress-low"),
-                    ::std::sync::Arc::from("ingress-high"),
-                ],
-                excluded_modules: vec![],
-            },
-            false,
-        );
-
-        let modules = writer
-            .router
-            .get_ingress_modules(&::std::sync::Arc::from("ingress-a"));
-        let module_names: Vec<_> = modules
-            .iter()
-            .map(|module| module.name.to_string())
-            .collect();
-
-        assert_eq!(
-            module_names,
-            vec!["global-high", "global-low", "ingress-high", "ingress-low"]
-        );
-    }
-
-    #[test]
-    fn equal_weights_are_tiebroken_by_name() {
-        let (_reader, writer) = super::Router::create();
-
-        writer.upsert_module(
-            "beta",
-            true,
-            ::std::sync::Arc::new(hashbrown::HashMap::new()),
-            crate::modules::ModuleConfigurationSpec {
-                name: "beta".to_string(),
-                r#type: crate::modules::ModuleConfigurationType::Custom("beta".to_string()),
-                weight: 5,
-                global: true,
-                secret_ref: None,
-                config: None,
-                requires_body: false,
-            },
-        );
-        writer.upsert_module(
-            "alpha",
-            true,
-            ::std::sync::Arc::new(hashbrown::HashMap::new()),
-            crate::modules::ModuleConfigurationSpec {
-                name: "alpha".to_string(),
-                r#type: crate::modules::ModuleConfigurationType::Custom("alpha".to_string()),
-                weight: 5,
-                global: true,
-                secret_ref: None,
-                config: None,
-                requires_body: false,
-            },
-        );
-
-        let modules = writer.router.get_global_modules();
-        let module_names: Vec<_> = modules
-            .iter()
-            .map(|module| module.name.to_string())
-            .collect();
-
-        assert_eq!(module_names, vec!["alpha", "beta"]);
-    }
-}
-
-impl RouterWriter {
-    pub fn delete_module_config(&self, name: &str) {
-        self.router.delete_module_config(name);
-    }
-
-    /// Registers or updates a module configuration.
-    /// If `global` is true, the module applies to all ingresses.
-    pub fn upsert_module(
-        &self,
-        name: &str,
-        global: bool,
-        config: crate::modules::ModuleConfigurationValues,
-        spec: crate::modules::ModuleConfigurationSpec,
-    ) {
-        self.router.upsert_module(name, global, config, spec);
-    }
-
-    /// Registers an ingress with its associated hosts and path configurations.
-    pub fn insert_ingress(
-        &self,
-        ingress_name: &str,
-        hosts: Vec<(::std::sync::Arc<str>, super::HostPaths)>,
-        module_config: IngressModuleConfig,
-        https: bool,
-    ) {
-        self.router
-            .insert_ingress(ingress_name, hosts, module_config, https);
-    }
-
-    pub fn delete_ingress(&self, ingress_name: &str) {
-        self.router.delete_ingress(ingress_name);
-    }
-
-    pub fn reload_ingresses(&self) {
-        self.router.reload_ingresses();
     }
 }

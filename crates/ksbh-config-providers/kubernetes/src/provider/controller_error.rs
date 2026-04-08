@@ -24,3 +24,9 @@ impl From<kube::Error> for ControllerError {
         ControllerError::KubeError(value)
     }
 }
+
+impl From<crate::provider::ingress_controller::annotations::AnnotationError> for ControllerError {
+    fn from(value: crate::provider::ingress_controller::annotations::AnnotationError) -> Self {
+        Self::InvalidIngress(value.to_string())
+    }
+}

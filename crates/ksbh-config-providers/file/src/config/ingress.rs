@@ -7,7 +7,8 @@ pub struct FileConfigIngress {
     pub modules: Vec<String>,
     #[serde(default)]
     pub excluded_modules: Vec<String>,
-    pub https: Option<bool>,
+    #[serde(default)]
+    pub peer_options: Option<FileConfigPeerOptions>,
     pub paths: Vec<FileConfigPaths>,
 }
 
@@ -29,4 +30,18 @@ pub struct FileConfigPaths {
 pub struct FileConfigService {
     pub name: String,
     pub port: u16,
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+pub struct FileConfigPeerOptions {
+    #[serde(default)]
+    pub sni: Option<String>,
+    #[serde(default)]
+    pub alternative_names: Option<Vec<String>>,
+    #[serde(default = "default_true")]
+    pub verify_cert: bool,
+}
+
+fn default_true() -> bool {
+    true
 }

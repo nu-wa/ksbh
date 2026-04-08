@@ -785,11 +785,33 @@ where
         match self.provider.upstream_peer(&mut session, ctx).await {
             Ok(upstream) => {
                 tracing::debug!("got upstream: {:?}", upstream);
-                Ok(Box::new(pingora::upstreams::peer::HttpPeer::new(
-                    upstream.address.as_str(),
-                    upstream.https,
-                    upstream.address.clone(),
-                )))
+                let mut https = false;
+                let mut sni = upstream.address.clone();
+                let mut peer_options = pingora::upstreams::peer::PeerOptions::new();
+
+                if let Some(upstream_peer_options) = &upstream.peer_options {
+                    peer_options.verify_cert = upstream_peer_options.verify_cert;
+                    peer_options.verify_hostname = upstream_peer_options.verify_cert;
+                    peer_options.alternative_cn = upstream_peer_options
+                        .altnerative_names
+                        .first()
+                        .cloned()
+                        .map(|s| s.to_string());
+
+                    if let Some(alternative_sni) = &upstream_peer_options.sni {
+                        sni = alternative_sni.to_string();
+                    }
+
+                    https = upstream_peer_options.sni.is_some()
+                        || !upstream_peer_options.altnerative_names.is_empty();
+                }
+
+                let mut http_peer =
+                    pingora::upstreams::peer::HttpPeer::new(upstream.address.as_str(), https, sni);
+
+                http_peer.options = peer_options;
+
+                Ok(Box::new(http_peer))
             }
             Err(e) => Err(pingora::Error::create(
                 pingora::ErrorType::Custom("InternalError"),

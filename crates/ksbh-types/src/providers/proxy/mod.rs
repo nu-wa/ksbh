@@ -1,3 +1,5 @@
+pub mod peer_options;
+
 /// Errors that can occur during proxy provider operations.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProxyProviderError {
@@ -68,7 +70,7 @@ pub enum ProxyDecision {
 pub struct UpstreamPeer {
     /// The address of the upstream peer
     pub address: String,
-    pub https: bool,
+    pub peer_options: Option<crate::providers::proxy::peer_options::PeerOptions>,
 }
 
 impl ::std::fmt::Display for ProxyDecision {

@@ -50,7 +50,7 @@ pub async fn parse_rules(
     };
 
     ctx.hosts
-        .insert_ingress(name, hosts, module_config, annotations.https);
+        .insert_ingress(name, hosts, module_config, annotations.peer_options);
 
     Ok(())
 }

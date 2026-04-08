@@ -147,6 +147,25 @@ impl ksbh_core::config_provider::ConfigProvider for FileProvider {
 
             hosts.push((::std::sync::Arc::from(ingress.host.as_str()), host_paths));
 
+            let peer_options = match ingress.peer_options {
+                None => None,
+                Some(peer_options) => {
+                    Some(ksbh_types::providers::proxy::peer_options::PeerOptions {
+                        altnerative_names: peer_options
+                            .alternative_names
+                            .map(|alternative_names| {
+                                alternative_names
+                                    .into_iter()
+                                    .map(|s| ::std::sync::Arc::<str>::from(s))
+                                    .collect::<Vec<_>>()
+                            })
+                            .unwrap_or_default(),
+                        sni: peer_options.sni.map(|s| ::std::sync::Arc::from(s.as_str())),
+                        verify_cert: peer_options.verify_cert,
+                    })
+                }
+            };
+
             router.insert_ingress(
                 &ingress.name,
                 hosts,
@@ -162,7 +181,7 @@ impl ksbh_core::config_provider::ConfigProvider for FileProvider {
                         .map(|s| ::std::sync::Arc::from(s.as_str()))
                         .collect(),
                 },
-                ingress.https.unwrap_or(false),
+                peer_options,
             );
         }
     }

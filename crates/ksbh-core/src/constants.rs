@@ -9,7 +9,10 @@ pub const KSBH_FINALIZER: &str = "ksbh.app/finalizer";
 
 pub const KSBH_ANNOTATION_KEY_MODULES: &str = "ksbh.rs/modules";
 pub const KSBH_ANNOTATION_KEY_PLUGINS: &str = "ksbh.rs/plugins";
-pub const KSBH_ANNOTATION_KEY_PROTCOL: &str = "ksbh.rs/protocol";
+pub const KSBH_ANNOTATION_KEY_MTLS: &str = "ksbh.rs/mtls";
+pub const KSBH_ANNOTATION_KEY_MTLS_SKIP_CHECK_CERT: &str = "ksbh.rs/mtls/verify-cert";
+pub const KSBH_ANNOTATION_KEY_MTLS_CERT_SNI: &str = "ksbh.rs/mtls/sni";
+pub const KSBH_ANNOTATION_KEY_MTLS_CERT_ALTERNATIVE_NAMES: &str = "ksbh.rs/mtls/alternative-names";
 pub const KSBH_ANNOTATION_KEY_EXCLUDED_MODULES: &str = "ksbh.rs/excluded-modules";
 pub const KSBH_K8S_SERVICE_RESSOURCE_API_GROUP: &str = "service-resource.ksbh.rs";
 

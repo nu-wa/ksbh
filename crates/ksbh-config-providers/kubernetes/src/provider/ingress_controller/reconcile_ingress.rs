@@ -43,7 +43,7 @@ pub(super) async fn reconcile_ingress(
         &namespace,
         &name,
         &rules,
-        super::annotations::Annotations::new(obj.metadata.annotations.as_ref()),
+        super::annotations::Annotations::new(obj.metadata.annotations.as_ref())?,
         &obj,
     )
     .await?;

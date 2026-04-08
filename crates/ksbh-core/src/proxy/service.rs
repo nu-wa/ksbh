@@ -211,16 +211,17 @@ impl ksbh_types::prelude::ProxyProvider for ProxyService {
 
             return Ok(ksbh_types::providers::proxy::UpstreamPeer {
                 address: internal_upstream_address.clone(),
-                https: false,
+                peer_options: None,
             });
         }
 
         if let Some(valid_request_information) = &ctx.valid_request_information {
-            return match &valid_request_information.req_match.backend {
+            let req_match = &valid_request_information.req_match;
+            return match &req_match.backend {
                 crate::routing::ServiceBackendType::ServiceBackend(svc) => {
                     Ok(ksbh_types::providers::proxy::UpstreamPeer {
                         address: format!("{}:{}", svc.name, svc.port),
-                        https: valid_request_information.req_match.https,
+                        peer_options: req_match.peer_options.clone(),
                     })
                 }
                 crate::routing::ServiceBackendType::Static => {
@@ -234,7 +235,7 @@ impl ksbh_types::prelude::ProxyProvider for ProxyService {
 
                             return Ok(ksbh_types::providers::proxy::UpstreamPeer {
                                 address: internal_upstream_address.clone(),
-                                https: false,
+                                peer_options: None,
                             });
                         }
                     };
@@ -248,7 +249,7 @@ impl ksbh_types::prelude::ProxyProvider for ProxyService {
 
                     Ok(ksbh_types::providers::proxy::UpstreamPeer {
                         address: internal_upstream_address.clone(),
-                        https: false,
+                        peer_options: None,
                     })
                 }
                 _ => {
@@ -259,7 +260,7 @@ impl ksbh_types::prelude::ProxyProvider for ProxyService {
 
                     Ok(ksbh_types::providers::proxy::UpstreamPeer {
                         address: internal_upstream_address.clone(),
-                        https: false,
+                        peer_options: None,
                     })
                 }
             };
@@ -273,7 +274,7 @@ impl ksbh_types::prelude::ProxyProvider for ProxyService {
 
         return Ok(ksbh_types::providers::proxy::UpstreamPeer {
             address: internal_upstream_address,
-            https: false,
+            peer_options: None,
         });
     }
 
