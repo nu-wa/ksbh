@@ -43,6 +43,10 @@ RUN apt-get update -y \
 RUN echo "y" | sh -c "$(curl -fsSL https://mise.run)" \
   && ln -sf /root/.local/bin/mise /usr/local/bin/mise
 
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | bash -s -- -y
+
 ENV PATH="/root/.local/bin:/root/.cargo/bin:${PATH}"
+
+RUN rustup install 1.92
 
 RUN cargo install sccache --locked
