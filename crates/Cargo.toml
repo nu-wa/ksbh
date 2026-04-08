@@ -29,7 +29,6 @@ libloading = "0.9.0"
 notify = "8.0.0"
 scc = "3.4.10"
 rand = "0.8"
-tempfile = "3"
 urlencoding = "2.1.3"
 tokio = { version = "1.49.0", features = ["full"] }
 rmp-serde = "1.3.1"
@@ -153,3 +152,12 @@ features = ["fast-rng", "macro-diagnostics", "serde", "v4", "v5", "v6"]
 
 [workspace.dependencies.mimalloc]
 version = "0.1.48"
+
+[workspace.dependencies.config]
+version = "0.15.21"
+
+[workspace.dependencies.tempfile]
+version = "3.27.0"
+
+[workspace.dependencies.psl]
+version = "2.1.198"

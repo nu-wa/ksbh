@@ -34,9 +34,7 @@ pub fn start_pingora(
                     "Using file-based config provider with path: {}",
                     config_path
                 );
-                Box::new(ksbh_config_providers_file::FileConfigProvider::new(
-                    std::path::PathBuf::from(config_path),
-                ))
+                Box::new(ksbh_config_providers_file::FileProvider::new(&config_path))
             }
             Err(_) => {
                 tracing::info!("Using kubernetes config provider");

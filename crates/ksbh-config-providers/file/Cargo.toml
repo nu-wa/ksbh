@@ -15,7 +15,12 @@ async-trait = { workspace = true }
 tracing = { workspace = true }
 hashbrown = { workspace = true }
 pingora-core = { workspace = true }
+psl = { workspace = true }
+
+[dependencies.config]
+workspace = true
 
 [dev-dependencies]
 tempfile = { workspace = true }
 tokio = { workspace = true }
+ksbh-types = { workspace = true, features = ["test-util"] }

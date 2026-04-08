@@ -3,6 +3,8 @@ pub struct BinaryFixture {
     config_path: ::std::path::PathBuf,
     modules_dir: ::std::path::PathBuf,
     static_dir: ::std::path::PathBuf,
+    tls_cert_path: ::std::path::PathBuf,
+    tls_key_path: ::std::path::PathBuf,
     stdout_path: ::std::path::PathBuf,
     stderr_path: ::std::path::PathBuf,
     http_addr: ::std::string::String,
@@ -26,12 +28,15 @@ impl BinaryFixture {
         let config_path = temp_dir.path().join("routing.yaml");
         let modules_dir = temp_dir.path().join("modules");
         let static_dir = temp_dir.path().join("static");
+        let tls_cert_path = temp_dir.path().join("default-tls.crt");
+        let tls_key_path = temp_dir.path().join("default-tls.key");
         let stdout_path = temp_dir.path().join("stdout.log");
         let stderr_path = temp_dir.path().join("stderr.log");
 
         ::std::fs::create_dir_all(&modules_dir)?;
         ::std::fs::create_dir_all(&static_dir)?;
         ::std::fs::write(&config_path, routing_yaml)?;
+        write_default_tls_files(&tls_cert_path, &tls_key_path)?;
 
         let http_port = find_free_port()?;
         let https_port = find_free_port()?;
@@ -43,6 +48,8 @@ impl BinaryFixture {
             config_path,
             modules_dir,
             static_dir,
+            tls_cert_path,
+            tls_key_path,
             stdout_path,
             stderr_path,
             http_addr: format!("127.0.0.1:{http_port}"),
@@ -75,6 +82,8 @@ impl BinaryFixture {
             .env("KSBH__LISTEN_ADDRESSES__INTERNAL", &self.internal_addr)
             .env("KSBH__LISTEN_ADDRESSES__PROMETHEUS", &self.metrics_addr)
             .env("KSBH__LISTEN_ADDRESSES__PROFILING", &self.profiling_addr)
+            .env("KSBH__TLS__DEFAULT_CERT_FILE", &self.tls_cert_path)
+            .env("KSBH__TLS__DEFAULT_KEY_FILE", &self.tls_key_path)
             .stdout(::std::process::Stdio::from(stdout))
             .stderr(::std::process::Stdio::from(stderr))
             .spawn()?;
@@ -93,6 +102,10 @@ impl BinaryFixture {
 
     pub fn http_base_addr(&self) -> ::std::string::String {
         format!("http://{}", self.http_addr)
+    }
+
+    pub fn https_base_addr(&self) -> ::std::string::String {
+        format!("https://{}", self.https_addr)
     }
 
     pub fn internal_base_addr(&self) -> ::std::string::String {
@@ -236,6 +249,19 @@ fn find_free_port() -> Result<u16, Box<dyn ::std::error::Error + Send + Sync>> {
     let port = listener.local_addr()?.port();
     drop(listener);
     Ok(port)
+}
+
+fn write_default_tls_files(
+    cert_path: &::std::path::Path,
+    key_path: &::std::path::Path,
+) -> Result<(), Box<dyn ::std::error::Error + Send + Sync>> {
+    let cert =
+        rcgen::generate_simple_self_signed(vec!["localhost".to_string(), "127.0.0.1".to_string()])?;
+    let cert_pem = cert.cert.pem();
+    let key_pem = cert.key_pair.serialize_pem();
+    ::std::fs::write(cert_path, cert_pem)?;
+    ::std::fs::write(key_path, key_pem)?;
+    Ok(())
 }
 
 fn binary_path() -> ::std::path::PathBuf {

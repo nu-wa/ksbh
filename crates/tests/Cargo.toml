@@ -39,6 +39,7 @@ hex = { workspace = true }
 httpmock = { workspace = true }
 reqwest = { workspace = true, default-features = false, features = ["json", "rustls-tls"] }
 tempfile = { workspace = true }
+rcgen = "0.13.2"
 
 [dependencies.kube]
 workspace = true

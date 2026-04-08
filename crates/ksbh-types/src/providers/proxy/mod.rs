@@ -68,6 +68,7 @@ pub enum ProxyDecision {
 pub struct UpstreamPeer {
     /// The address of the upstream peer
     pub address: String,
+    pub https: bool,
 }
 
 impl ::std::fmt::Display for ProxyDecision {

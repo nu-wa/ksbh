@@ -16,7 +16,6 @@ pub struct RuntimeIngressSnapshot {
     pub ingress_name: ::std::string::String,
     pub host: ::std::string::String,
     pub attached_modules: Vec<::std::string::String>,
-    pub excluded_modules: Vec<::std::string::String>,
     pub merged_modules: Vec<::std::string::String>,
 }
 
@@ -56,6 +55,7 @@ pub struct RouterWriter {
 pub(super) struct Ingress {
     name: ::std::sync::Arc<str>,
     pub merged_modules: super::request_match::RequestMatchModules,
+    pub https: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -172,6 +172,7 @@ impl Router {
                         return Some(super::RequestMatch {
                             backend: backend.clone(),
                             modules: entry.ingress.merged_modules.clone(),
+                            https: entry.ingress.https,
                         });
                     }
                 }
@@ -226,6 +227,7 @@ impl Router {
         ingress_name: &str,
         hosts: Vec<(::std::sync::Arc<str>, super::HostPaths)>,
         module_config: IngressModuleConfig,
+        https: bool,
     ) {
         let ingress_name: ::std::sync::Arc<str> = ::std::sync::Arc::from(ingress_name);
 
@@ -236,6 +238,7 @@ impl Router {
         let ingress = ::std::sync::Arc::new(Ingress {
             name: ingress_name,
             merged_modules,
+            https,
         });
 
         for (host_name, paths) in hosts {
@@ -405,6 +408,7 @@ impl Router {
                         ingress: ::std::sync::Arc::new(Ingress {
                             name: entry.ingress.name.clone(),
                             merged_modules: merged,
+                            https: entry.ingress.https,
                         }),
                         paths: entry.paths,
                     }
@@ -489,11 +493,6 @@ impl Router {
                     host: host_name.clone(),
                     attached_modules: ingress_config
                         .modules
-                        .iter()
-                        .map(|name| name.to_string())
-                        .collect(),
-                    excluded_modules: ingress_config
-                        .excluded_modules
                         .iter()
                         .map(|name| name.to_string())
                         .collect(),
@@ -609,8 +608,9 @@ mod tests {
             vec![(::std::sync::Arc::from("example.local"), host_paths)],
             super::IngressModuleConfig {
                 modules: vec![::std::sync::Arc::from("robots-test")],
-                excluded_modules: Vec::new(),
+                excluded_modules: vec![],
             },
+            false,
         );
 
         let snapshot = reader.snapshot_runtime_state();
@@ -699,8 +699,9 @@ mod tests {
                     ::std::sync::Arc::from("ingress-low"),
                     ::std::sync::Arc::from("ingress-high"),
                 ],
-                excluded_modules: Vec::new(),
+                excluded_modules: vec![],
             },
+            false,
         );
 
         let modules = writer
@@ -783,9 +784,10 @@ impl RouterWriter {
         ingress_name: &str,
         hosts: Vec<(::std::sync::Arc<str>, super::HostPaths)>,
         module_config: IngressModuleConfig,
+        https: bool,
     ) {
         self.router
-            .insert_ingress(ingress_name, hosts, module_config);
+            .insert_ingress(ingress_name, hosts, module_config, https);
     }
 
     pub fn delete_ingress(&self, ingress_name: &str) {

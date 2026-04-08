@@ -11,4 +11,5 @@ pub type RequestMatchModules = ::std::sync::Arc<[RequestMatchModule]>;
 pub struct RequestMatch {
     pub backend: super::ServiceBackendType,
     pub modules: RequestMatchModules,
+    pub https: bool,
 }

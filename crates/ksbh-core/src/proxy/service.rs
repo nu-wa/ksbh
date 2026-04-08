@@ -211,6 +211,7 @@ impl ksbh_types::prelude::ProxyProvider for ProxyService {
 
             return Ok(ksbh_types::providers::proxy::UpstreamPeer {
                 address: internal_upstream_address.clone(),
+                https: false,
             });
         }
 
@@ -219,6 +220,7 @@ impl ksbh_types::prelude::ProxyProvider for ProxyService {
                 crate::routing::ServiceBackendType::ServiceBackend(svc) => {
                     Ok(ksbh_types::providers::proxy::UpstreamPeer {
                         address: format!("{}:{}", svc.name, svc.port),
+                        https: valid_request_information.req_match.https,
                     })
                 }
                 crate::routing::ServiceBackendType::Static => {
@@ -232,6 +234,7 @@ impl ksbh_types::prelude::ProxyProvider for ProxyService {
 
                             return Ok(ksbh_types::providers::proxy::UpstreamPeer {
                                 address: internal_upstream_address.clone(),
+                                https: false,
                             });
                         }
                     };
@@ -245,6 +248,7 @@ impl ksbh_types::prelude::ProxyProvider for ProxyService {
 
                     Ok(ksbh_types::providers::proxy::UpstreamPeer {
                         address: internal_upstream_address.clone(),
+                        https: false,
                     })
                 }
                 _ => {
@@ -255,6 +259,7 @@ impl ksbh_types::prelude::ProxyProvider for ProxyService {
 
                     Ok(ksbh_types::providers::proxy::UpstreamPeer {
                         address: internal_upstream_address.clone(),
+                        https: false,
                     })
                 }
             };
@@ -268,6 +273,7 @@ impl ksbh_types::prelude::ProxyProvider for ProxyService {
 
         return Ok(ksbh_types::providers::proxy::UpstreamPeer {
             address: internal_upstream_address,
+            https: false,
         });
     }
 
@@ -570,12 +576,9 @@ impl ksbh_types::prelude::ProxyProvider for ProxyService {
 mod tests {
     #[test]
     fn normalize_cookie_header_for_upstream_merges_multiple_headers() {
-        let mut request = pingora_http::RequestHeader::build_no_case(
-            http::Method::GET,
-            b"/",
-            Some(4),
-        )
-        .expect("request build should succeed");
+        let mut request =
+            pingora_http::RequestHeader::build_no_case(http::Method::GET, b"/", Some(4))
+                .expect("request build should succeed");
         request
             .append_header(http::header::COOKIE, "ksbh=abc")
             .expect("append cookie should succeed");
@@ -586,8 +589,11 @@ mod tests {
         super::ProxyService::normalize_cookie_header_for_upstream(&mut request)
             .expect("normalization should succeed");
 
-        let cookies: Vec<&http::HeaderValue> =
-            request.headers.get_all(http::header::COOKIE).iter().collect();
+        let cookies: Vec<&http::HeaderValue> = request
+            .headers
+            .get_all(http::header::COOKIE)
+            .iter()
+            .collect();
         assert_eq!(cookies.len(), 1);
         assert_eq!(
             cookies[0].to_str().expect("cookie must be utf-8"),

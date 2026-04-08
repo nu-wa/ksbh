@@ -787,7 +787,7 @@ where
                 tracing::debug!("got upstream: {:?}", upstream);
                 Ok(Box::new(pingora::upstreams::peer::HttpPeer::new(
                     upstream.address.as_str(),
-                    false,
+                    upstream.https,
                     upstream.address.clone(),
                 )))
             }

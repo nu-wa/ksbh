@@ -53,13 +53,7 @@ impl ::std::fmt::Display for ProxyCookieError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "ProxyCookieError<{}>: '{}'.",
-            match self {
-                Self::NoCookie => "NoCookie",
-                Self::CookieError(_) => "CookieError",
-                Self::DecodeError(_) => "DecodeError",
-                Self::EncodeError(_) => "EncodeError",
-            },
+            "ProxyCookieError: '{}'.",
             match self {
                 Self::NoCookie => "No cookie header".to_string(),
                 Self::CookieError(e) => e.to_string(),
