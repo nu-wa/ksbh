@@ -44,3 +44,5 @@ RUN echo "y" | sh -c "$(curl -fsSL https://mise.run)" \
   && ln -sf /root/.local/bin/mise /usr/local/bin/mise
 
 ENV PATH="/root/.local/bin:/root/.cargo/bin:${PATH}"
+
+RUN cargo install sccache --locked

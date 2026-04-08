@@ -18,6 +18,12 @@ env:
     LOCAL_SHA: ${{ forge.sha || env.FORGEJO_SHA || env.LOCAL_SHA }}
     LOCAL_REF_NAME: ${{ forge.ref_name || env.FORGEJO_REF_NAME || env.LOCAL_REF_NAME }}
     CI_BASE_IMAGE: ${{ (vars.HARBOR_HOST || env.HARBOR_HOST) }}/registry/ksbh-ci:latest
+    SCCACHE_BUCKET: ${{ secrets.SCCACHE_BUCKET || env.SCCACHE_BUCKET }}
+    SCCACHE_ENDPOINT: ${{ secrets.SCCACHE_ENDPOINT || env.SCCACHE_ENDPOINT }}
+    SCCACHE_REGION: ${{ secrets.SCCACHE_REGION || env.SCCACHE_REGION }}
+    AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID || env.AWS_ACCESS_KEY_ID }}
+    AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY || env.AWS_SECRET_ACCESS_KEY }}
+    RUSTC_WRAPPER: /root/.cargo/bin/sccache
 
 jobs:
     build-once:
