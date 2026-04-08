@@ -382,7 +382,7 @@ async fn binary_file_provider_forwards_body_after_requires_body_module_reads_it(
         r#"
 modules:
   - name: body-reader
-    type: robots_txt
+    type: robotsdottxt
     weight: 10
     global: true
     requires_body: true
