@@ -315,17 +315,6 @@ impl ksbh_types::prelude::ProxyProvider for ProxyService {
                 .map_err(ksbh_types::prelude::ProxyProviderError::from)?;
         }
 
-        if ctx.downstream_ws_kind != crate::proxy::DownstreamWebsocketKind::None {
-            response
-                .headers
-                .try_insert(
-                    crate::constants::HEADER_X_KSBH_WS_DOWNSTREAM_TRANSPORT,
-                    http::HeaderValue::from_str(ctx.downstream_transport.as_str())
-                        .map_err(ksbh_types::prelude::ProxyProviderError::from)?,
-                )
-                .map_err(ksbh_types::prelude::ProxyProviderError::from)?;
-        }
-
         response
             .headers
             .try_insert(
