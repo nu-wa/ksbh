@@ -185,17 +185,6 @@ impl super::ProxyService {
             }
         }
 
-        if ctx.downstream_ws_kind == crate::proxy::DownstreamWebsocketKind::H2ExtendedConnect
-            && let crate::routing::ServiceBackendType::ServiceBackend(svc) =
-                &valid_request_information.req_match.backend
-        {
-            ctx.tunnel_plan = Some(crate::proxy::WebsocketTunnelPlan {
-                upstream_addr: format!("{}:{}", svc.name, svc.port),
-                host: valid_request_information.host.clone(),
-                path_and_query: ksbh_types::KsbhStr::new(http_request.query.to_string()),
-            });
-        }
-
         Ok(ksbh_types::prelude::ProxyDecision::ContinueProcessing)
     }
 }
