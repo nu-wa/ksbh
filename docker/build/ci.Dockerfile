@@ -30,6 +30,21 @@ RUN --mount=type=cache,target=/var/cache/apt/archives,sharing=locked \
     python3 \
     nodejs \
     npm \
+    unzip \
+    libnss3 \
+    libnspr4 \
+    libatk1.0-0t64 \
+    libatk-bridge2.0-0t64 \
+    libcups2t64 \
+    libdrm2 \
+    libxkbcommon0 \
+    libxcomposite1 \
+    libxdamage1 \
+    libxfixes3 \
+    libxrandr2 \
+    libgbm1 \
+    libasound2t64 \
+    xvfb \
   && rm -rf /var/lib/apt/lists/*
 
 RUN echo "y" | sh -c "$(curl -fsSL https://mise.run)" \
@@ -96,8 +111,20 @@ RUN --mount=type=cache,target=/root/.npm,sharing=locked \
 WORKDIR /opt/ksbh-playwright
 COPY tests/playwright/package.json tests/playwright/package-lock.json /opt/ksbh-playwright/
 RUN --mount=type=cache,target=/root/.npm,sharing=locked \
-  npm ci --no-audit --no-fund \
-  && npx playwright install --with-deps chromium
+  npm ci --no-audit --no-fund
+
+# Download Chromium directly to avoid the yauzl/extract-zip hangs in
+# `npx playwright install` (microsoft/playwright#40724, nodejs/node#63487).
+ARG PLAYWRIGHT_BUILD_ID=1181
+RUN --mount=type=cache,target=/root/.cache/ms-playwright,sharing=locked \
+  BUILD_ID="${PLAYWRIGHT_BUILD_ID}" \
+  INSTALL_DIR="/root/.cache/ms-playwright/chromium-${BUILD_ID}" \
+  && mkdir -p "${INSTALL_DIR}" \
+  && curl -fsSL "https://cdn.playwright.dev/dbazure/download/playwright/builds/chromium/${BUILD_ID}/chromium-linux.zip" -o /tmp/chromium.zip \
+  && cd "${INSTALL_DIR}" \
+  && unzip -q /tmp/chromium.zip \
+  && rm /tmp/chromium.zip \
+  && touch "${INSTALL_DIR}/INSTALLATION_COMPLETE"
 
 RUN command -v mise \
   && command -v rustc \
