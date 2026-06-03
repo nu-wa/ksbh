@@ -49,7 +49,7 @@ jobs:
               shell: bash
               run: |
                   set -euo pipefail
-                  mise run --skip-tools build-rust compile-test-binaries
+                  mise run --skip-tools compile-test-binaries
 
             - name: Upload Rust prebuilt artifact
               uses: https://data.forgejo.org/actions/upload-artifact@v3-node20
@@ -333,7 +333,11 @@ jobs:
                   export KSBH_CHARTS_SITE_PUSH="true"
                   export KSBH_CHARTS_SITE_LOAD="false"
 
-                  mise run --skip-tools build-release-image build-docs-image build-charts-image
+                  bash mise-tasks/build-release-image
+                  bash mise-tasks/build-docs-site
+                  bash mise-tasks/build-docs-site-image
+                  bash mise-tasks/build-helm-repo
+                  bash mise-tasks/build-charts-site-image
 
                   if [ -n "${extra_tag}" ]; then
                     docker buildx imagetools create -t "${image_repository}:${extra_tag}" "${image_repository}:${primary_tag}"
@@ -358,7 +362,8 @@ jobs:
               shell: bash
               run: |
                   set -euo pipefail
-                  mise run --skip-tools lint-helm package-helm
+                  bash mise-tasks/lint-helm-chart
+                  bash mise-tasks/package-helm-chart
 
             - name: Upload Helm chart artifact
               uses: https://data.forgejo.org/actions/upload-artifact@v3-node20
