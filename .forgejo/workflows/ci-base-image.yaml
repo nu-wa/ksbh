@@ -47,12 +47,20 @@ jobs:
               shell: bash
               run: |
                   set -euo pipefail
-                  docker buildx build \
-                    --pull \
-                    --load \
-                    --file docker/build/ci.Dockerfile \
-                    --tag ksbh-ci:pr-check \
-                    .
+                  build_args=(
+                    buildx
+                    build
+                    --pull
+                    --load
+                    --file docker/build/ci.Dockerfile
+                    --tag ksbh-ci:pr-check
+                  )
+
+                  if [ -n "${HARBOR_HOST:-}" ]; then
+                    build_args+=(--cache-from "type=registry,ref=${HARBOR_HOST}/registry-cache/ksbh-ci")
+                  fi
+
+                  docker "${build_args[@]}" .
 
             - name: Build and push CI image
               if: ${{ forge.event_name != 'pull_request' }}
@@ -66,12 +74,15 @@ jobs:
                   fi
 
                   ci_image_repository="${HARBOR_HOST}/registry/ksbh-ci"
+                  ci_image_cache_repository="${HARBOR_HOST}/registry-cache/ksbh-ci"
                   build_stamp="$(date -u +%Y%m%d%H%M%S)"
                   short_sha="$(printf '%s' "${LOCAL_SHA}" | cut -c1-12)"
 
                   docker buildx build \
                     --pull \
                     --push \
+                    --cache-from "type=registry,ref=${ci_image_cache_repository}" \
+                    --cache-to "type=registry,ref=${ci_image_cache_repository},mode=max,image-manifest=true,oci-mediatypes=true" \
                     --file docker/build/ci.Dockerfile \
                     --tag "${ci_image_repository}:latest" \
                     --tag "${ci_image_repository}:${LOCAL_SHA}" \

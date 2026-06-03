@@ -85,7 +85,7 @@ run = "bash mise-tasks/p0-unhappy-tests"
 [tasks."test-k8s"]
 description = "Run Kind and browser-backed Kubernetes e2e coverage"
 depends = ["compile-test-binaries"]
-run = "bash mise-tasks/e2e --skip-build"
+run = "bash mise-tasks/e2e"
 
 [tasks."test-miri"]
 description = "Run the dedicated Miri coverage lane"

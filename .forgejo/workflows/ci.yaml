@@ -35,11 +35,12 @@ jobs:
                   path: |
                       /root/.cargo/registry
                       /root/.cargo/git
-                      crates/target
-                  key: rust-build-${{ forge.ref_name }}-${{ hashFiles('crates/Cargo.lock') }}
+                      /root/.cache/sccache
+                  key: rust-build-v3-${{ env.CI_BASE_IMAGE_TAG }}-${{ forge.ref_name || env.FORGEJO_REF_NAME || env.LOCAL_REF_NAME }}-${{ hashFiles('crates/Cargo.lock') }}
                   restore-keys: |
-                      rust-build-${{ forge.ref_name }}-
-                      rust-build-
+                      rust-build-v3-${{ env.CI_BASE_IMAGE_TAG }}-${{ forge.ref_name || env.FORGEJO_REF_NAME || env.LOCAL_REF_NAME }}-
+                      rust-build-v3-${{ env.CI_BASE_IMAGE_TAG }}-
+                      rust-build-v3-
 
             - name: Build Rust outputs
               shell: bash
@@ -50,17 +51,41 @@ jobs:
             - name: Upload Rust prebuilt artifact
               uses: https://data.forgejo.org/actions/upload-artifact@v3-node20
               with:
-                  name: rust-prebuilt
+                  name: rust-prebuilt-binary
                   path: |
                       crates/target/debug/ksbh
+                      crates/target/debug/deps/binary_baseline_e2e-*
+                      crates/target/debug/deps/binary_static_content_e2e-*
+                      crates/target/debug/deps/binary_upstream_errors_e2e-*
+                  if-no-files-found: error
+
+            - name: Upload module prebuilt artifact
+              uses: https://data.forgejo.org/actions/upload-artifact@v3-node20
+              with:
+                  name: rust-prebuilt-modules
+                  path: |
                       crates/target/debug/libdynamic_ffi_smoke.*
                       crates/target/debug/*.so
                       crates/target/debug/*.dylib
                       crates/target/debug/deps/*.so
                       crates/target/debug/deps/*.dylib
-                      crates/target/debug/deps/binary_baseline_e2e-*
-                      crates/target/debug/deps/binary_static_content_e2e-*
-                      crates/target/debug/deps/binary_upstream_errors_e2e-*
+                      crates/target/debug/deps/module_host_dynamic-*
+                      crates/target/debug/deps/ffi_miri-*
+                      crates/target/debug/deps/ksbh_modules_sdk-*
+                      crates/target/debug/deps/host_functions_unhappy-*
+                      crates/target/debug/deps/ksbh_core-*
+                  if-no-files-found: error
+
+            - name: Upload Kubernetes prebuilt artifact
+              uses: https://data.forgejo.org/actions/upload-artifact@v3-node20
+              with:
+                  name: rust-prebuilt-k8s
+                  path: |
+                      crates/target/debug/ksbh
+                      crates/target/debug/*.so
+                      crates/target/debug/*.dylib
+                      crates/target/debug/deps/*.so
+                      crates/target/debug/deps/*.dylib
                       crates/target/debug/deps/k8s_baseline_e2e-*
                       crates/target/debug/deps/k8s_ingress_lifecycle_e2e-*
                       crates/target/debug/deps/k8s_static_content_e2e-*
@@ -69,11 +94,6 @@ jobs:
                       crates/target/debug/deps/k8s_http_to_https_e2e-*
                       crates/target/debug/deps/k8s_trusted_proxies_e2e-*
                       crates/target/debug/deps/k8s_websocket_e2e-*
-                      crates/target/debug/deps/module_host_dynamic-*
-                      crates/target/debug/deps/ffi_miri-*
-                      crates/target/debug/deps/ksbh_modules_sdk-*
-                      crates/target/debug/deps/host_functions_unhappy-*
-                      crates/target/debug/deps/ksbh_core-*
                   if-no-files-found: error
 
     test-binary:
@@ -91,7 +111,7 @@ jobs:
             - name: Download Rust prebuilt artifact
               uses: https://data.forgejo.org/actions/download-artifact@v3-node20
               with:
-                  name: rust-prebuilt
+                  name: rust-prebuilt-binary
                   path: crates/target/debug
 
             - name: Run binary e2e
@@ -100,7 +120,7 @@ jobs:
                   KSBH_CI_USE_PREBUILT: "true"
               run: |
                   set -euo pipefail
-                  mise run --skip-tools test-binary
+                  bash mise-tasks/e2e-binary
 
     test-modules:
         needs:
@@ -117,7 +137,7 @@ jobs:
             - name: Download Rust prebuilt artifact
               uses: https://data.forgejo.org/actions/download-artifact@v3-node20
               with:
-                  name: rust-prebuilt
+                  name: rust-prebuilt-modules
                   path: crates/target/debug
 
             - name: Run module smoke coverage
@@ -127,7 +147,7 @@ jobs:
                   KSBH_DYNAMIC_SMOKE_LOOPS: "500"
               run: |
                   set -euo pipefail
-                  mise run --skip-tools test-modules-smoke
+                  bash mise-tasks/dynamic-modules-smoke
 
             - name: Run unhappy-path coverage
               shell: bash
@@ -135,11 +155,9 @@ jobs:
                   KSBH_CI_USE_PREBUILT: "true"
               run: |
                   set -euo pipefail
-                  mise run --skip-tools test-unhappy
+                  bash mise-tasks/p0-unhappy-tests
 
     test-miri:
-        needs:
-            - build-rust
         runs-on: cocaine
         container:
             image: ${{ env.CI_BASE_IMAGE }}
@@ -149,10 +167,23 @@ jobs:
             - name: Check out repository
               uses: https://data.forgejo.org/actions/checkout@v4
 
+            - name: Restore Miri cache
+              uses: https://data.forgejo.org/actions/cache@v4
+              with:
+                  path: .ci-cache/miri
+                  key: miri-v2-${{ env.CI_BASE_IMAGE_TAG }}-${{ forge.ref_name || env.FORGEJO_REF_NAME || env.LOCAL_REF_NAME }}-${{ hashFiles('crates/Cargo.lock') }}
+                  restore-keys: |
+                      miri-v2-${{ env.CI_BASE_IMAGE_TAG }}-${{ forge.ref_name || env.FORGEJO_REF_NAME || env.LOCAL_REF_NAME }}-
+                      miri-v2-${{ env.CI_BASE_IMAGE_TAG }}-
+                      miri-v2-
+
             - name: Run Miri coverage
               shell: bash
               run: |
                   set -euo pipefail
+                  export KSBH_MIRI_RUSTUP_HOME="${PWD}/.ci-cache/miri/rustup"
+                  export KSBH_MIRI_CARGO_HOME="${PWD}/.ci-cache/miri/cargo"
+                  export KSBH_MIRI_TARGET_DIR="${PWD}/.ci-cache/miri/target"
                   mise run --skip-tools test-miri
 
     test-k8s:
@@ -165,6 +196,7 @@ jobs:
             contents: read
         env:
             HARBOR_HOST: ${{ vars.HARBOR_HOST || env.HARBOR_HOST }}
+            KSBH_RELEASE_IMAGE: ksbh-ci-e2e:${{ forge.sha || env.FORGEJO_SHA || env.LOCAL_SHA }}
             KSBH_RELEASE_IMAGE_REPOSITORY: ksbh-ci-e2e
             KSBH_RELEASE_IMAGE_TAG: ${{ forge.sha || env.FORGEJO_SHA || env.LOCAL_SHA }}
             KSBH_E2E_WEBSOCKET_IMAGE: ksbh-e2e-websocket-probe:ci
@@ -175,7 +207,7 @@ jobs:
             - name: Download Rust prebuilt artifact
               uses: https://data.forgejo.org/actions/download-artifact@v3-node20
               with:
-                  name: rust-prebuilt
+                  name: rust-prebuilt-k8s
                   path: crates/target/debug
 
             - name: Prepare Docker auth
@@ -196,7 +228,7 @@ jobs:
                     export KSBH_RELEASE_IMAGE_CACHE_REPO="${HARBOR_HOST}/registry-cache/ksbh-release"
                     export KSBH_E2E_WEBSOCKET_CACHE_REPO="${HARBOR_HOST}/registry-cache/ksbh-e2e-websocket-probe"
                   fi
-                  mise run --skip-tools test-k8s
+                  bash mise-tasks/e2e
 
     publish-images:
         needs:
@@ -282,11 +314,6 @@ jobs:
                   fi
 
     helm-artifacts:
-        needs:
-            - test-binary
-            - test-modules
-            - test-miri
-            - test-k8s
         runs-on: cocaine
         container:
             image: ${{ env.CI_BASE_IMAGE }}
