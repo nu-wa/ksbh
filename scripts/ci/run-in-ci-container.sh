@@ -20,6 +20,9 @@ ci_platform="${CI_LOCAL_PLATFORM:-}"
 cargo_registry_cache="${KSBH_LOCAL_CARGO_REGISTRY:-}"
 cargo_git_cache="${KSBH_LOCAL_CARGO_GIT:-}"
 sccache_dir="${KSBH_LOCAL_SCCACHE_DIR:-}"
+mise_cache_dir="${KSBH_LOCAL_MISE_CACHE_DIR:-}"
+mise_data_dir="${KSBH_LOCAL_MISE_DATA_DIR:-}"
+mise_state_dir="${KSBH_LOCAL_MISE_STATE_DIR:-}"
 miri_rustup_home="${KSBH_MIRI_RUSTUP_HOME:-}"
 miri_cargo_home="${KSBH_MIRI_CARGO_HOME:-}"
 miri_target_dir="${KSBH_MIRI_TARGET_DIR:-}"
@@ -56,6 +59,21 @@ fi
 if [ -n "${sccache_dir}" ]; then
   mkdir -p "${sccache_dir}"
   docker_args+=(-v "${sccache_dir}:/root/.cache/sccache")
+fi
+
+if [ -n "${mise_cache_dir}" ]; then
+  mkdir -p "${mise_cache_dir}"
+  docker_args+=(-v "${mise_cache_dir}:/root/.cache/mise")
+fi
+
+if [ -n "${mise_data_dir}" ]; then
+  mkdir -p "${mise_data_dir}"
+  docker_args+=(-v "${mise_data_dir}:/root/.local/share/mise")
+fi
+
+if [ -n "${mise_state_dir}" ]; then
+  mkdir -p "${mise_state_dir}"
+  docker_args+=(-v "${mise_state_dir}:/root/.local/state/mise")
 fi
 
 if [ -n "${miri_rustup_home}" ]; then

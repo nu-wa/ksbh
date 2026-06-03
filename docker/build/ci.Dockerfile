@@ -62,6 +62,12 @@ RUN targetarch="${TARGETARCH:-$(dpkg --print-architecture)}" \
 RUN curl -fsSL https://deno.land/install.sh | sh -s -- v2.3.7 \
   && ln -sf /root/.deno/bin/deno /usr/local/bin/deno
 
+WORKDIR /opt/ksbh-mise
+COPY mise.toml /opt/ksbh-mise/mise.toml
+RUN --mount=type=cache,target=/root/.cache/mise,sharing=locked \
+  mise trust /opt/ksbh-mise/mise.toml \
+  && mise install
+
 RUN --mount=type=cache,target=/root/.cargo/registry,sharing=locked \
   --mount=type=cache,target=/root/.cargo/git,sharing=locked \
   --mount=type=cache,target=/tmp/dodeca-target,sharing=locked \
@@ -96,4 +102,7 @@ RUN command -v mise \
   && command -v docker \
   && command -v node \
   && command -v npm \
+  && cd /opt/ksbh-mise \
+  && mise where rust \
+  && mise exec -- rustc --version \
   && sccache --version

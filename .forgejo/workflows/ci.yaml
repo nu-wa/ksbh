@@ -13,7 +13,6 @@ on:
 env:
     LOCAL_SHA: ${{ forge.sha }}
     LOCAL_REF_NAME: ${{ forge.ref_name }}
-    RUSTC_WRAPPER: sccache
     MISE_TASK_OUTPUT: interleave
     MISE_YES: "true"
     NO_COLOR: "1"
@@ -39,17 +38,35 @@ jobs:
                       /root/.cargo/registry
                       /root/.cargo/git
                       /root/.cache/sccache
+                      /root/.cache/mise
+                      /root/.local/share/mise
+                      /root/.local/state/mise
                   key: rust-build-v3-${{ vars.CI_BASE_IMAGE_TAG || 'latest' }}-${{ forge.ref_name }}-${{ hashFiles('crates/Cargo.lock') }}
                   restore-keys: |
                       rust-build-v3-${{ vars.CI_BASE_IMAGE_TAG || 'latest' }}-${{ forge.ref_name }}-
                       rust-build-v3-${{ vars.CI_BASE_IMAGE_TAG || 'latest' }}-
                       rust-build-v3-
 
+            - name: Verify CI toolchain
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  echo "PATH=${PATH}"
+                  command -v mise
+                  command -v rustc
+                  command -v cargo
+                  command -v sccache
+                  mise --version
+                  rustc --version
+                  cargo --version
+                  sccache --version
+
             - name: Build Rust outputs
               shell: bash
               run: |
                   set -euo pipefail
-                  mise run --skip-tools compile-test-binaries
+                  export RUSTC_WRAPPER="$(command -v sccache)"
+                  mise run compile-test-binaries
 
             - name: Upload Rust prebuilt artifact
               uses: https://data.forgejo.org/actions/upload-artifact@v3-node20
@@ -196,7 +213,7 @@ jobs:
                   export KSBH_MIRI_RUSTUP_HOME="${PWD}/.ci-cache/miri/rustup"
                   export KSBH_MIRI_CARGO_HOME="${PWD}/.ci-cache/miri/cargo"
                   export KSBH_MIRI_TARGET_DIR="${PWD}/.ci-cache/miri/target"
-                  mise run --skip-tools test-miri
+                  mise run test-miri
 
     test-k8s:
         needs:

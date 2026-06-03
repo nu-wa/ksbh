@@ -1,5 +1,8 @@
 min_version = "2025.1.0"
 
+[tools]
+rust = "1.92.0"
+
 [env]
 MISE_TASK_OUTPUT = "interleave"
 MISE_YES = "true"

@@ -11,19 +11,19 @@ shift
 
 case "${job_name}" in
   build-rust)
-    command_string='mise run --skip-tools compile-test-binaries'
+    command_string='mise run compile-test-binaries'
     ;;
   test-binary)
-    command_string='export KSBH_CI_USE_PREBUILT=false; mise run --skip-tools test-binary'
+    command_string='export KSBH_CI_USE_PREBUILT=false; mise run test-binary'
     ;;
   test-modules)
-    command_string='export KSBH_CI_USE_PREBUILT=false; mise run --skip-tools test-modules-smoke; mise run --skip-tools test-unhappy'
+    command_string='export KSBH_CI_USE_PREBUILT=false; mise run test-modules-smoke; mise run test-unhappy'
     ;;
   test-k8s)
-    command_string='export KSBH_CI_USE_PREBUILT=false; mise run --skip-tools test-k8s'
+    command_string='export KSBH_CI_USE_PREBUILT=false; mise run test-k8s'
     ;;
   test-miri)
-    command_string='mise run --skip-tools test-miri'
+    command_string='mise run test-miri'
     ;;
   build-docs)
     command_string='bash mise-tasks/build-docs-site; bash mise-tasks/build-docs-site-image; bash mise-tasks/build-helm-repo; bash mise-tasks/build-charts-site-image'
@@ -41,6 +41,6 @@ repo_root="$(
   cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd -P
 )"
 
-command_string="set -euo pipefail; export RUSTC_WRAPPER=sccache; ${command_string}"
+command_string="set -euo pipefail; export RUSTC_WRAPPER=\"\$(command -v sccache)\"; ${command_string}"
 
 exec bash "${repo_root}/scripts/ci/run-in-ci-container.sh" /bin/bash -lc "${command_string}"

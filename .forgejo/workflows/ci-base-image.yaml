@@ -10,6 +10,7 @@ on:
             - docker/build/ci.Dockerfile
             - docker/build/ci.Dockerfile.dockerignore
             - docs/package.json
+            - mise.toml
             - scripts/ci/prepare-docker-auth.sh
             - tests/playwright/package.json
             - tests/playwright/package-lock.json
@@ -19,6 +20,7 @@ on:
             - docker/build/ci.Dockerfile
             - docker/build/ci.Dockerfile.dockerignore
             - docs/package.json
+            - mise.toml
             - scripts/ci/prepare-docker-auth.sh
             - tests/playwright/package.json
             - tests/playwright/package-lock.json
