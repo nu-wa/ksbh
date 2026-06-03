@@ -123,7 +123,7 @@ RUN --mount=type=cache,target=/root/.cache/ms-playwright,sharing=locked \
   && mkdir -p "${INSTALL_DIR}" \
   && curl -fsSL "https://cdn.playwright.dev/dbazure/download/playwright/builds/chromium/${BUILD_ID}/chromium-linux.zip" -o /tmp/chromium.zip \
   && cd "${INSTALL_DIR}" \
-  && unzip -q /tmp/chromium.zip \
+  && unzip -oq /tmp/chromium.zip \
   && rm /tmp/chromium.zip \
   && touch "${INSTALL_DIR}/INSTALLATION_COMPLETE"
 
