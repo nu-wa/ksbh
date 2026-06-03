@@ -25,16 +25,28 @@ jobs:
         outputs:
             image: ${{ steps.inspect.outputs.image }}
         steps:
+            - name: Check out repository
+              uses: https://data.forgejo.org/actions/checkout@v4
+
             - name: Inspect latest image digest
               id: inspect
               env:
+                  HARBOR_HOST: ${{ vars.HARBOR_HOST }}
                   HARBOR_USERNAME: ${{ secrets.HARBOR_USERNAME }}
                   HARBOR_PASSWORD: ${{ secrets.HARBOR_PASSWORD }}
               run: |
                   set -euo pipefail
-                  digest=$(docker manifest inspect "${{ vars.HARBOR_HOST }}/registry/ksbh-ci:latest" | jq -r .digest)
-                  echo "image=${{ vars.HARBOR_HOST }}/registry/ksbh-ci@${digest}" >> "$GITHUB_OUTPUT"
-                  echo "Resolved image: ${{ vars.HARBOR_HOST }}/registry/ksbh-ci@${digest}"
+                  . ./scripts/ci/prepare-docker-auth.sh
+                  ref="${HARBOR_HOST}/registry/ksbh-ci:latest"
+                  digest=$(docker manifest inspect "${ref}" | jq -r .digest)
+                  if [ -z "${digest}" ] || [ "${digest}" = "null" ]; then
+                    echo "::error::Failed to resolve digest for ${ref}" >&2
+                    docker manifest inspect "${ref}" >&2 || true
+                    exit 1
+                  fi
+                  pin="${ref%:*}@${digest}"
+                  echo "image=${pin}" >> "$GITHUB_OUTPUT"
+                  echo "Resolved image: ${pin}"
 
     build-rust:
         needs:
