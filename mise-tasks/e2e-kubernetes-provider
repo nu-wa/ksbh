@@ -10,6 +10,11 @@ script_dir="$(
 )"
 . "${script_dir}/lib.sh"
 
+# Default path matches the install location baked into docker/build/ci.Dockerfile
+# (WORKDIR /opt/ksbh-playwright). Override locally if you've installed the
+# playwright deps somewhere else.
+readonly PLAYWRIGHT_NODE_MODULES_DIR="${PLAYWRIGHT_NODE_MODULES_DIR:-/opt/ksbh-playwright/node_modules}"
+
 trap 'echo "e2e-kubernetes-provider failed (line ${BASH_LINENO[0]:-unknown}): ${BASH_COMMAND}" >&2' ERR
 
 require_docker
@@ -585,10 +590,10 @@ if [ -x "${local_playwright_bin}" ]; then
   playwright_bin="${local_playwright_bin}"
 elif command -v playwright >/dev/null 2>&1; then
   playwright_bin="$(command -v playwright)"
-  playwright_node_modules="/opt/ksbh-playwright/node_modules"
-elif [ -x /opt/ksbh-playwright/node_modules/.bin/playwright ]; then
-  playwright_bin="/opt/ksbh-playwright/node_modules/.bin/playwright"
-  playwright_node_modules="/opt/ksbh-playwright/node_modules"
+  playwright_node_modules="${PLAYWRIGHT_NODE_MODULES_DIR}"
+elif [ -x "${PLAYWRIGHT_NODE_MODULES_DIR}/.bin/playwright" ]; then
+  playwright_bin="${PLAYWRIGHT_NODE_MODULES_DIR}/.bin/playwright"
+  playwright_node_modules="${PLAYWRIGHT_NODE_MODULES_DIR}"
 else
   echo "playwright is not available; run inside ksbh-ci or install tests/playwright dependencies" >&2
   exit 1

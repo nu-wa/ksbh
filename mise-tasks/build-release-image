@@ -14,6 +14,10 @@ cache_repo="${KSBH_RELEASE_IMAGE_CACHE_REPO:-}"
 push_image="${KSBH_RELEASE_IMAGE_PUSH:-false}"
 load_image="${KSBH_RELEASE_IMAGE_LOAD:-true}"
 
+# tmp_files / tmp_dirs are cleaned up in the EXIT trap below.
+tmp_files=()
+tmp_dirs=()
+
 build_args=(
   buildx
   build
@@ -31,10 +35,55 @@ if [ "${usage_no_cache:-false}" = "true" ]; then
   build_args+=(--no-cache)
 fi
 
+# Bind-mount the host cargo registry into the build so cache-miss release
+# builds skip the crate download layer. When the host has no cargo registry
+# yet (fresh local dev), point at an empty tmp dir so the Dockerfile's
+# `from=host-registry` reference always resolves.
+cargo_registry_context=""
+cargo_home="${CARGO_HOME:-${HOME}/.cargo}"
+if [ -d "${cargo_home}/registry" ]; then
+  cargo_registry_context="${cargo_home}/registry"
+else
+  cargo_registry_context="$(mktemp -d)"
+  tmp_dirs+=("${cargo_registry_context}")
+fi
+build_args+=(--build-context "host-registry=${cargo_registry_context}")
+
+# sccache: when the caller has sccache + AWS creds in env, expose them to the
+# build as a secret so the Dockerfile can use them as RUSTC_WRAPPER. When the
+# caller didn't set these (developer build), the Dockerfile skips sccache.
+sccache_env_file=""
+if [ -n "${SCCACHE_BUCKET:-}" ] && [ -n "${AWS_ACCESS_KEY_ID:-}" ] && [ -n "${AWS_SECRET_ACCESS_KEY:-}" ]; then
+  sccache_env_file="$(mktemp)"
+  tmp_files+=("${sccache_env_file}")
+  {
+    printf 'SCCACHE_BUCKET=%s\n' "${SCCACHE_BUCKET}"
+    printf 'SCCACHE_REGION=%s\n' "${SCCACHE_REGION:-}"
+    printf 'SCCACHE_ENDPOINT=%s\n' "${SCCACHE_ENDPOINT:-}"
+    printf 'SCCACHE_S3_USE_SSL=%s\n' "${SCCACHE_S3_USE_SSL:-}"
+    printf 'SCCACHE_S3_ENABLE_VIRTUAL_HOST_STYLE=%s\n' "${SCCACHE_S3_ENABLE_VIRTUAL_HOST_STYLE:-}"
+    printf 'SCCACHE_S3_KEY_PREFIX=%s\n' "${SCCACHE_S3_KEY_PREFIX:-ksbh}"
+    printf 'AWS_REGION=%s\n' "${AWS_REGION:-${SCCACHE_REGION:-}}"
+    printf 'AWS_ACCESS_KEY_ID=%s\n' "${AWS_ACCESS_KEY_ID}"
+    printf 'AWS_SECRET_ACCESS_KEY=%s\n' "${AWS_SECRET_ACCESS_KEY}"
+  } > "${sccache_env_file}"
+  build_args+=(--secret "id=sccache_env,src=${sccache_env_file}")
+fi
+
 if [ "${push_image}" = "true" ]; then
   build_args+=(--push)
 elif [ "${load_image}" = "true" ]; then
   build_args+=(--load)
 fi
+
+cleanup() {
+  if [ ${#tmp_files[@]} -gt 0 ]; then
+    rm -f "${tmp_files[@]}" 2>/dev/null || true
+  fi
+  if [ ${#tmp_dirs[@]} -gt 0 ]; then
+    rm -rf "${tmp_dirs[@]}" 2>/dev/null || true
+  fi
+}
+trap cleanup EXIT
 
 docker "${build_args[@]}" .

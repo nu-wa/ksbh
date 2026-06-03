@@ -119,13 +119,13 @@ RUN --mount=type=cache,target=/root/.npm,sharing=locked \
 ARG PLAYWRIGHT_BUILD_ID=1181
 RUN --mount=type=cache,target=/root/.cache/ms-playwright,sharing=locked \
   BUILD_ID="${PLAYWRIGHT_BUILD_ID}" \
-  INSTALL_DIR="/root/.cache/ms-playwright/chromium-${BUILD_ID}" \
-  && mkdir -p "${INSTALL_DIR}" \
+  FULL_INSTALL_DIR="/root/.cache/ms-playwright/chromium-${BUILD_ID}" \
+  HEADLESS_INSTALL_DIR="/root/.cache/ms-playwright/chromium_headless_shell-${BUILD_ID}" \
+  && mkdir -p "${FULL_INSTALL_DIR}" "${HEADLESS_INSTALL_DIR}" \
   && curl -fsSL "https://cdn.playwright.dev/dbazure/download/playwright/builds/chromium/${BUILD_ID}/chromium-linux.zip" -o /tmp/chromium.zip \
-  && cd "${INSTALL_DIR}" \
-  && unzip -oq /tmp/chromium.zip \
-  && rm /tmp/chromium.zip \
-  && touch "${INSTALL_DIR}/INSTALLATION_COMPLETE"
+  && curl -fsSL "https://cdn.playwright.dev/dbazure/download/playwright/builds/chromium/${BUILD_ID}/chromium-headless-shell-linux.zip" -o /tmp/headless-shell.zip \
+  && (cd "${FULL_INSTALL_DIR}" && unzip -oq /tmp/chromium.zip && rm /tmp/chromium.zip && touch INSTALLATION_COMPLETE) \
+  && (cd "${HEADLESS_INSTALL_DIR}" && unzip -oq /tmp/headless-shell.zip && rm /tmp/headless-shell.zip && touch INSTALLATION_COMPLETE)
 
 RUN command -v mise \
   && command -v rustc \

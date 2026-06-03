@@ -4,6 +4,7 @@
 #USAGE flag "--helm <version>" help="Set Helm chart version"
 #USAGE flag "--helm-app <version>" help="Set Helm chart appVersion"
 #USAGE flag "--all <version>" help="Set Rust, Helm chart version, and Helm appVersion"
+#USAGE flag "--rc <n>" help="Pre-release number for dev branch (auto-detected from existing tags if omitted)"
 
 set -euo pipefail
 
@@ -11,6 +12,7 @@ rust_version="${usage_rust:-}"
 helm_version="${usage_helm:-}"
 helm_app_version="${usage_helm_app:-}"
 all_version="${usage_all:-}"
+rc_number="${usage_rc:-}"
 
 usage() {
   cat >&2 <<'EOF'
@@ -43,6 +45,10 @@ while [ "$#" -gt 0 ]; do
       ;;
     --all)
       all_version="${2:-}"
+      shift 2
+      ;;
+    --rc)
+      rc_number="${2:-}"
       shift 2
       ;;
     -h|--help)
@@ -86,6 +92,23 @@ validate_version() {
 [ -z "${helm_version}" ] || validate_version "Helm chart" "${helm_version}"
 [ -z "${helm_app_version}" ] || validate_version "Helm app" "${helm_app_version}"
 
+current_branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)"
+
+auto_detect_rc_number() {
+  local ver="$1"
+  local highest=0
+  while IFS= read -r tag; do
+    [ -z "${tag}" ] && continue
+    n="${tag##*-rc.}"
+    if printf '%s' "${n}" | grep -Eq '^[0-9]+$'; then
+      if [ "${n}" -gt "${highest}" ]; then
+        highest="${n}"
+      fi
+    fi
+  done < <(git tag -l "v${ver}-rc.*")
+  echo $((highest + 1))
+}
+
 repo_root="$(
   cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P
 )"
@@ -118,13 +141,30 @@ if [ -n "${helm_app_version}" ]; then
   echo "bumped Helm appVersion to ${helm_app_version}"
 fi
 
+if [ -n "${rust_version}" ]; then
+  if [ "${current_branch}" = "main" ]; then
+    tag_name="v${rust_version}"
+    echo "Regenerating CHANGELOG.md..."
+    git-cliff --tag "${tag_name}" --output CHANGELOG.md
+  else
+    if [ -z "${rc_number}" ]; then
+      rc_number="$(auto_detect_rc_number "${rust_version}")"
+    fi
+    tag_name="v${rust_version}-rc.${rc_number}"
+    echo "Regenerating CHANGELOG.md (pre-release ${tag_name})..."
+    git-cliff --tag "${tag_name}" --output CHANGELOG.md
+  fi
+else
+  echo "Skipping CHANGELOG.md (no Rust version bump; run 'mise run changelog' to refresh manually)"
+fi
+
 echo
 echo "next:"
-echo "  git diff -- crates charts/ksbh/Chart.yaml"
-echo "  git add crates/Cargo.toml crates/Cargo.lock crates/**/Cargo.toml charts/ksbh/Chart.yaml"
+echo "  git diff -- crates charts/ksbh/Chart.yaml CHANGELOG.md"
+echo "  git add crates/Cargo.toml crates/Cargo.lock crates/**/Cargo.toml charts/ksbh/Chart.yaml CHANGELOG.md"
 if [ -n "${rust_version}" ]; then
-  echo "  git commit -m 'release: v${rust_version}'"
-  echo "  git tag v${rust_version}"
+  echo "  git commit -m 'release: ${tag_name}'"
+  echo "  git tag ${tag_name}"
 else
   echo "  git commit -m 'chore: bump chart version'"
 fi

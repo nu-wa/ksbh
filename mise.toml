@@ -2,6 +2,9 @@ min_version = "2025.1.0"
 
 [tools]
 rust = "1.92.0"
+git-cliff = "ubi:orhun/git-cliff"
+aube = "ubi:endevco/aube"
+hk = "ubi:jdx/hk"
 
 [env]
 MISE_TASK_OUTPUT = "interleave"
@@ -139,6 +142,12 @@ run = "bash mise-tasks/build-charts-site-image"
 [tasks."lint-helm"]
 description = "Lint the Helm chart"
 run = "bash mise-tasks/lint-helm-chart"
+
+[tasks."changelog"]
+description = "Regenerate CHANGELOG.md from git history using git-cliff"
+run = """
+git-cliff --output CHANGELOG.md
+"""
 
 [tasks."package-helm"]
 description = "Package the Helm chart"
