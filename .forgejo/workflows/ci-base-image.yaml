@@ -22,6 +22,8 @@ on:
 
 env:
     HARBOR_HOST: ${{ vars.HARBOR_HOST || env.HARBOR_HOST }}
+    HARBOR_USERNAME: ${{ secrets.HARBOR_USERNAME || env.HARBOR_USERNAME }}
+    HARBOR_PASSWORD: ${{ secrets.HARBOR_PASSWORD || env.HARBOR_PASSWORD }}
     LOCAL_SHA: ${{ forge.sha || env.FORGEJO_SHA || env.LOCAL_SHA }}
     MISE_TASK_OUTPUT: interleave
     MISE_YES: "true"
@@ -58,7 +60,7 @@ jobs:
                     --tag ksbh-ci:pr-check
                   )
 
-                  if [ -n "${HARBOR_HOST:-}" ]; then
+                  if [ -n "${HARBOR_HOST:-}" ] && [ -n "${HARBOR_USERNAME:-}" ] && [ -n "${HARBOR_PASSWORD:-}" ]; then
                     build_args+=(--cache-from "type=registry,ref=${HARBOR_HOST}/registry-cache/ksbh-ci")
                   fi
 
@@ -72,6 +74,10 @@ jobs:
 
                   if [ -z "${HARBOR_HOST:-}" ]; then
                     echo "HARBOR_HOST is required to publish the CI base image" >&2
+                    exit 1
+                  fi
+                  if [ -z "${HARBOR_USERNAME:-}" ] || [ -z "${HARBOR_PASSWORD:-}" ]; then
+                    echo "HARBOR_USERNAME and HARBOR_PASSWORD are required to publish the CI base image" >&2
                     exit 1
                   fi
 

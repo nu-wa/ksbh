@@ -23,6 +23,10 @@ cargo build --manifest-path crates/Cargo.toml -p ksbh
 cargo build --manifest-path crates/Cargo.toml -p dynamic-ffi-smoke
 """
 
+[tasks."bump-version"]
+description = "Bump Rust workspace and Helm chart versions"
+run = "bash mise-tasks/bump-version"
+
 [tasks."compile-test-binaries"]
 description = "Compile Rust test binaries without running them"
 depends = ["build-rust"]

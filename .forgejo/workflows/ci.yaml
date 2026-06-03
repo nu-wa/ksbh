@@ -5,6 +5,8 @@ on:
         branches:
             - main
             - dev
+        tags:
+            - v*
     pull_request:
     workflow_dispatch:
 
@@ -194,6 +196,8 @@ jobs:
             contents: read
         env:
             HARBOR_HOST: ${{ vars.HARBOR_HOST || env.HARBOR_HOST }}
+            HARBOR_USERNAME: ${{ secrets.HARBOR_USERNAME || env.HARBOR_USERNAME }}
+            HARBOR_PASSWORD: ${{ secrets.HARBOR_PASSWORD || env.HARBOR_PASSWORD }}
             KSBH_RELEASE_IMAGE: ksbh-ci-e2e:${{ forge.sha || env.FORGEJO_SHA || env.LOCAL_SHA }}
             KSBH_RELEASE_IMAGE_REPOSITORY: ksbh-ci-e2e
             KSBH_RELEASE_IMAGE_TAG: ${{ forge.sha || env.FORGEJO_SHA || env.LOCAL_SHA }}
@@ -222,7 +226,7 @@ jobs:
                   KSBH_KIND_API_SERVER_PORT: "16443"
               run: |
                   set -euo pipefail
-                  if [ -n "${HARBOR_HOST:-}" ]; then
+                  if [ -n "${HARBOR_HOST:-}" ] && [ -n "${HARBOR_USERNAME:-}" ] && [ -n "${HARBOR_PASSWORD:-}" ]; then
                     export KSBH_RELEASE_IMAGE_CACHE_REPO="${HARBOR_HOST}/registry-cache/ksbh-release"
                     export KSBH_E2E_WEBSOCKET_CACHE_REPO="${HARBOR_HOST}/registry-cache/ksbh-e2e-websocket-probe"
                   fi
@@ -234,7 +238,7 @@ jobs:
             - test-modules
             - test-miri
             - test-k8s
-        if: ${{ forge.event_name != 'pull_request' && (forge.ref_name == 'main' || forge.ref_name == 'dev') }}
+        if: ${{ forge.event_name != 'pull_request' }}
         runs-on: cocaine
         container:
             image: ${{ vars.CI_BASE_IMAGE }}
@@ -242,6 +246,8 @@ jobs:
             contents: read
         env:
             HARBOR_HOST: ${{ vars.HARBOR_HOST || env.HARBOR_HOST }}
+            HARBOR_USERNAME: ${{ secrets.HARBOR_USERNAME || env.HARBOR_USERNAME }}
+            HARBOR_PASSWORD: ${{ secrets.HARBOR_PASSWORD || env.HARBOR_PASSWORD }}
             DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME || env.DOCKERHUB_USERNAME }}
             DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN || env.DOCKERHUB_TOKEN }}
             DOCKERHUB_REPOSITORY: ${{ vars.DOCKERHUB_REPOSITORY || env.DOCKERHUB_REPOSITORY }}
@@ -267,8 +273,36 @@ jobs:
               run: |
                   set -euo pipefail
 
+                  cargo_version="$(grep -m1 '^version = "' crates/ksbh-bin/Cargo.toml | sed -E 's/^version = "([^"]+)"$/\1/')"
+                  extra_tag=""
+                  case "${LOCAL_REF_NAME}" in
+                    dev)
+                      primary_tag="$(printf '%s' "${LOCAL_SHA}" | cut -c1-12)-$(date -u +%Y%m%d%H%M%S)"
+                      extra_tag="latest-dev"
+                      ;;
+                    v*)
+                      primary_tag="${LOCAL_REF_NAME#v}"
+                      if [ "${primary_tag}" != "${cargo_version}" ]; then
+                        echo "release tag ${LOCAL_REF_NAME} does not match Cargo version ${cargo_version}" >&2
+                        exit 1
+                      fi
+                      ;;
+                    *)
+                      echo "no image publish for ref '${LOCAL_REF_NAME}'"
+                      exit 0
+                      ;;
+                  esac
+
                   if [ -z "${HARBOR_HOST:-}" ]; then
                     echo "HARBOR_HOST is required to publish docs and charts images" >&2
+                    exit 1
+                  fi
+                  if [ -z "${HARBOR_USERNAME:-}" ] || [ -z "${HARBOR_PASSWORD:-}" ]; then
+                    echo "HARBOR_USERNAME and HARBOR_PASSWORD are required to publish docs and charts images" >&2
+                    exit 1
+                  fi
+                  if [ -z "${DOCKERHUB_REPOSITORY:-}" ] && [ -z "${DOCKERHUB_USERNAME:-}" ]; then
+                    echo "DOCKERHUB_REPOSITORY or DOCKERHUB_USERNAME is required to publish the release image" >&2
                     exit 1
                   fi
 
@@ -276,18 +310,10 @@ jobs:
                   docs_image_repository="${HARBOR_HOST}/registry/ksbh-docs"
                   charts_image_repository="${HARBOR_HOST}/registry/ksbh-charts"
 
-                  if [ -n "${HARBOR_HOST:-}" ]; then
+                  if [ -n "${HARBOR_HOST:-}" ] && [ -n "${HARBOR_USERNAME:-}" ] && [ -n "${HARBOR_PASSWORD:-}" ]; then
                     export KSBH_RELEASE_IMAGE_CACHE_REPO="${HARBOR_HOST}/registry-cache/ksbh-release"
                     export KSBH_DOCS_SITE_CACHE_REPO="${HARBOR_HOST}/registry-cache/ksbh-docs"
                     export KSBH_CHARTS_SITE_CACHE_REPO="${HARBOR_HOST}/registry-cache/ksbh-charts"
-                  fi
-
-                  if [ "${LOCAL_REF_NAME}" = "main" ]; then
-                    primary_tag="$(grep -m1 '^version = "' crates/ksbh-bin/Cargo.toml | sed -E 's/^version = "([^"]+)"$/\1/')"
-                    extra_tag=""
-                  else
-                    primary_tag="$(printf '%s' "${LOCAL_SHA}" | cut -c1-12)-$(date -u +%Y%m%d%H%M%S)"
-                    extra_tag="latest-dev"
                   fi
 
                   export KSBH_RELEASE_IMAGE_REPOSITORY="${image_repository}"
