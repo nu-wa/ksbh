@@ -161,3 +161,9 @@ version = "3.27.0"
 
 [workspace.dependencies.psl]
 version = "2.1.198"
+
+[workspace.dependencies.anyhow]
+version = "1.0.102"
+
+[workspace.dependencies.thiserror]
+version = "2.0.18"

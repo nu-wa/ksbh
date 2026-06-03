@@ -2,7 +2,7 @@
 //!
 //! usage: generate_crd <output.yaml>
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() -> anyhow::Result<()> {
     use kube::CustomResourceExt;
 
     let output = std::env::args()

@@ -25,6 +25,8 @@ if [ ! -x "${CARGO_HOME}/bin/rustup" ]; then
   curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | bash -s -- -y --default-toolchain none
 fi
 
-rustup toolchain install nightly --profile minimal --component miri --component rust-src
-cargo +nightly miri setup
+if ! rustup toolchain list | grep -q '^nightly'; then
+  rustup toolchain install nightly --component miri --component rust-src --profile minimal
+fi
+cargo +nightly miri setup || true
 cargo +nightly miri test --manifest-path crates/Cargo.toml -p ksbh-modules-sdk --test ffi_miri -- --nocapture --test-threads=1

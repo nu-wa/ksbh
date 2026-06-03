@@ -5,13 +5,16 @@ FROM ghcr.io/catthehacker/ubuntu:act-latest
 
 ARG TARGETARCH
 ARG DODECA_VERSION=v0.14.2
+ARG DODECA_SHA=4c25f36b64b9ec5aab5612a924b1264defa141d6
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PATH="/opt/ksbh-docs-tools/node_modules/.bin:/opt/ksbh-playwright/node_modules/.bin:/root/.deno/bin:/root/.local/bin:/root/.cargo/bin:${PATH}"
 ENV RUSTUP_HOME=/root/.rustup
 ENV CARGO_HOME=/root/.cargo
 
-RUN apt-get update -y \
+RUN --mount=type=cache,target=/var/cache/apt/archives,sharing=locked \
+  --mount=type=cache,target=/var/lib/apt,sharing=locked \
+  apt-get update -y \
   && apt-get install -y --no-install-recommends \
     ca-certificates \
     curl \
@@ -23,6 +26,7 @@ RUN apt-get update -y \
     cmake \
     pkg-config \
     libssl-dev \
+    mold \
     python3 \
     nodejs \
     npm \
@@ -33,9 +37,11 @@ RUN echo "y" | sh -c "$(curl -fsSL https://mise.run)" \
 
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | bash -s -- -y
 
-RUN rustup toolchain install 1.92.0 \
+RUN --mount=type=cache,target=/root/.rustup/downloads,sharing=locked \
+  rustup toolchain install 1.92.0 \
   && rustup default 1.92.0 \
-  && rustup target add wasm32-unknown-unknown
+  && rustup target add wasm32-unknown-unknown \
+  && rustup toolchain install nightly --component miri --component rust-src --profile minimal
 
 RUN --mount=type=cache,target=/root/.cargo/registry,sharing=locked \
   --mount=type=cache,target=/root/.cargo/git,sharing=locked \
@@ -71,8 +77,10 @@ RUN --mount=type=cache,target=/root/.cache/mise,sharing=locked \
 RUN --mount=type=cache,target=/root/.cargo/registry,sharing=locked \
   --mount=type=cache,target=/root/.cargo/git,sharing=locked \
   --mount=type=cache,target=/tmp/dodeca-target,sharing=locked \
-  git clone --depth 1 --branch "${DODECA_VERSION}" https://github.com/bearcove/dodeca /tmp/dodeca \
-  && cd /tmp/dodeca/crates/dodeca-devtools \
+  git clone --depth 50 --branch "${DODECA_VERSION}" https://github.com/bearcove/dodeca /tmp/dodeca && \
+  cd /tmp/dodeca && \
+  git checkout "${DODECA_SHA}" && \
+  cd /tmp/dodeca/crates/dodeca-devtools \
   && export CARGO_TARGET_DIR=/tmp/dodeca-target \
   && wasm-pack build --target web \
   && cd /tmp/dodeca/crates/dodeca-search-wasm \
@@ -88,7 +96,8 @@ RUN --mount=type=cache,target=/root/.npm,sharing=locked \
 WORKDIR /opt/ksbh-playwright
 COPY tests/playwright/package.json tests/playwright/package-lock.json /opt/ksbh-playwright/
 RUN --mount=type=cache,target=/root/.npm,sharing=locked \
-  npm ci --no-audit --no-fund
+  npm ci --no-audit --no-fund \
+  && npx playwright install --with-deps chromium
 
 RUN command -v mise \
   && command -v rustc \
@@ -102,6 +111,13 @@ RUN command -v mise \
   && command -v docker \
   && command -v node \
   && command -v npm \
+  && command -v deno \
+  && command -v git \
+  && command -v python3 \
+  && command -v cmake \
+  && command -v pkg-config \
+  && command -v mold \
+  && command -v playwright \
   && cd /opt/ksbh-mise \
   && mise where rust \
   && mise exec -- rustc --version \

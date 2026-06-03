@@ -17,7 +17,7 @@ case "${job_name}" in
     command_string='export KSBH_CI_USE_PREBUILT=false; mise run test-binary'
     ;;
   test-modules)
-    command_string='export KSBH_CI_USE_PREBUILT=false; mise run test-modules-smoke; mise run test-unhappy'
+    command_string='export KSBH_CI_USE_PREBUILT=false; mise run test-modules-smoke && mise run test-unhappy'
     ;;
   test-k8s)
     command_string='export KSBH_CI_USE_PREBUILT=false; mise run test-k8s'

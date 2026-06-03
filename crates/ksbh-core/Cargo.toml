@@ -47,6 +47,8 @@ tracing-appender = { workspace = true }
 tracing-subscriber = { workspace = true }
 uuid = { workspace = true }
 urlencoding = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
 
 [dependencies.config]
 workspace = true

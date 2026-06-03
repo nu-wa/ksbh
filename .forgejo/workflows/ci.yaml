@@ -25,6 +25,16 @@ jobs:
             credentials:
                 username: ${{ secrets.HARBOR_USERNAME }}
                 password: ${{ secrets.HARBOR_PASSWORD }}
+        env:
+            SCCACHE_BUCKET: ${{ secrets.SCCACHE_BUCKET }}
+            SCCACHE_REGION: ${{ secrets.SCCACHE_REGION }}
+            SCCACHE_S3_USE_SSL: ${{ secrets.SCCACHE_S3_USE_SSL }}
+            SCCACHE_ENDPOINT: ${{ secrets.SCCACHE_ENDPOINT }}
+            SCCACHE_S3_ENABLE_VIRTUAL_HOST_STYLE: ${{ secrets.SCCACHE_S3_ENABLE_VIRTUAL_HOST_STYLE }}
+            SCCACHE_S3_KEY_PREFIX: ksbh
+            AWS_REGION: ${{ secrets.SCCACHE_REGION }}
+            AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+            AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         permissions:
             contents: read
         steps:
@@ -41,10 +51,10 @@ jobs:
                       /root/.cache/mise
                       /root/.local/share/mise
                       /root/.local/state/mise
-                  key: rust-build-v3-${{ vars.CI_BASE_IMAGE_TAG || 'latest' }}-${{ forge.ref_name }}-${{ hashFiles('crates/Cargo.lock') }}
+                  key: rust-build-v3-${{ vars.CI_BASE_IMAGE }}-${{ forge.ref_name }}-${{ hashFiles('crates/Cargo.lock') }}
                   restore-keys: |
-                      rust-build-v3-${{ vars.CI_BASE_IMAGE_TAG || 'latest' }}-${{ forge.ref_name }}-
-                      rust-build-v3-${{ vars.CI_BASE_IMAGE_TAG || 'latest' }}-
+                      rust-build-v3-${{ vars.CI_BASE_IMAGE }}-${{ forge.ref_name }}-
+                      rust-build-v3-${{ vars.CI_BASE_IMAGE }}-
                       rust-build-v3-
 
             - name: Verify CI toolchain
@@ -69,18 +79,22 @@ jobs:
                   mise run compile-test-binaries
 
             - name: Upload Rust prebuilt artifact
-              uses: https://data.forgejo.org/actions/upload-artifact@v3-node20
+              uses: https://data.forgejo.org/actions/upload-artifact@v4
               with:
                   name: rust-prebuilt-binary
                   path: |
                       crates/target/debug/ksbh
+                      crates/target/debug/*.so
+                      crates/target/debug/*.dylib
+                      crates/target/debug/deps/*.so
+                      crates/target/debug/deps/*.dylib
                       crates/target/debug/deps/binary_baseline_e2e-*
                       crates/target/debug/deps/binary_static_content_e2e-*
                       crates/target/debug/deps/binary_upstream_errors_e2e-*
                   if-no-files-found: error
 
             - name: Upload module prebuilt artifact
-              uses: https://data.forgejo.org/actions/upload-artifact@v3-node20
+              uses: https://data.forgejo.org/actions/upload-artifact@v4
               with:
                   name: rust-prebuilt-modules
                   path: |
@@ -97,7 +111,7 @@ jobs:
                   if-no-files-found: error
 
             - name: Upload Kubernetes prebuilt artifact
-              uses: https://data.forgejo.org/actions/upload-artifact@v3-node20
+              uses: https://data.forgejo.org/actions/upload-artifact@v4
               with:
                   name: rust-prebuilt-k8s
                   path: |
@@ -132,7 +146,7 @@ jobs:
               uses: https://data.forgejo.org/actions/checkout@v4
 
             - name: Download Rust prebuilt artifact
-              uses: https://data.forgejo.org/actions/download-artifact@v3-node20
+              uses: https://data.forgejo.org/actions/download-artifact@v4
               with:
                   name: rust-prebuilt-binary
                   path: crates/target/debug
@@ -161,7 +175,7 @@ jobs:
               uses: https://data.forgejo.org/actions/checkout@v4
 
             - name: Download Rust prebuilt artifact
-              uses: https://data.forgejo.org/actions/download-artifact@v3-node20
+              uses: https://data.forgejo.org/actions/download-artifact@v4
               with:
                   name: rust-prebuilt-modules
                   path: crates/target/debug
@@ -190,6 +204,16 @@ jobs:
             credentials:
                 username: ${{ secrets.HARBOR_USERNAME }}
                 password: ${{ secrets.HARBOR_PASSWORD }}
+        env:
+            SCCACHE_BUCKET: ${{ secrets.SCCACHE_BUCKET }}
+            SCCACHE_REGION: ${{ secrets.SCCACHE_REGION }}
+            SCCACHE_S3_USE_SSL: ${{ secrets.SCCACHE_S3_USE_SSL }}
+            SCCACHE_ENDPOINT: ${{ secrets.SCCACHE_ENDPOINT }}
+            SCCACHE_S3_ENABLE_VIRTUAL_HOST_STYLE: ${{ secrets.SCCACHE_S3_ENABLE_VIRTUAL_HOST_STYLE }}
+            SCCACHE_S3_KEY_PREFIX: ksbh
+            AWS_REGION: ${{ secrets.SCCACHE_REGION }}
+            AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+            AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         permissions:
             contents: read
         steps:
@@ -200,10 +224,10 @@ jobs:
               uses: https://data.forgejo.org/actions/cache@v4
               with:
                   path: .ci-cache/miri
-                  key: miri-v2-${{ vars.CI_BASE_IMAGE_TAG || 'latest' }}-${{ forge.ref_name }}-${{ hashFiles('crates/Cargo.lock') }}
+                  key: miri-v2-${{ vars.CI_BASE_IMAGE }}-${{ forge.ref_name }}-${{ hashFiles('crates/Cargo.lock') }}
                   restore-keys: |
-                      miri-v2-${{ vars.CI_BASE_IMAGE_TAG || 'latest' }}-${{ forge.ref_name }}-
-                      miri-v2-${{ vars.CI_BASE_IMAGE_TAG || 'latest' }}-
+                      miri-v2-${{ vars.CI_BASE_IMAGE }}-${{ forge.ref_name }}-
+                      miri-v2-${{ vars.CI_BASE_IMAGE }}-
                       miri-v2-
 
             - name: Run Miri coverage
@@ -231,7 +255,7 @@ jobs:
               uses: https://data.forgejo.org/actions/checkout@v4
 
             - name: Download Rust prebuilt artifact
-              uses: https://data.forgejo.org/actions/download-artifact@v3-node20
+              uses: https://data.forgejo.org/actions/download-artifact@v4
               with:
                   name: rust-prebuilt-k8s
                   path: crates/target/debug
@@ -243,10 +267,12 @@ jobs:
                   HARBOR_USERNAME: ${{ secrets.HARBOR_USERNAME }}
                   HARBOR_PASSWORD: ${{ secrets.HARBOR_PASSWORD }}
                   KSBH_CI_USE_PREBUILT: "true"
-                  KSBH_RELEASE_IMAGE: ksbh-ci-e2e:${{ forge.sha }}
-                  KSBH_RELEASE_IMAGE_REPOSITORY: ksbh-ci-e2e
+                  KSBH_RELEASE_IMAGE: ${{ vars.HARBOR_HOST }}/registry/ksbh-release-buildcache-e2e:${{ forge.sha }}
+                  KSBH_RELEASE_IMAGE_REPOSITORY: ${{ vars.HARBOR_HOST }}/registry/ksbh-release-buildcache-e2e
                   KSBH_RELEASE_IMAGE_TAG: ${{ forge.sha }}
+                  KSBH_RELEASE_IMAGE_PUSH: "true"
                   KSBH_E2E_WEBSOCKET_IMAGE: ksbh-e2e-websocket-probe:ci
+                  KSBH_E2E_PLAYWRIGHT_DRIVER: local
                   KIND_CLUSTER_CONFIG: tests/kind/cluster-ci.yaml
                   KSBH_KIND_API_SERVER_PORT: "16443"
               run: |
@@ -325,6 +351,9 @@ jobs:
                   fi
                   if [ -n "${DOCKERHUB_USERNAME:-}" ] && [ -n "${DOCKERHUB_TOKEN:-}" ]; then
                     echo "${DOCKERHUB_TOKEN}" | docker login --username "${DOCKERHUB_USERNAME}" --password-stdin
+                  elif [ -n "${DOCKERHUB_USERNAME:-}" ] || [ -n "${DOCKERHUB_TOKEN:-}" ]; then
+                    echo "DOCKERHUB_USERNAME and DOCKERHUB_TOKEN must be set together" >&2
+                    exit 1
                   fi
 
                   image_repository="${DOCKERHUB_REPOSITORY:-${DOCKERHUB_USERNAME}/ksbh}"
@@ -337,11 +366,6 @@ jobs:
                     export KSBH_CHARTS_SITE_CACHE_REPO="${HARBOR_HOST}/registry/ksbh-charts-buildcache"
                   fi
 
-                  export KSBH_RELEASE_IMAGE_REPOSITORY="${image_repository}"
-                  export KSBH_RELEASE_IMAGE_TAG="${primary_tag}"
-                  export KSBH_RELEASE_IMAGE_PUSH="true"
-                  export KSBH_RELEASE_IMAGE_LOAD="false"
-
                   export KSBH_DOCS_SITE_IMAGE="${docs_image_repository}:${primary_tag}"
                   export KSBH_DOCS_SITE_PUSH="true"
                   export KSBH_DOCS_SITE_LOAD="false"
@@ -350,7 +374,15 @@ jobs:
                   export KSBH_CHARTS_SITE_PUSH="true"
                   export KSBH_CHARTS_SITE_LOAD="false"
 
-                  bash mise-tasks/build-release-image
+                  # Consume the release image built and pushed by test-k8s (avoids a duplicate build).
+                  harbor_e2e_image="${HARBOR_HOST}/registry/ksbh-release-buildcache-e2e:${LOCAL_SHA}"
+                  if ! docker pull "${harbor_e2e_image}"; then
+                    echo "failed to pull release image from Harbor: ${harbor_e2e_image}" >&2
+                    exit 1
+                  fi
+                  docker tag "${harbor_e2e_image}" "${image_repository}:${primary_tag}"
+                  docker push "${image_repository}:${primary_tag}"
+
                   bash mise-tasks/build-docs-site
                   bash mise-tasks/build-docs-site-image
                   bash mise-tasks/build-helm-repo
@@ -383,7 +415,7 @@ jobs:
                   bash mise-tasks/package-helm-chart
 
             - name: Upload Helm chart artifact
-              uses: https://data.forgejo.org/actions/upload-artifact@v3-node20
+              uses: https://data.forgejo.org/actions/upload-artifact@v4
               with:
                   name: ksbh-helm-chart-${{ forge.ref_name }}
                   path: dist/helm/*.tar.gz

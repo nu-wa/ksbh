@@ -172,22 +172,41 @@ if [ "${usage_skip_build:-false}" != "true" ]; then
   bash "$(dirname "$0")/build-release-image"
 fi
 
+# If the build pushed the release image to a registry (PUSH=true) rather than loading
+# it into the local Docker daemon, pull it back so kind can load it.
+if [ "${KSBH_RELEASE_IMAGE_PUSH:-false}" = "true" ] && ! docker image inspect "${image_name}" >/dev/null 2>&1; then
+  docker pull "${image_name}"
+fi
+
 if ! docker image inspect "${websocket_probe_image}" >/dev/null 2>&1; then
   websocket_cache_repo="${KSBH_E2E_WEBSOCKET_CACHE_REPO:-}"
-  websocket_build_args=(
-    buildx
-    build
-    --load
-    --file docker/fixtures/websocket-probe.Dockerfile
-    --tag "${websocket_probe_image}"
-  )
+  pulled_from_harbor=false
 
   if [ -n "${websocket_cache_repo}" ]; then
-    websocket_build_args+=(--cache-from "type=registry,ref=${websocket_cache_repo}")
-    websocket_build_args+=(--cache-to "type=registry,ref=${websocket_cache_repo},mode=max,image-manifest=true,oci-mediatypes=true")
+    harbor_probe_image="${websocket_cache_repo%-buildcache}"
+    if docker pull "${harbor_probe_image}:latest" 2>/dev/null; then
+      docker tag "${harbor_probe_image}:latest" "${websocket_probe_image}"
+      pulled_from_harbor=true
+      echo "websocket-probe: pulled from Harbor cache (${harbor_probe_image}:latest)"
+    fi
   fi
 
-  docker "${websocket_build_args[@]}" .
+  if [ "${pulled_from_harbor}" = "false" ]; then
+    websocket_build_args=(
+      buildx
+      build
+      --load
+      --file docker/fixtures/websocket-probe.Dockerfile
+      --tag "${websocket_probe_image}"
+    )
+
+    if [ -n "${websocket_cache_repo}" ]; then
+      websocket_build_args+=(--cache-from "type=registry,ref=${websocket_cache_repo}")
+      websocket_build_args+=(--cache-to "type=registry,ref=${websocket_cache_repo},mode=max,image-manifest=true,oci-mediatypes=true")
+    fi
+
+    docker "${websocket_build_args[@]}" .
+  fi
 fi
 
 kind load docker-image "${image_name}" --name "${cluster_name}"
