@@ -83,3 +83,17 @@ WORKDIR /opt/ksbh-playwright
 COPY tests/playwright/package.json tests/playwright/package-lock.json /opt/ksbh-playwright/
 RUN --mount=type=cache,target=/root/.npm,sharing=locked \
   npm ci --no-audit --no-fund
+
+RUN command -v mise \
+  && command -v rustc \
+  && command -v cargo \
+  && command -v sccache \
+  && command -v wasm-pack \
+  && command -v ddc \
+  && command -v kind \
+  && command -v helm \
+  && command -v kubectl \
+  && command -v docker \
+  && command -v node \
+  && command -v npm \
+  && sccache --version

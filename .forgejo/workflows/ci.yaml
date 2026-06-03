@@ -13,7 +13,7 @@ on:
 env:
     LOCAL_SHA: ${{ forge.sha }}
     LOCAL_REF_NAME: ${{ forge.ref_name }}
-    RUSTC_WRAPPER: /root/.cargo/bin/sccache
+    RUSTC_WRAPPER: sccache
     MISE_TASK_OUTPUT: interleave
     MISE_YES: "true"
     NO_COLOR: "1"

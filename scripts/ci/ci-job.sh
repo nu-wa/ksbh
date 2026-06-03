@@ -41,6 +41,6 @@ repo_root="$(
   cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd -P
 )"
 
-command_string="set -euo pipefail; ${command_string}"
+command_string="set -euo pipefail; export RUSTC_WRAPPER=sccache; ${command_string}"
 
 exec bash "${repo_root}/scripts/ci/run-in-ci-container.sh" /bin/bash -lc "${command_string}"
