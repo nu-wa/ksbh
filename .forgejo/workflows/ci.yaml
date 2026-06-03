@@ -109,6 +109,23 @@ jobs:
                   export RUSTC_WRAPPER="$(command -v sccache)"
                   mise run compile-test-binaries
 
+            - name: Build and push release Docker image
+              env:
+                  HARBOR_HOST: ${{ vars.HARBOR_HOST }}
+                  HARBOR_USERNAME: ${{ secrets.HARBOR_USERNAME }}
+                  HARBOR_PASSWORD: ${{ secrets.HARBOR_PASSWORD }}
+                  KSBH_RELEASE_IMAGE: ${{ vars.HARBOR_HOST }}/registry/ksbh-release:${{ forge.sha }}
+                  KSBH_RELEASE_IMAGE_REPOSITORY: ${{ vars.HARBOR_HOST }}/registry/ksbh-release
+                  KSBH_RELEASE_IMAGE_TAG: ${{ forge.sha }}
+                  KSBH_RELEASE_IMAGE_PUSH: "true"
+                  KSBH_RELEASE_IMAGE_LOAD: "false"
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  . ./scripts/ci/prepare-docker-auth.sh
+                  export KSBH_RELEASE_IMAGE_CACHE_REPO="${HARBOR_HOST}/registry/ksbh-release-buildcache"
+                  mise run build-release-image
+
             - name: Upload Rust prebuilt artifact
               uses: https://data.forgejo.org/actions/upload-artifact@v3-node20
               with:
@@ -302,12 +319,13 @@ jobs:
                   HARBOR_USERNAME: ${{ secrets.HARBOR_USERNAME }}
                   HARBOR_PASSWORD: ${{ secrets.HARBOR_PASSWORD }}
                   KSBH_CI_USE_PREBUILT: "true"
-                  KSBH_RELEASE_IMAGE: ${{ vars.HARBOR_HOST }}/registry/ksbh-release-buildcache-e2e:${{ forge.sha }}
-                  KSBH_RELEASE_IMAGE_REPOSITORY: ${{ vars.HARBOR_HOST }}/registry/ksbh-release-buildcache-e2e
+                  KSBH_RELEASE_IMAGE: ${{ vars.HARBOR_HOST }}/registry/ksbh-release:${{ forge.sha }}
+                  KSBH_RELEASE_IMAGE_REPOSITORY: ${{ vars.HARBOR_HOST }}/registry/ksbh-release
                   KSBH_RELEASE_IMAGE_TAG: ${{ forge.sha }}
                   KSBH_RELEASE_IMAGE_PUSH: "true"
                   KSBH_E2E_WEBSOCKET_IMAGE: ksbh-e2e-websocket-probe:ci
                   KSBH_E2E_PLAYWRIGHT_DRIVER: local
+                  KSBH_E2E_SKIP_RELEASE_BUILD: "true"
                   KIND_CLUSTER_CONFIG: tests/kind/cluster-ci.yaml
                   KSBH_KIND_API_SERVER_PORT: "16443"
               run: |
@@ -410,13 +428,13 @@ jobs:
                   export KSBH_CHARTS_SITE_PUSH="true"
                   export KSBH_CHARTS_SITE_LOAD="false"
 
-                  # Consume the release image built and pushed by test-k8s (avoids a duplicate build).
-                  harbor_e2e_image="${HARBOR_HOST}/registry/ksbh-release-buildcache-e2e:${LOCAL_SHA}"
-                  if ! docker pull "${harbor_e2e_image}"; then
-                    echo "failed to pull release image from Harbor: ${harbor_e2e_image}" >&2
+                  # Consume the release image built and pushed by build-rust (avoids a duplicate build).
+                  harbor_release_image="${HARBOR_HOST}/registry/ksbh-release:${LOCAL_SHA}"
+                  if ! docker pull "${harbor_release_image}"; then
+                    echo "failed to pull release image from Harbor: ${harbor_release_image}" >&2
                     exit 1
                   fi
-                  docker tag "${harbor_e2e_image}" "${image_repository}:${primary_tag}"
+                  docker tag "${harbor_release_image}" "${image_repository}:${primary_tag}"
                   docker push "${image_repository}:${primary_tag}"
 
                   bash mise-tasks/build-docs-site

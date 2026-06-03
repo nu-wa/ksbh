@@ -168,7 +168,7 @@ if [ -z "${browser_host_ip}" ]; then
   exit 1
 fi
 
-if [ "${usage_skip_build:-false}" != "true" ]; then
+if [ "${usage_skip_build:-false}" != "true" ] && [ "${KSBH_E2E_SKIP_RELEASE_BUILD:-false}" != "true" ]; then
   bash "$(dirname "$0")/build-release-image"
 fi
 
@@ -580,20 +580,30 @@ else
   fi
 
 local_playwright_bin="${repo_root}/tests/playwright/node_modules/.bin/playwright"
+playwright_node_modules=""
 if [ -x "${local_playwright_bin}" ]; then
   playwright_bin="${local_playwright_bin}"
 elif command -v playwright >/dev/null 2>&1; then
   playwright_bin="$(command -v playwright)"
+  playwright_node_modules="/opt/ksbh-playwright/node_modules"
 elif [ -x /opt/ksbh-playwright/node_modules/.bin/playwright ]; then
   playwright_bin="/opt/ksbh-playwright/node_modules/.bin/playwright"
+  playwright_node_modules="/opt/ksbh-playwright/node_modules"
 else
   echo "playwright is not available; run inside ksbh-ci or install tests/playwright dependencies" >&2
   exit 1
 fi
 
-"${playwright_bin}" test \
-  "${playwright_spec}" \
-  --workers=1
+if [ -n "${playwright_node_modules}" ]; then
+  NODE_PATH="${playwright_node_modules}${NODE_PATH:+:${NODE_PATH}}" \
+    "${playwright_bin}" test \
+    "${playwright_spec}" \
+    --workers=1
+else
+  "${playwright_bin}" test \
+    "${playwright_spec}" \
+    --workers=1
+fi
 fi
 
 kctl delete ingress pow-browser-ingress --namespace "${namespace}" --ignore-not-found >/dev/null 2>&1 || true
