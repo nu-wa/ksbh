@@ -6,16 +6,20 @@ on:
             - main
             - dev
         paths:
+            - .forgejo/workflows/ci-base-image.yaml
             - docker/build/ci.Dockerfile
             - docker/build/ci.Dockerfile.dockerignore
             - docs/package.json
+            - scripts/ci/prepare-docker-auth.sh
             - tests/playwright/package.json
             - tests/playwright/package-lock.json
     pull_request:
         paths:
+            - .forgejo/workflows/ci-base-image.yaml
             - docker/build/ci.Dockerfile
             - docker/build/ci.Dockerfile.dockerignore
             - docs/package.json
+            - scripts/ci/prepare-docker-auth.sh
             - tests/playwright/package.json
             - tests/playwright/package-lock.json
     workflow_dispatch:
@@ -40,17 +44,13 @@ jobs:
             - name: Check out repository
               uses: https://data.forgejo.org/actions/checkout@v4
 
-            - name: Prepare Docker auth
-              shell: bash
-              run: |
-                  set -euo pipefail
-                  . ./scripts/ci/prepare-docker-auth.sh
-
             - name: Build CI image for pull request
               if: ${{ forge.event_name == 'pull_request' }}
               shell: bash
               run: |
                   set -euo pipefail
+                  . ./scripts/ci/prepare-docker-auth.sh
+
                   build_args=(
                     buildx
                     build
@@ -61,7 +61,7 @@ jobs:
                   )
 
                   if [ -n "${HARBOR_HOST:-}" ] && [ -n "${HARBOR_USERNAME:-}" ] && [ -n "${HARBOR_PASSWORD:-}" ]; then
-                    build_args+=(--cache-from "type=registry,ref=${HARBOR_HOST}/registry-cache/ksbh-ci")
+                    build_args+=(--cache-from "type=registry,ref=${HARBOR_HOST}/registry/ksbh-ci-buildcache")
                   fi
 
                   docker "${build_args[@]}" .
@@ -71,6 +71,7 @@ jobs:
               shell: bash
               run: |
                   set -euo pipefail
+                  . ./scripts/ci/prepare-docker-auth.sh
 
                   if [ -z "${HARBOR_HOST:-}" ]; then
                     echo "HARBOR_HOST is required to publish the CI base image" >&2
@@ -82,7 +83,7 @@ jobs:
                   fi
 
                   ci_image_repository="${HARBOR_HOST}/registry/ksbh-ci"
-                  ci_image_cache_repository="${HARBOR_HOST}/registry-cache/ksbh-ci"
+                  ci_image_cache_repository="${HARBOR_HOST}/registry/ksbh-ci-buildcache"
                   build_stamp="$(date -u +%Y%m%d%H%M%S)"
                   short_sha="$(printf '%s' "${LOCAL_SHA}" | cut -c1-12)"
 

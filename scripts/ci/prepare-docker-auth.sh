@@ -17,11 +17,26 @@ export BUILDX_CONFIG="${writable_buildx_config}"
 
 if [ -n "${HARBOR_HOST:-}" ] && [ -n "${HARBOR_USERNAME:-}" ] && [ -n "${HARBOR_PASSWORD:-}" ]; then
   echo "${HARBOR_PASSWORD}" | docker login "${HARBOR_HOST}" --username "${HARBOR_USERNAME}" --password-stdin
+  echo "Prepared Docker auth for ${HARBOR_HOST}"
 fi
 
-if [ -n "${GITHUB_ENV:-}" ] && [ -w "${GITHUB_ENV}" ]; then
+persist_env() {
+  local env_file="$1"
+
+  if [ -n "${env_file}" ] && [ -w "${env_file}" ]; then
+    {
+      printf 'DOCKER_CONFIG=%s\n' "${DOCKER_CONFIG}"
+      printf 'BUILDX_CONFIG=%s\n' "${BUILDX_CONFIG}"
+    } >> "${env_file}"
+  fi
+}
+
+persist_env "${GITHUB_ENV:-}"
+persist_env "${FORGEJO_ENV:-}"
+
+if [ -z "${GITHUB_ENV:-}" ] && [ -z "${FORGEJO_ENV:-}" ]; then
   {
     printf 'DOCKER_CONFIG=%s\n' "${DOCKER_CONFIG}"
     printf 'BUILDX_CONFIG=%s\n' "${BUILDX_CONFIG}"
-  } >> "${GITHUB_ENV}"
+  } > "${writable_docker_config}/env"
 fi

@@ -212,12 +212,6 @@ jobs:
                   name: rust-prebuilt-k8s
                   path: crates/target/debug
 
-            - name: Prepare Docker auth
-              shell: bash
-              run: |
-                  set -euo pipefail
-                  . ./scripts/ci/prepare-docker-auth.sh
-
             - name: Run Kubernetes e2e
               shell: bash
               env:
@@ -226,9 +220,11 @@ jobs:
                   KSBH_KIND_API_SERVER_PORT: "16443"
               run: |
                   set -euo pipefail
+                  . ./scripts/ci/prepare-docker-auth.sh
+
                   if [ -n "${HARBOR_HOST:-}" ] && [ -n "${HARBOR_USERNAME:-}" ] && [ -n "${HARBOR_PASSWORD:-}" ]; then
-                    export KSBH_RELEASE_IMAGE_CACHE_REPO="${HARBOR_HOST}/registry-cache/ksbh-release"
-                    export KSBH_E2E_WEBSOCKET_CACHE_REPO="${HARBOR_HOST}/registry-cache/ksbh-e2e-websocket-probe"
+                    export KSBH_RELEASE_IMAGE_CACHE_REPO="${HARBOR_HOST}/registry/ksbh-release-buildcache"
+                    export KSBH_E2E_WEBSOCKET_CACHE_REPO="${HARBOR_HOST}/registry/ksbh-e2e-websocket-probe-buildcache"
                   fi
                   bash mise-tasks/e2e
 
@@ -255,12 +251,6 @@ jobs:
             - name: Check out repository
               uses: https://data.forgejo.org/actions/checkout@v4
 
-            - name: Prepare Docker auth
-              shell: bash
-              run: |
-                  set -euo pipefail
-                  . ./scripts/ci/prepare-docker-auth.sh
-
             - name: Authenticate DockerHub
               if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
               shell: bash
@@ -272,6 +262,7 @@ jobs:
               shell: bash
               run: |
                   set -euo pipefail
+                  . ./scripts/ci/prepare-docker-auth.sh
 
                   cargo_version="$(grep -m1 '^version = "' crates/ksbh-bin/Cargo.toml | sed -E 's/^version = "([^"]+)"$/\1/')"
                   extra_tag=""
@@ -305,15 +296,18 @@ jobs:
                     echo "DOCKERHUB_REPOSITORY or DOCKERHUB_USERNAME is required to publish the release image" >&2
                     exit 1
                   fi
+                  if [ -n "${DOCKERHUB_USERNAME:-}" ] && [ -n "${DOCKERHUB_TOKEN:-}" ]; then
+                    echo "${DOCKERHUB_TOKEN}" | docker login --username "${DOCKERHUB_USERNAME}" --password-stdin
+                  fi
 
                   image_repository="${DOCKERHUB_REPOSITORY:-${DOCKERHUB_USERNAME}/ksbh}"
                   docs_image_repository="${HARBOR_HOST}/registry/ksbh-docs"
                   charts_image_repository="${HARBOR_HOST}/registry/ksbh-charts"
 
                   if [ -n "${HARBOR_HOST:-}" ] && [ -n "${HARBOR_USERNAME:-}" ] && [ -n "${HARBOR_PASSWORD:-}" ]; then
-                    export KSBH_RELEASE_IMAGE_CACHE_REPO="${HARBOR_HOST}/registry-cache/ksbh-release"
-                    export KSBH_DOCS_SITE_CACHE_REPO="${HARBOR_HOST}/registry-cache/ksbh-docs"
-                    export KSBH_CHARTS_SITE_CACHE_REPO="${HARBOR_HOST}/registry-cache/ksbh-charts"
+                    export KSBH_RELEASE_IMAGE_CACHE_REPO="${HARBOR_HOST}/registry/ksbh-release-buildcache"
+                    export KSBH_DOCS_SITE_CACHE_REPO="${HARBOR_HOST}/registry/ksbh-docs-buildcache"
+                    export KSBH_CHARTS_SITE_CACHE_REPO="${HARBOR_HOST}/registry/ksbh-charts-buildcache"
                   fi
 
                   export KSBH_RELEASE_IMAGE_REPOSITORY="${image_repository}"
