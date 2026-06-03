@@ -38,9 +38,9 @@ jobs:
                   set -euo pipefail
                   . ./scripts/ci/prepare-docker-auth.sh
                   ref="${HARBOR_HOST}/registry/ksbh-ci:latest"
-                  digest=$(docker manifest inspect "${ref}" | jq -r .digest)
+                  digest=$(docker manifest inspect "${ref}" | jq -r '.manifests[] | select(.platform.architecture == "amd64" and .platform.os == "linux") | .digest')
                   if [ -z "${digest}" ] || [ "${digest}" = "null" ]; then
-                    echo "::error::Failed to resolve digest for ${ref}" >&2
+                    echo "::error::Failed to resolve linux/amd64 digest for ${ref}" >&2
                     docker manifest inspect "${ref}" >&2 || true
                     exit 1
                   fi
