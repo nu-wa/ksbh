@@ -11,8 +11,8 @@ on:
     workflow_dispatch:
 
 env:
-    LOCAL_SHA: ${{ forge.sha || env.FORGEJO_SHA || env.LOCAL_SHA }}
-    LOCAL_REF_NAME: ${{ forge.ref_name || env.FORGEJO_REF_NAME || env.LOCAL_REF_NAME }}
+    LOCAL_SHA: ${{ forge.sha }}
+    LOCAL_REF_NAME: ${{ forge.ref_name }}
     RUSTC_WRAPPER: /root/.cargo/bin/sccache
     MISE_TASK_OUTPUT: interleave
     MISE_YES: "true"
@@ -23,6 +23,9 @@ jobs:
         runs-on: cocaine
         container:
             image: ${{ vars.CI_BASE_IMAGE }}
+            credentials:
+                username: ${{ secrets.HARBOR_USERNAME }}
+                password: ${{ secrets.HARBOR_PASSWORD }}
         permissions:
             contents: read
         steps:
@@ -36,10 +39,10 @@ jobs:
                       /root/.cargo/registry
                       /root/.cargo/git
                       /root/.cache/sccache
-                  key: rust-build-v3-${{ vars.CI_BASE_IMAGE_TAG || env.CI_BASE_IMAGE_TAG || 'latest' }}-${{ forge.ref_name || env.FORGEJO_REF_NAME || env.LOCAL_REF_NAME }}-${{ hashFiles('crates/Cargo.lock') }}
+                  key: rust-build-v3-${{ vars.CI_BASE_IMAGE_TAG || 'latest' }}-${{ forge.ref_name }}-${{ hashFiles('crates/Cargo.lock') }}
                   restore-keys: |
-                      rust-build-v3-${{ vars.CI_BASE_IMAGE_TAG || env.CI_BASE_IMAGE_TAG || 'latest' }}-${{ forge.ref_name || env.FORGEJO_REF_NAME || env.LOCAL_REF_NAME }}-
-                      rust-build-v3-${{ vars.CI_BASE_IMAGE_TAG || env.CI_BASE_IMAGE_TAG || 'latest' }}-
+                      rust-build-v3-${{ vars.CI_BASE_IMAGE_TAG || 'latest' }}-${{ forge.ref_name }}-
+                      rust-build-v3-${{ vars.CI_BASE_IMAGE_TAG || 'latest' }}-
                       rust-build-v3-
 
             - name: Build Rust outputs
@@ -102,6 +105,9 @@ jobs:
         runs-on: cocaine
         container:
             image: ${{ vars.CI_BASE_IMAGE }}
+            credentials:
+                username: ${{ secrets.HARBOR_USERNAME }}
+                password: ${{ secrets.HARBOR_PASSWORD }}
         permissions:
             contents: read
         steps:
@@ -128,6 +134,9 @@ jobs:
         runs-on: cocaine
         container:
             image: ${{ vars.CI_BASE_IMAGE }}
+            credentials:
+                username: ${{ secrets.HARBOR_USERNAME }}
+                password: ${{ secrets.HARBOR_PASSWORD }}
         permissions:
             contents: read
         steps:
@@ -161,6 +170,9 @@ jobs:
         runs-on: cocaine
         container:
             image: ${{ vars.CI_BASE_IMAGE }}
+            credentials:
+                username: ${{ secrets.HARBOR_USERNAME }}
+                password: ${{ secrets.HARBOR_PASSWORD }}
         permissions:
             contents: read
         steps:
@@ -171,10 +183,10 @@ jobs:
               uses: https://data.forgejo.org/actions/cache@v4
               with:
                   path: .ci-cache/miri
-                  key: miri-v2-${{ vars.CI_BASE_IMAGE_TAG || env.CI_BASE_IMAGE_TAG || 'latest' }}-${{ forge.ref_name || env.FORGEJO_REF_NAME || env.LOCAL_REF_NAME }}-${{ hashFiles('crates/Cargo.lock') }}
+                  key: miri-v2-${{ vars.CI_BASE_IMAGE_TAG || 'latest' }}-${{ forge.ref_name }}-${{ hashFiles('crates/Cargo.lock') }}
                   restore-keys: |
-                      miri-v2-${{ vars.CI_BASE_IMAGE_TAG || env.CI_BASE_IMAGE_TAG || 'latest' }}-${{ forge.ref_name || env.FORGEJO_REF_NAME || env.LOCAL_REF_NAME }}-
-                      miri-v2-${{ vars.CI_BASE_IMAGE_TAG || env.CI_BASE_IMAGE_TAG || 'latest' }}-
+                      miri-v2-${{ vars.CI_BASE_IMAGE_TAG || 'latest' }}-${{ forge.ref_name }}-
+                      miri-v2-${{ vars.CI_BASE_IMAGE_TAG || 'latest' }}-
                       miri-v2-
 
             - name: Run Miri coverage
@@ -192,16 +204,11 @@ jobs:
         runs-on: cocaine
         container:
             image: ${{ vars.CI_BASE_IMAGE }}
+            credentials:
+                username: ${{ secrets.HARBOR_USERNAME }}
+                password: ${{ secrets.HARBOR_PASSWORD }}
         permissions:
             contents: read
-        env:
-            HARBOR_HOST: ${{ vars.HARBOR_HOST || env.HARBOR_HOST }}
-            HARBOR_USERNAME: ${{ secrets.HARBOR_USERNAME || env.HARBOR_USERNAME }}
-            HARBOR_PASSWORD: ${{ secrets.HARBOR_PASSWORD || env.HARBOR_PASSWORD }}
-            KSBH_RELEASE_IMAGE: ksbh-ci-e2e:${{ forge.sha || env.FORGEJO_SHA || env.LOCAL_SHA }}
-            KSBH_RELEASE_IMAGE_REPOSITORY: ksbh-ci-e2e
-            KSBH_RELEASE_IMAGE_TAG: ${{ forge.sha || env.FORGEJO_SHA || env.LOCAL_SHA }}
-            KSBH_E2E_WEBSOCKET_IMAGE: ksbh-e2e-websocket-probe:ci
         steps:
             - name: Check out repository
               uses: https://data.forgejo.org/actions/checkout@v4
@@ -215,7 +222,14 @@ jobs:
             - name: Run Kubernetes e2e
               shell: bash
               env:
+                  HARBOR_HOST: ${{ vars.HARBOR_HOST }}
+                  HARBOR_USERNAME: ${{ secrets.HARBOR_USERNAME }}
+                  HARBOR_PASSWORD: ${{ secrets.HARBOR_PASSWORD }}
                   KSBH_CI_USE_PREBUILT: "true"
+                  KSBH_RELEASE_IMAGE: ksbh-ci-e2e:${{ forge.sha }}
+                  KSBH_RELEASE_IMAGE_REPOSITORY: ksbh-ci-e2e
+                  KSBH_RELEASE_IMAGE_TAG: ${{ forge.sha }}
+                  KSBH_E2E_WEBSOCKET_IMAGE: ksbh-e2e-websocket-probe:ci
                   KIND_CLUSTER_CONFIG: tests/kind/cluster-ci.yaml
                   KSBH_KIND_API_SERVER_PORT: "16443"
               run: |
@@ -238,28 +252,24 @@ jobs:
         runs-on: cocaine
         container:
             image: ${{ vars.CI_BASE_IMAGE }}
+            credentials:
+                username: ${{ secrets.HARBOR_USERNAME }}
+                password: ${{ secrets.HARBOR_PASSWORD }}
         permissions:
             contents: read
-        env:
-            HARBOR_HOST: ${{ vars.HARBOR_HOST || env.HARBOR_HOST }}
-            HARBOR_USERNAME: ${{ secrets.HARBOR_USERNAME || env.HARBOR_USERNAME }}
-            HARBOR_PASSWORD: ${{ secrets.HARBOR_PASSWORD || env.HARBOR_PASSWORD }}
-            DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME || env.DOCKERHUB_USERNAME }}
-            DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN || env.DOCKERHUB_TOKEN }}
-            DOCKERHUB_REPOSITORY: ${{ vars.DOCKERHUB_REPOSITORY || env.DOCKERHUB_REPOSITORY }}
         steps:
             - name: Check out repository
               uses: https://data.forgejo.org/actions/checkout@v4
 
-            - name: Authenticate DockerHub
-              if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
-              shell: bash
-              run: |
-                  set -euo pipefail
-                  echo "${DOCKERHUB_TOKEN}" | docker login --username "${DOCKERHUB_USERNAME}" --password-stdin
-
             - name: Build and push release/docs/charts images
               shell: bash
+              env:
+                  HARBOR_HOST: ${{ vars.HARBOR_HOST }}
+                  HARBOR_USERNAME: ${{ secrets.HARBOR_USERNAME }}
+                  HARBOR_PASSWORD: ${{ secrets.HARBOR_PASSWORD }}
+                  DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+                  DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+                  DOCKERHUB_REPOSITORY: ${{ vars.DOCKERHUB_REPOSITORY }}
               run: |
                   set -euo pipefail
                   . ./scripts/ci/prepare-docker-auth.sh
@@ -335,6 +345,9 @@ jobs:
         runs-on: cocaine
         container:
             image: ${{ vars.CI_BASE_IMAGE }}
+            credentials:
+                username: ${{ secrets.HARBOR_USERNAME }}
+                password: ${{ secrets.HARBOR_PASSWORD }}
         permissions:
             contents: read
         steps:

@@ -25,10 +25,10 @@ on:
     workflow_dispatch:
 
 env:
-    HARBOR_HOST: ${{ vars.HARBOR_HOST || env.HARBOR_HOST }}
-    HARBOR_USERNAME: ${{ secrets.HARBOR_USERNAME || env.HARBOR_USERNAME }}
-    HARBOR_PASSWORD: ${{ secrets.HARBOR_PASSWORD || env.HARBOR_PASSWORD }}
-    LOCAL_SHA: ${{ forge.sha || env.FORGEJO_SHA || env.LOCAL_SHA }}
+    HARBOR_HOST: ${{ vars.HARBOR_HOST }}
+    HARBOR_USERNAME: ${{ secrets.HARBOR_USERNAME }}
+    HARBOR_PASSWORD: ${{ secrets.HARBOR_PASSWORD }}
+    LOCAL_SHA: ${{ forge.sha }}
     MISE_TASK_OUTPUT: interleave
     MISE_YES: "true"
     NO_COLOR: "1"
