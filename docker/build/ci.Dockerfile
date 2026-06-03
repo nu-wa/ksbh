@@ -8,13 +8,10 @@ ARG DODECA_VERSION=v0.14.2
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PATH="/opt/ksbh-docs-tools/node_modules/.bin:/opt/ksbh-playwright/node_modules/.bin:/root/.deno/bin:/root/.local/bin:/root/.cargo/bin:${PATH}"
-ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 ENV RUSTUP_HOME=/root/.rustup
 ENV CARGO_HOME=/root/.cargo
 
 RUN apt-get update -y \
-  && asound_pkg="libasound2" \
-  && if apt-cache show libasound2t64 >/dev/null 2>&1; then asound_pkg="libasound2t64"; fi \
   && apt-get install -y --no-install-recommends \
     ca-certificates \
     curl \
@@ -29,23 +26,6 @@ RUN apt-get update -y \
     python3 \
     nodejs \
     npm \
-    libnss3 \
-    libnspr4 \
-    libatk1.0-0 \
-    libatk-bridge2.0-0 \
-    libcups2 \
-    libdrm2 \
-    libdbus-1-3 \
-    libxkbcommon0 \
-    libxcomposite1 \
-    libxdamage1 \
-    libxfixes3 \
-    libxrandr2 \
-    libgbm1 \
-    "${asound_pkg}" \
-    libatspi2.0-0 \
-    libxshmfence1 \
-    fonts-liberation \
   && rm -rf /var/lib/apt/lists/*
 
 RUN echo "y" | sh -c "$(curl -fsSL https://mise.run)" \
@@ -102,5 +82,4 @@ RUN --mount=type=cache,target=/root/.npm,sharing=locked \
 WORKDIR /opt/ksbh-playwright
 COPY tests/playwright/package.json tests/playwright/package-lock.json /opt/ksbh-playwright/
 RUN --mount=type=cache,target=/root/.npm,sharing=locked \
-  npm ci --no-audit --no-fund \
-  && ./node_modules/.bin/playwright install chromium
+  npm ci --no-audit --no-fund
