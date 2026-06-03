@@ -48,7 +48,7 @@ RUN --mount=type=cache,target=/var/cache/apt/archives,sharing=locked \
     xvfb \
   && rm -rf /var/lib/apt/lists/*
 
-RUN echo "y" | sh -c "$(curl -fsSL https://mise.run)" \
+RUN echo "y" | MISE_VERSION=v2026.5.15 sh -c "$(curl -fsSL https://mise.run)" \
   && ln -sf /root/.local/bin/mise /usr/local/bin/mise
 
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | bash -s -- -y
