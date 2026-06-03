@@ -9,26 +9,17 @@ on:
     workflow_dispatch:
 
 env:
-    HARBOR_HOST: ${{ vars.HARBOR_HOST || env.HARBOR_HOST }}
-    HARBOR_USERNAME: ${{ secrets.HARBOR_USERNAME || env.HARBOR_USERNAME }}
-    HARBOR_PASSWORD: ${{ secrets.HARBOR_PASSWORD || env.HARBOR_PASSWORD }}
-    DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME || env.DOCKERHUB_USERNAME }}
-    DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN || env.DOCKERHUB_TOKEN }}
-    DOCKERHUB_REPOSITORY: ${{ vars.DOCKERHUB_REPOSITORY || env.DOCKERHUB_REPOSITORY }}
     LOCAL_SHA: ${{ forge.sha || env.FORGEJO_SHA || env.LOCAL_SHA }}
     LOCAL_REF_NAME: ${{ forge.ref_name || env.FORGEJO_REF_NAME || env.LOCAL_REF_NAME }}
-    CI_BASE_IMAGE: ${{ (vars.HARBOR_HOST || env.HARBOR_HOST) }}/registry/ksbh-ci:latest
-    SCCACHE_BUCKET: ${{ secrets.SCCACHE_BUCKET || env.SCCACHE_BUCKET }}
-    SCCACHE_ENDPOINT: ${{ secrets.SCCACHE_ENDPOINT || env.SCCACHE_ENDPOINT }}
-    SCCACHE_REGION: ${{ secrets.SCCACHE_REGION || env.SCCACHE_REGION }}
-    SCCACHE_S3_USE_SSL: ${{ secrets.SCCACHE_S3_USE_SSL || env.SCCACHE_S3_USE_SSL }}
-    SCCACHE_S3_ENABLE_VIRTUAL_HOST_STYLE: ${{ secrets.SCCACHE_S3_ENABLE_VIRTUAL_HOST_STYLE || env.SCCACHE_S3_ENABLE_VIRTUAL_HOST_STYLE }}
-    AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID || env.AWS_ACCESS_KEY_ID }}
-    AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY || env.AWS_SECRET_ACCESS_KEY }}
+    CI_BASE_IMAGE_TAG: ${{ vars.CI_BASE_IMAGE_TAG || env.CI_BASE_IMAGE_TAG || 'latest' }}
+    CI_BASE_IMAGE: ${{ vars.CI_BASE_IMAGE || env.CI_BASE_IMAGE || format('{0}/registry/ksbh-ci:{1}', vars.HARBOR_HOST || env.HARBOR_HOST, vars.CI_BASE_IMAGE_TAG || env.CI_BASE_IMAGE_TAG || 'latest') }}
     RUSTC_WRAPPER: /root/.cargo/bin/sccache
+    MISE_TASK_OUTPUT: interleave
+    MISE_YES: "true"
+    NO_COLOR: "1"
 
 jobs:
-    build-once:
+    build-rust:
         runs-on: cocaine
         container:
             image: ${{ env.CI_BASE_IMAGE }}
@@ -50,41 +41,11 @@ jobs:
                       rust-build-${{ forge.ref_name }}-
                       rust-build-
 
-            - name: Build once
+            - name: Build Rust outputs
               shell: bash
               run: |
                   set -euo pipefail
-                  export PATH="$HOME/.local/bin:$PATH"
-
-                  chmod +x mise-tasks/build
-                  chmod +x mise-tasks/build-release-image
-
-                  env -u GH_TOKEN -u GITHUB_TOKEN mise install
-                  mise x rust@1.92.0 -- cargo build --manifest-path crates/Cargo.toml -p ksbh
-                  mise x rust@1.92.0 -- cargo build --manifest-path crates/Cargo.toml -p dynamic-ffi-smoke
-                  mise x rust@1.92.0 -- cargo test --manifest-path crates/Cargo.toml \
-                    -p tests \
-                    --test binary_baseline_e2e \
-                    --test binary_static_content_e2e \
-                    --test binary_upstream_errors_e2e \
-                    --test k8s_baseline_e2e \
-                    --test k8s_ingress_lifecycle_e2e \
-                    --test k8s_static_content_e2e \
-                    --test k8s_robots_txt_e2e \
-                    --test k8s_pow_http_e2e \
-                    --test k8s_http_to_https_e2e \
-                    --test k8s_trusted_proxies_e2e \
-                    --test k8s_websocket_e2e \
-                    --no-run
-                  mise x rust@1.92.0 -- cargo test --manifest-path crates/Cargo.toml -p ksbh-core --test module_host_dynamic --no-run
-                  mise x rust@1.92.0 -- cargo test --manifest-path crates/Cargo.toml -p ksbh-core --test host_functions_unhappy --no-run
-                  mise x rust@1.92.0 -- cargo test --manifest-path crates/Cargo.toml -p ksbh-modules-sdk --test ffi_miri --no-run
-                  mise x rust@1.92.0 -- cargo test --manifest-path crates/Cargo.toml -p ksbh-modules-sdk --lib --no-run
-                  mise x rust@1.92.0 -- cargo test --manifest-path crates/Cargo.toml -p ksbh-core --lib --no-run
-
-                  bash mise-tasks/build-release-image
-                  mkdir -p dist/docker
-                  docker save "${KSBH_RELEASE_IMAGE_LOCAL:-ksbh:release}" -o dist/docker/ksbh-release.tar
+                  mise run --skip-tools build-rust compile-test-binaries
 
             - name: Upload Rust prebuilt artifact
               uses: https://data.forgejo.org/actions/upload-artifact@v3-node20
@@ -115,16 +76,9 @@ jobs:
                       crates/target/debug/deps/ksbh_core-*
                   if-no-files-found: error
 
-            - name: Upload release image artifact
-              uses: https://data.forgejo.org/actions/upload-artifact@v3-node20
-              with:
-                  name: ksbh-release-image
-                  path: dist/docker/ksbh-release.tar
-                  if-no-files-found: error
-
-    e2e-binary:
+    test-binary:
         needs:
-            - build-once
+            - build-rust
         runs-on: cocaine
         container:
             image: ${{ env.CI_BASE_IMAGE }}
@@ -140,17 +94,17 @@ jobs:
                   name: rust-prebuilt
                   path: crates/target/debug
 
-            - name: Run direct-binary e2e task
-              uses: ./.forgejo/actions/run-mise-task
+            - name: Run binary e2e
+              shell: bash
               env:
                   KSBH_CI_USE_PREBUILT: "true"
-              with:
-                  task: e2e-binary
-                  chmod-paths: mise-tasks/e2e-binary
+              run: |
+                  set -euo pipefail
+                  mise run --skip-tools test-binary
 
-    modules-memory-check:
+    test-modules:
         needs:
-            - build-once
+            - build-rust
         runs-on: cocaine
         container:
             image: ${{ env.CI_BASE_IMAGE }}
@@ -166,37 +120,54 @@ jobs:
                   name: rust-prebuilt
                   path: crates/target/debug
 
-            - name: Run native dynamic-module smoke task
-              uses: ./.forgejo/actions/run-mise-task
+            - name: Run module smoke coverage
+              shell: bash
               env:
                   KSBH_CI_USE_PREBUILT: "true"
                   KSBH_DYNAMIC_SMOKE_LOOPS: "500"
-              with:
-                  task: dynamic-modules-smoke
-                  chmod-paths: mise-tasks/dynamic-modules-smoke
+              run: |
+                  set -euo pipefail
+                  mise run --skip-tools test-modules-smoke
 
-            - name: Run unhappy-path regression tests
-              uses: ./.forgejo/actions/run-mise-task
+            - name: Run unhappy-path coverage
+              shell: bash
               env:
                   KSBH_CI_USE_PREBUILT: "true"
-              with:
-                  task: p0-unhappy-tests
-                  chmod-paths: mise-tasks/p0-unhappy-tests
+              run: |
+                  set -euo pipefail
+                  mise run --skip-tools test-unhappy
 
-            - name: Run Miri SDK FFI task
-              uses: ./.forgejo/actions/run-mise-task
-              with:
-                  task: miri-modules-sdk-ffi
-                  chmod-paths: mise-tasks/miri-modules-sdk-ffi mise-tasks/lib.sh
-
-    e2e-kubernetes:
+    test-miri:
         needs:
-            - build-once
+            - build-rust
         runs-on: cocaine
         container:
             image: ${{ env.CI_BASE_IMAGE }}
         permissions:
             contents: read
+        steps:
+            - name: Check out repository
+              uses: https://data.forgejo.org/actions/checkout@v4
+
+            - name: Run Miri coverage
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  mise run --skip-tools test-miri
+
+    test-k8s:
+        needs:
+            - build-rust
+        runs-on: cocaine
+        container:
+            image: ${{ env.CI_BASE_IMAGE }}
+        permissions:
+            contents: read
+        env:
+            HARBOR_HOST: ${{ vars.HARBOR_HOST || env.HARBOR_HOST }}
+            KSBH_RELEASE_IMAGE_REPOSITORY: ksbh-ci-e2e
+            KSBH_RELEASE_IMAGE_TAG: ${{ forge.sha || env.FORGEJO_SHA || env.LOCAL_SHA }}
+            KSBH_E2E_WEBSOCKET_IMAGE: ksbh-e2e-websocket-probe:ci
         steps:
             - name: Check out repository
               uses: https://data.forgejo.org/actions/checkout@v4
@@ -207,138 +178,115 @@ jobs:
                   name: rust-prebuilt
                   path: crates/target/debug
 
-            - name: Download release image artifact
-              uses: https://data.forgejo.org/actions/download-artifact@v3-node20
-              with:
-                  name: ksbh-release-image
-                  path: dist/docker
-
-            - name: Load release image
+            - name: Prepare Docker auth
               shell: bash
               run: |
                   set -euo pipefail
-                  docker load -i dist/docker/ksbh-release.tar
+                  . ./scripts/ci/prepare-docker-auth.sh
 
-            - name: Install kind
+            - name: Run Kubernetes e2e
               shell: bash
-              run: |
-                  set -euo pipefail
-                  curl -fsSL -o /usr/local/bin/kind https://kind.sigs.k8s.io/dl/v0.31.0/kind-linux-amd64
-                  chmod +x /usr/local/bin/kind
-                  kind --version
-
-            - name: Run kubernetes e2e task
-              uses: ./.forgejo/actions/run-mise-task
               env:
                   KSBH_CI_USE_PREBUILT: "true"
                   KIND_CLUSTER_CONFIG: tests/kind/cluster-ci.yaml
                   KSBH_KIND_API_SERVER_PORT: "16443"
-                  KSBH_E2E_PLAYWRIGHT_DRIVER: host
-              with:
-                  task: e2e
-                  task-args: --skip-build
-                  chmod-paths: mise-tasks/e2e mise-tasks/e2e-kubernetes-provider mise-tasks/build-release-image mise-tasks/lib.sh
+              run: |
+                  set -euo pipefail
+                  if [ -n "${HARBOR_HOST:-}" ]; then
+                    export KSBH_RELEASE_IMAGE_CACHE_REPO="${HARBOR_HOST}/registry-cache/ksbh-release"
+                    export KSBH_E2E_WEBSOCKET_CACHE_REPO="${HARBOR_HOST}/registry-cache/ksbh-e2e-websocket-probe"
+                  fi
+                  mise run --skip-tools test-k8s
 
     publish-images:
         needs:
-            - e2e-binary
-            - modules-memory-check
-            - e2e-kubernetes
-        if: ${{ forge.event_name != 'pull_request' }}
+            - test-binary
+            - test-modules
+            - test-miri
+            - test-k8s
+        if: ${{ forge.event_name != 'pull_request' && (forge.ref_name == 'main' || forge.ref_name == 'dev') }}
         runs-on: cocaine
         container:
             image: ${{ env.CI_BASE_IMAGE }}
         permissions:
             contents: read
+        env:
+            HARBOR_HOST: ${{ vars.HARBOR_HOST || env.HARBOR_HOST }}
+            DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME || env.DOCKERHUB_USERNAME }}
+            DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN || env.DOCKERHUB_TOKEN }}
+            DOCKERHUB_REPOSITORY: ${{ vars.DOCKERHUB_REPOSITORY || env.DOCKERHUB_REPOSITORY }}
         steps:
             - name: Check out repository
               uses: https://data.forgejo.org/actions/checkout@v4
 
-            - name: Download release image artifact
-              uses: https://data.forgejo.org/actions/download-artifact@v3-node20
-              with:
-                  name: ksbh-release-image
-                  path: dist/docker
-
-            - name: Load release image
+            - name: Prepare Docker auth
               shell: bash
               run: |
                   set -euo pipefail
-                  docker load -i dist/docker/ksbh-release.tar
+                  . ./scripts/ci/prepare-docker-auth.sh
 
-            - name: Build and push image
+            - name: Authenticate DockerHub
+              if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
               shell: bash
               run: |
                   set -euo pipefail
-                  export PATH="$HOME/.local/bin:$PATH"
+                  echo "${DOCKERHUB_TOKEN}" | docker login --username "${DOCKERHUB_USERNAME}" --password-stdin
 
-                  source_docker_config="${DOCKER_CONFIG:-/root/.docker}"
-                  writable_docker_config="/tmp/ksbh-docker-config"
-                  writable_buildx_config="/tmp/ksbh-docker-buildx"
-                  mkdir -p "${writable_docker_config}" "${writable_buildx_config}"
-                  if [ -f "${source_docker_config}/config.json" ]; then
-                    cp "${source_docker_config}/config.json" "${writable_docker_config}/config.json"
+            - name: Build and push release/docs/charts images
+              shell: bash
+              run: |
+                  set -euo pipefail
+
+                  if [ -z "${HARBOR_HOST:-}" ]; then
+                    echo "HARBOR_HOST is required to publish docs and charts images" >&2
+                    exit 1
                   fi
-                  export DOCKER_CONFIG="${writable_docker_config}"
-                  export BUILDX_CONFIG="${writable_buildx_config}"
-
-                  chmod +x mise-tasks/build-docs-site-image
-                  chmod +x mise-tasks/build-charts-site-image
 
                   image_repository="${DOCKERHUB_REPOSITORY:-${DOCKERHUB_USERNAME}/ksbh}"
                   docs_image_repository="${HARBOR_HOST}/registry/ksbh-docs"
                   charts_image_repository="${HARBOR_HOST}/registry/ksbh-charts"
-                  source_release_image="${KSBH_RELEASE_IMAGE_LOCAL:-ksbh:release}"
+
+                  if [ -n "${HARBOR_HOST:-}" ]; then
+                    export KSBH_RELEASE_IMAGE_CACHE_REPO="${HARBOR_HOST}/registry-cache/ksbh-release"
+                    export KSBH_DOCS_SITE_CACHE_REPO="${HARBOR_HOST}/registry-cache/ksbh-docs"
+                    export KSBH_CHARTS_SITE_CACHE_REPO="${HARBOR_HOST}/registry-cache/ksbh-charts"
+                  fi
 
                   if [ "${LOCAL_REF_NAME}" = "main" ]; then
                     primary_tag="$(grep -m1 '^version = "' crates/ksbh-bin/Cargo.toml | sed -E 's/^version = "([^"]+)"$/\1/')"
                     extra_tag=""
                   else
-                    primary_tag="$(echo "${LOCAL_SHA}" | cut -c1-12)-$(date -u +%Y%m%d%H%M%S)"
+                    primary_tag="$(printf '%s' "${LOCAL_SHA}" | cut -c1-12)-$(date -u +%Y%m%d%H%M%S)"
                     extra_tag="latest-dev"
                   fi
 
-                  if [ -n "${DOCKERHUB_USERNAME:-}" ] && [ -n "${DOCKERHUB_TOKEN:-}" ]; then
-                    echo "${DOCKERHUB_TOKEN}" | docker login --username "${DOCKERHUB_USERNAME}" --password-stdin
-                  else
-                    echo "DOCKERHUB_USERNAME/DOCKERHUB_TOKEN not set, relying on preconfigured Docker auth"
-                  fi
-
-                  if [ -n "${HARBOR_HOST:-}" ] && [ -n "${HARBOR_USERNAME:-}" ] && [ -n "${HARBOR_PASSWORD:-}" ]; then
-                    echo "${HARBOR_PASSWORD}" | docker login "${HARBOR_HOST}" --username "${HARBOR_USERNAME}" --password-stdin
-                  else
-                    echo "HARBOR_HOST/HARBOR_USERNAME/HARBOR_PASSWORD not set, relying on preconfigured Docker auth"
-                  fi
+                  export KSBH_RELEASE_IMAGE_REPOSITORY="${image_repository}"
+                  export KSBH_RELEASE_IMAGE_TAG="${primary_tag}"
+                  export KSBH_RELEASE_IMAGE_PUSH="true"
+                  export KSBH_RELEASE_IMAGE_LOAD="false"
 
                   export KSBH_DOCS_SITE_IMAGE="${docs_image_repository}:${primary_tag}"
+                  export KSBH_DOCS_SITE_PUSH="true"
+                  export KSBH_DOCS_SITE_LOAD="false"
+
                   export KSBH_CHARTS_SITE_IMAGE="${charts_image_repository}:${primary_tag}"
+                  export KSBH_CHARTS_SITE_PUSH="true"
+                  export KSBH_CHARTS_SITE_LOAD="false"
 
-                  if ! docker image inspect "${source_release_image}" >/dev/null 2>&1; then
-                    echo "expected prebuilt release image '${source_release_image}' not found" >&2
-                    exit 1
-                  fi
-
-                  docker tag "${source_release_image}" "${image_repository}:${primary_tag}"
-                  env -u GH_TOKEN -u GITHUB_TOKEN mise install
-                  mise run build-docs-site-image
-                  mise run build-charts-site-image
-                  docker push "${image_repository}:${primary_tag}"
-                  docker push "${docs_image_repository}:${primary_tag}"
-                  docker push "${charts_image_repository}:${primary_tag}"
+                  mise run --skip-tools build-release-image build-docs-image build-charts-image
 
                   if [ -n "${extra_tag}" ]; then
-                    docker tag "${image_repository}:${primary_tag}" "${image_repository}:${extra_tag}"
-                    docker tag "${docs_image_repository}:${primary_tag}" "${docs_image_repository}:${extra_tag}"
-                    docker tag "${charts_image_repository}:${primary_tag}" "${charts_image_repository}:${extra_tag}"
-                    docker push "${image_repository}:${extra_tag}"
-                    docker push "${docs_image_repository}:${extra_tag}"
-                    docker push "${charts_image_repository}:${extra_tag}"
+                    docker buildx imagetools create -t "${image_repository}:${extra_tag}" "${image_repository}:${primary_tag}"
+                    docker buildx imagetools create -t "${docs_image_repository}:${extra_tag}" "${docs_image_repository}:${primary_tag}"
+                    docker buildx imagetools create -t "${charts_image_repository}:${extra_tag}" "${charts_image_repository}:${primary_tag}"
                   fi
 
-    helm-chart-artifacts:
+    helm-artifacts:
         needs:
-            - publish-images
-        if: ${{ forge.event_name != 'pull_request' }}
+            - test-binary
+            - test-modules
+            - test-miri
+            - test-k8s
         runs-on: cocaine
         container:
             image: ${{ env.CI_BASE_IMAGE }}
@@ -348,17 +296,11 @@ jobs:
             - name: Check out repository
               uses: https://data.forgejo.org/actions/checkout@v4
 
-            - name: Run Helm chart lint task
-              uses: ./.forgejo/actions/run-mise-task
-              with:
-                  task: lint-helm-chart
-                  chmod-paths: mise-tasks/lint-helm-chart mise-tasks/lib.sh
-
-            - name: Package Helm chart
-              uses: ./.forgejo/actions/run-mise-task
-              with:
-                  task: package-helm-chart
-                  chmod-paths: mise-tasks/package-helm-chart mise-tasks/lib.sh
+            - name: Lint and package Helm chart
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  mise run --skip-tools lint-helm package-helm
 
             - name: Upload Helm chart artifact
               uses: https://data.forgejo.org/actions/upload-artifact@v3-node20

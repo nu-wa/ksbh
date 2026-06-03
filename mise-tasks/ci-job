@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+#MISE description="Run one CI job locally inside the ksbh-ci image"
+#USAGE arg "<job>" help="One of build-rust, test-binary, test-modules, test-k8s, test-miri, build-docs, helm-artifacts"
+
+set -euo pipefail
+
+script_dir="$(
+  cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P
+)"
+
+exec bash "${script_dir}/scripts/ci/ci-job.sh" "$@"

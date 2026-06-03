@@ -7,16 +7,8 @@ const sharedOutputCss = new URL("../../crates/ksbh-ui/static/css/style.css", imp
 const watchMode = Deno.args.includes("--watch");
 
 async function runTailwind(input: URL, output: URL) {
-  const cmd = new Deno.Command("deno", {
-    args: [
-      "run",
-      "-A",
-      "npm:@tailwindcss/cli",
-      "-i",
-      input.pathname,
-      "-o",
-      output.pathname,
-    ],
+  const cmd = new Deno.Command("tailwindcss", {
+    args: ["-i", input.pathname, "-o", output.pathname],
     cwd: docsRoot,
     stdout: "inherit",
     stderr: "inherit",

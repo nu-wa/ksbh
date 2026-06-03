@@ -85,6 +85,47 @@ If you're looking for a production-grade solution, consider:
 - [Traefik](https://traefik.io/)
 - [Envoy](https://www.envoyproxy.io/)
 
+## Local CI
+
+Build the CI image locally first:
+
+```bash
+docker build -f docker/build/ci.Dockerfile -t ksbh-ci:local .
+```
+
+Copy `.env.ci.local.example` to `.env.ci.local` and fill in any Harbor or Docker auth settings you want to use.
+
+Direct job execution inside the same `ksbh-ci` image:
+
+```bash
+mise run ci-job build-rust
+mise run ci-job test-binary
+mise run ci-job test-modules
+mise run ci-job test-k8s
+mise run ci-job test-miri
+mise run ci-job build-docs
+mise run ci-job helm-artifacts
+```
+
+This is the supported local CI path. It runs the same project task graph used by Forgejo CI, but it does not attempt to emulate Forgejo workflow YAML locally.
+
+Local defaults are no-publish, local/test image tags, and optional Harbor-backed cache reuse when Docker auth is available.
+
+For faster repeated local runs, set persistent cache paths in `.env.ci.local`:
+
+```bash
+KSBH_LOCAL_CARGO_REGISTRY=$HOME/.cache/ksbh/cargo/registry
+KSBH_LOCAL_CARGO_GIT=$HOME/.cache/ksbh/cargo/git
+KSBH_LOCAL_SCCACHE_DIR=$HOME/.cache/ksbh/sccache
+KSBH_MIRI_RUSTUP_HOME=$HOME/.cache/ksbh/miri/rustup
+KSBH_MIRI_CARGO_HOME=$HOME/.cache/ksbh/miri/cargo
+KSBH_MIRI_TARGET_DIR=$HOME/.cache/ksbh/miri/target
+```
+
+The first three speed up normal `ci-job` runs. The Miri paths keep nightly/toolchain state and target output across `mise run ci-job test-miri`, which is the biggest local speedup for that lane.
+
+If you're on Apple Silicon, keep Colima on ARM normally. Build and run `ksbh-ci:local` natively unless you have a specific reason to do an amd64-only parity check.
+
 ## License
 
 MIT

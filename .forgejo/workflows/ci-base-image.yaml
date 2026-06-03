@@ -7,16 +7,23 @@ on:
             - dev
         paths:
             - docker/build/ci.Dockerfile
+            - docs/package.json
+            - tests/playwright/package.json
+            - tests/playwright/package-lock.json
     pull_request:
         paths:
             - docker/build/ci.Dockerfile
+            - docs/package.json
+            - tests/playwright/package.json
+            - tests/playwright/package-lock.json
     workflow_dispatch:
 
 env:
     HARBOR_HOST: ${{ vars.HARBOR_HOST || env.HARBOR_HOST }}
-    HARBOR_USERNAME: ${{ secrets.HARBOR_USERNAME || env.HARBOR_USERNAME }}
-    HARBOR_PASSWORD: ${{ secrets.HARBOR_PASSWORD || env.HARBOR_PASSWORD }}
     LOCAL_SHA: ${{ forge.sha || env.FORGEJO_SHA || env.LOCAL_SHA }}
+    MISE_TASK_OUTPUT: interleave
+    MISE_YES: "true"
+    NO_COLOR: "1"
 
 jobs:
     build-ci-base-image:
@@ -29,43 +36,29 @@ jobs:
             - name: Check out repository
               uses: https://data.forgejo.org/actions/checkout@v4
 
-            - name: Ensure docker cli exists
+            - name: Prepare Docker auth
               shell: bash
               run: |
                   set -euo pipefail
-                  if command -v docker >/dev/null 2>&1; then
-                    docker --version
-                    exit 0
-                  fi
+                  . ./scripts/ci/prepare-docker-auth.sh
 
-                  apt-get update
-                  apt-get install -y docker.io
-                  docker --version
-
-            - name: Build CI base image (pull request)
+            - name: Build CI image for pull request
               if: ${{ forge.event_name == 'pull_request' }}
               shell: bash
               run: |
                   set -euo pipefail
+                  docker buildx build \
+                    --pull \
+                    --load \
+                    --file docker/build/ci.Dockerfile \
+                    --tag ksbh-ci:pr-check \
+                    .
 
-                  ci_image_latest="ksbh-ci:pr-check"
-                  docker build --pull --file docker/build/ci.Dockerfile --tag "${ci_image_latest}" .
-
-            - name: Build and push CI base image (branch)
+            - name: Build and push CI image
               if: ${{ forge.event_name != 'pull_request' }}
               shell: bash
               run: |
                   set -euo pipefail
-
-                  source_docker_config="${DOCKER_CONFIG:-/root/.docker}"
-                  writable_docker_config="/tmp/ksbh-docker-config"
-                  writable_buildx_config="/tmp/ksbh-docker-buildx"
-                  mkdir -p "${writable_docker_config}" "${writable_buildx_config}"
-                  if [ -f "${source_docker_config}/config.json" ]; then
-                    cp "${source_docker_config}/config.json" "${writable_docker_config}/config.json"
-                  fi
-                  export DOCKER_CONFIG="${writable_docker_config}"
-                  export BUILDX_CONFIG="${writable_buildx_config}"
 
                   if [ -z "${HARBOR_HOST:-}" ]; then
                     echo "HARBOR_HOST is required to publish the CI base image" >&2
@@ -73,15 +66,14 @@ jobs:
                   fi
 
                   ci_image_repository="${HARBOR_HOST}/registry/ksbh-ci"
-                  ci_image_latest="${ci_image_repository}:latest"
-                  ci_image_sha="${ci_image_repository}:${LOCAL_SHA}"
+                  build_stamp="$(date -u +%Y%m%d%H%M%S)"
+                  short_sha="$(printf '%s' "${LOCAL_SHA}" | cut -c1-12)"
 
-                  if [ -n "${HARBOR_USERNAME:-}" ] && [ -n "${HARBOR_PASSWORD:-}" ]; then
-                    echo "${HARBOR_PASSWORD}" | docker login "${HARBOR_HOST}" --username "${HARBOR_USERNAME}" --password-stdin
-                  else
-                    echo "HARBOR_USERNAME/HARBOR_PASSWORD not set, relying on preconfigured Docker auth"
-                  fi
-
-                  docker build --pull --file docker/build/ci.Dockerfile --tag "${ci_image_latest}" --tag "${ci_image_sha}" .
-                  docker push "${ci_image_latest}"
-                  docker push "${ci_image_sha}"
+                  docker buildx build \
+                    --pull \
+                    --push \
+                    --file docker/build/ci.Dockerfile \
+                    --tag "${ci_image_repository}:latest" \
+                    --tag "${ci_image_repository}:${LOCAL_SHA}" \
+                    --tag "${ci_image_repository}:build-${build_stamp}-${short_sha}" \
+                    .

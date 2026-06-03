@@ -10,15 +10,31 @@ set -euo pipefail
 require_docker
 
 image_name="$(release_image_name)"
+cache_repo="${KSBH_RELEASE_IMAGE_CACHE_REPO:-}"
+push_image="${KSBH_RELEASE_IMAGE_PUSH:-false}"
+load_image="${KSBH_RELEASE_IMAGE_LOAD:-true}"
+
+build_args=(
+  buildx
+  build
+  --pull
+  --file docker/build/release.Dockerfile
+  --tag "${image_name}"
+)
+
+if [ -n "${cache_repo}" ]; then
+  build_args+=(--cache-from "type=registry,ref=${cache_repo}")
+  build_args+=(--cache-to "type=registry,ref=${cache_repo},mode=max,image-manifest=true,oci-mediatypes=true")
+fi
 
 if [ "${usage_no_cache:-false}" = "true" ]; then
-  DOCKER_BUILDKIT=1 docker build --pull --load --no-cache \
-    --file docker/build/release.Dockerfile \
-    --tag "${image_name}" \
-    .
-else
-  DOCKER_BUILDKIT=1 docker build --pull --load \
-    --file docker/build/release.Dockerfile \
-    --tag "${image_name}" \
-    .
+  build_args+=(--no-cache)
 fi
+
+if [ "${push_image}" = "true" ]; then
+  build_args+=(--push)
+elif [ "${load_image}" = "true" ]; then
+  build_args+=(--load)
+fi
+
+docker "${build_args[@]}" .

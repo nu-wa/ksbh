@@ -8,12 +8,27 @@ set -euo pipefail
 
 require_docker
 
-mise run build-helm-repo
-
 image_name="${KSBH_CHARTS_SITE_IMAGE:-ksbh-charts-site:local}"
+cache_repo="${KSBH_CHARTS_SITE_CACHE_REPO:-}"
+push_image="${KSBH_CHARTS_SITE_PUSH:-false}"
+load_image="${KSBH_CHARTS_SITE_LOAD:-true}"
 
-DOCKER_BUILDKIT=1 docker build \
-  --load \
-  --file docker/build/charts-site.Dockerfile \
-  --tag "${image_name}" \
-  .
+build_args=(
+  buildx
+  build
+  --file docker/build/charts-site.Dockerfile
+  --tag "${image_name}"
+)
+
+if [ -n "${cache_repo}" ]; then
+  build_args+=(--cache-from "type=registry,ref=${cache_repo}")
+  build_args+=(--cache-to "type=registry,ref=${cache_repo},mode=max,image-manifest=true,oci-mediatypes=true")
+fi
+
+if [ "${push_image}" = "true" ]; then
+  build_args+=(--push)
+elif [ "${load_image}" = "true" ]; then
+  build_args+=(--load)
+fi
+
+docker "${build_args[@]}" .

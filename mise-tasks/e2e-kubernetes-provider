@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 #MISE description="Run local kubernetes-provider e2e orchestration with kind"
 #MISE alias="e2ek"
-#MISE tools={helm="latest",kubectl="latest",node="latest",rust="1.92.0"}
 #USAGE flag "-k --keep-cluster" help="Keep the kind cluster after the task exits"
 #USAGE flag "-s --skip-build" help="Skip rebuilding the release Docker image"
 
@@ -21,11 +20,6 @@ require_curl
 
 if ! command -v node >/dev/null 2>&1; then
   echo "node is not installed or not in PATH" >&2
-  exit 1
-fi
-
-if ! command -v npm >/dev/null 2>&1; then
-  echo "npm is not installed or not in PATH" >&2
   exit 1
 fi
 
@@ -147,6 +141,7 @@ kind_api_server_port="${KSBH_KIND_API_SERVER_PORT:-16443}"
 temp_kubeconfig=""
 browser_host="app.test.local"
 browser_host_ip=""
+websocket_probe_image="${KSBH_E2E_WEBSOCKET_IMAGE:-ksbh-e2e-websocket-probe:local}"
 
 ensure_kind_cluster
 
@@ -174,10 +169,29 @@ if [ -z "${browser_host_ip}" ]; then
 fi
 
 if [ "${usage_skip_build:-false}" != "true" ]; then
-  "$(dirname "$0")/build-release-image"
+  bash "$(dirname "$0")/build-release-image"
+fi
+
+if ! docker image inspect "${websocket_probe_image}" >/dev/null 2>&1; then
+  websocket_cache_repo="${KSBH_E2E_WEBSOCKET_CACHE_REPO:-}"
+  websocket_build_args=(
+    buildx
+    build
+    --load
+    --file docker/fixtures/websocket-probe.Dockerfile
+    --tag "${websocket_probe_image}"
+  )
+
+  if [ -n "${websocket_cache_repo}" ]; then
+    websocket_build_args+=(--cache-from "type=registry,ref=${websocket_cache_repo}")
+    websocket_build_args+=(--cache-to "type=registry,ref=${websocket_cache_repo},mode=max,image-manifest=true,oci-mediatypes=true")
+  fi
+
+  docker "${websocket_build_args[@]}" .
 fi
 
 kind load docker-image "${image_name}" --name "${cluster_name}"
+kind load docker-image "${websocket_probe_image}" --name "${cluster_name}"
 
 kctl apply -f - <<EOF
 apiVersion: v1
@@ -295,27 +309,8 @@ spec:
     spec:
       containers:
         - name: websocket-probe
-          image: python:3.12-alpine
-          command:
-            - /bin/sh
-            - -ec
-            - |
-              pip install --no-cache-dir websockets==12.0
-              python - <<'PY'
-              import asyncio
-              import websockets
-
-              async def echo(websocket):
-                  await websocket.send("ready")
-                  async for message in websocket:
-                      await websocket.send(f"echo:{message}")
-
-              async def main():
-                  async with websockets.serve(echo, "0.0.0.0", 8080):
-                      await asyncio.Future()
-
-              asyncio.run(main())
-              PY
+          image: ${websocket_probe_image}
+          imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8080
 ---
@@ -515,7 +510,6 @@ EOF
 wait_for_http_status "http://${e2e_host}:18080/get" "401" 90 "${browser_host}"
 
 echo "running Playwright kubernetes PoW browser e2e"
-playwright_driver="${KSBH_E2E_PLAYWRIGHT_DRIVER:-container}"
 playwright_spec="${repo_root}/tests/playwright/k8s-pow-browser.spec.cjs"
 
 if [ ! -f "${playwright_spec}" ]; then
@@ -524,44 +518,21 @@ if [ ! -f "${playwright_spec}" ]; then
   exit 1
 fi
 
-if [ "${playwright_driver}" = "container" ]; then
-  playwright_image="${KSBH_E2E_PLAYWRIGHT_IMAGE:-mcr.microsoft.com/playwright:v1.54.2-noble}"
-  playwright_spec_b64="$(base64 < "${playwright_spec}" | tr -d '\n')"
-  if [ -z "${playwright_spec_b64}" ]; then
-    echo "failed to encode Playwright spec: ${playwright_spec}" >&2
-    exit 1
-  fi
-  echo "running Playwright in container (${playwright_image})"
-  docker run --rm \
-    --network host \
-    -e KSBH_E2E_BROWSER_BASE_URL="${KSBH_E2E_BROWSER_BASE_URL}" \
-    -e KSBH_E2E_BROWSER_HOST_RULE="${KSBH_E2E_BROWSER_HOST_RULE}" \
-    -e KSBH_E2E_PLAYWRIGHT_SPEC_B64="${playwright_spec_b64}" \
-    "${playwright_image}" \
-    /bin/bash -lc '
-      set -Eeuo pipefail
-      mkdir -p /tmp/ksbh-playwright
-      cd /tmp/ksbh-playwright
-      npm init -y >/dev/null 2>&1
-      npm install --no-audit --no-fund @playwright/test@1.54.2 >/dev/null
-      printf "%s" "${KSBH_E2E_PLAYWRIGHT_SPEC_B64}" | base64 -d > ./k8s-pow-browser.spec.cjs
-      npx playwright test ./k8s-pow-browser.spec.cjs --workers=1
-    '
-else
-  local_playwright_bin="${repo_root}/tests/playwright/node_modules/.bin/playwright"
-  if [ ! -x "${local_playwright_bin}" ]; then
-    echo "installing Playwright npm package"
-    npm install --prefix "${repo_root}/tests/playwright"
-  fi
+local_playwright_bin="${repo_root}/tests/playwright/node_modules/.bin/playwright"
+if [ -x "${local_playwright_bin}" ]; then
   playwright_bin="${local_playwright_bin}"
-
-  echo "ensuring Playwright Chromium browser is installed"
-  "${playwright_bin}" install chromium
-
-  "${playwright_bin}" test \
-    "${playwright_spec}" \
-    --workers=1
+elif command -v playwright >/dev/null 2>&1; then
+  playwright_bin="$(command -v playwright)"
+elif [ -x /opt/ksbh-playwright/node_modules/.bin/playwright ]; then
+  playwright_bin="/opt/ksbh-playwright/node_modules/.bin/playwright"
+else
+  echo "playwright is not available; run inside ksbh-ci or install tests/playwright dependencies" >&2
+  exit 1
 fi
+
+"${playwright_bin}" test \
+  "${playwright_spec}" \
+  --workers=1
 
 kctl delete ingress pow-browser-ingress --namespace "${namespace}" --ignore-not-found >/dev/null 2>&1 || true
 kctl delete moduleconfiguration pow-browser --ignore-not-found >/dev/null 2>&1 || true

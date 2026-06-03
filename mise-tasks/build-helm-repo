@@ -13,8 +13,6 @@ require_helm
 repo_dir="${KSBH_HELM_REPO_DIR:-dist/helm-repo}"
 repo_url="${KSBH_HELM_REPO_URL:-https://charts.ksbh.rs}"
 
-mise run build-css >/dev/null
-
 rm -rf "${repo_dir}"
 mkdir -p "${repo_dir}"
 

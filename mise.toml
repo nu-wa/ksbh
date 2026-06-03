@@ -1,0 +1,156 @@
+min_version = "2025.1.0"
+
+[env]
+MISE_TASK_OUTPUT = "interleave"
+MISE_YES = "true"
+NO_COLOR = "1"
+
+[tasks."build-rust"]
+description = "Build Rust binaries and support libraries used by CI"
+sources = [
+  "crates/Cargo.toml",
+  "crates/Cargo.lock",
+  "crates/**/Cargo.toml",
+  "crates/**/src/**/*.rs",
+  "crates/ksbh-ui/static/css/**/*.css",
+]
+outputs = [
+  "crates/target/debug/ksbh",
+  "crates/target/debug/libdynamic_ffi_smoke.*",
+]
+run = """
+cargo build --manifest-path crates/Cargo.toml -p ksbh
+cargo build --manifest-path crates/Cargo.toml -p dynamic-ffi-smoke
+"""
+
+[tasks."compile-test-binaries"]
+description = "Compile Rust test binaries without running them"
+depends = ["build-rust"]
+sources = [
+  "crates/Cargo.toml",
+  "crates/Cargo.lock",
+  "crates/**/Cargo.toml",
+  "crates/**/src/**/*.rs",
+  "crates/tests/tests/**/*.rs",
+]
+run = """
+cargo test --manifest-path crates/Cargo.toml \
+  -p tests \
+  --test binary_baseline_e2e \
+  --test binary_static_content_e2e \
+  --test binary_upstream_errors_e2e \
+  --test k8s_baseline_e2e \
+  --test k8s_ingress_lifecycle_e2e \
+  --test k8s_static_content_e2e \
+  --test k8s_robots_txt_e2e \
+  --test k8s_pow_http_e2e \
+  --test k8s_http_to_https_e2e \
+  --test k8s_trusted_proxies_e2e \
+  --test k8s_websocket_e2e \
+  --no-run
+cargo test --manifest-path crates/Cargo.toml -p ksbh-core --test module_host_dynamic --no-run
+cargo test --manifest-path crates/Cargo.toml -p ksbh-core --test host_functions_unhappy --no-run
+cargo test --manifest-path crates/Cargo.toml -p ksbh-modules-sdk --test ffi_miri --no-run
+cargo test --manifest-path crates/Cargo.toml -p ksbh-modules-sdk --lib --no-run
+cargo test --manifest-path crates/Cargo.toml -p ksbh-core --lib --no-run
+"""
+
+[tasks."build-release-image"]
+description = "Build the release image with buildx"
+sources = [
+  "docker/build/release.Dockerfile",
+  "docker/build/release-entrypoint.sh",
+  "crates/Cargo.toml",
+  "crates/Cargo.lock",
+  "crates/**/Cargo.toml",
+  "crates/**/src/**/*.rs",
+]
+run = "bash mise-tasks/build-release-image"
+
+[tasks."test-binary"]
+description = "Run direct binary integration tests"
+depends = ["compile-test-binaries"]
+run = "bash mise-tasks/e2e-binary"
+
+[tasks."test-modules-smoke"]
+description = "Run dynamic module smoke coverage"
+depends = ["compile-test-binaries"]
+run = "bash mise-tasks/dynamic-modules-smoke"
+
+[tasks."test-unhappy"]
+description = "Run targeted unhappy path regressions"
+depends = ["compile-test-binaries"]
+run = "bash mise-tasks/p0-unhappy-tests"
+
+[tasks."test-k8s"]
+description = "Run Kind and browser-backed Kubernetes e2e coverage"
+depends = ["compile-test-binaries"]
+run = "bash mise-tasks/e2e --skip-build"
+
+[tasks."test-miri"]
+description = "Run the dedicated Miri coverage lane"
+run = "bash mise-tasks/miri-modules-sdk-ffi"
+
+[tasks."build-css"]
+description = "Build shared UI CSS and docs CSS"
+sources = [
+  "docs/deno.json",
+  "docs/scripts/build-css.ts",
+  "docs/css/base.css",
+  "docs/package.json",
+  "crates/ksbh-ui/static/css/shared.css",
+]
+outputs = [
+  "docs/static/css/style.css",
+  "crates/ksbh-ui/static/css/style.css",
+]
+run = "bash mise-tasks/build-css"
+
+[tasks."build-docs-site"]
+description = "Build the static docs site"
+depends = ["build-css"]
+sources = [
+  "docs/.config/dodeca.styx",
+  "docs/content/**/*.md",
+  "docs/data/**/*.yaml",
+  "docs/templates/**/*.html",
+  "docs/static/**/*",
+]
+outputs = ["docs/public/**/*"]
+run = "bash mise-tasks/build-docs-site"
+
+[tasks."build-helm-repo"]
+description = "Build the static Helm repository"
+depends = ["build-css"]
+sources = [
+  "charts/ksbh/Chart.yaml",
+  "charts/ksbh/values.yaml",
+  "charts/ksbh/crds/**/*.yaml",
+  "charts/ksbh/templates/**/*.yaml",
+  "charts/ksbh/templates/**/*.tpl",
+  "charts/ksbh/templates/**/*.txt",
+]
+outputs = [
+  "dist/helm-repo/index.yaml",
+  "dist/helm-repo/index.html",
+  "dist/helm-repo/css/style.css",
+]
+run = "bash mise-tasks/build-helm-repo"
+
+[tasks."build-docs-image"]
+description = "Build the docs image"
+depends = ["build-docs-site"]
+run = "bash mise-tasks/build-docs-site-image"
+
+[tasks."build-charts-image"]
+description = "Build the charts image"
+depends = ["build-helm-repo"]
+run = "bash mise-tasks/build-charts-site-image"
+
+[tasks."lint-helm"]
+description = "Lint the Helm chart"
+run = "bash mise-tasks/lint-helm-chart"
+
+[tasks."package-helm"]
+description = "Package the Helm chart"
+run = "bash mise-tasks/package-helm-chart"

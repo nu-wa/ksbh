@@ -1,17 +1,15 @@
 #!/usr/bin/env bash
 #MISE description="Build shared UI CSS and docs CSS"
-#MISE tools={deno="latest"}
-#MISE dir="./docs"
-#MISE sources=["docs/deno.json", "docs/deno.lock", "docs/package.json", "docs/css/base.css", "crates/ksbh-ui/static/css/shared.css"]
-
 set -euo pipefail
 
-deno install --allow-scripts --node-modules-dir=auto
+export PATH="${PWD}/docs/node_modules/.bin:${PATH}"
 
-deno run -A npm:@tailwindcss/cli \
-  -i ../crates/ksbh-ui/static/css/shared.css \
-  -o ../crates/ksbh-ui/static/css/style.css
+if ! command -v tailwindcss >/dev/null 2>&1; then
+  echo "tailwindcss is not available; install docs npm dependencies or run inside ksbh-ci" >&2
+  exit 1
+fi
 
-  deno run -A npm:@tailwindcss/cli \
-  -i css/base.css \
-  -o static/css/style.css
+(
+  cd docs
+  deno task build:css
+)
