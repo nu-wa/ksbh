@@ -30,6 +30,7 @@ RUN --mount=type=cache,target=/var/cache/apt/archives,sharing=locked \
     python3 \
     nodejs \
     npm \
+    jq \
     unzip \
     libnss3 \
     libnspr4 \

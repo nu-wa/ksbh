@@ -18,10 +18,30 @@ env:
     NO_COLOR: "1"
 
 jobs:
-    build-rust:
+    resolve-image:
         runs-on: cocaine
         container:
-            image: ${{ vars.CI_BASE_IMAGE }}
+            image: ${{ vars.HARBOR_HOST }}/registry/ksbh-ci:latest
+        outputs:
+            image: ${{ steps.inspect.outputs.image }}
+        steps:
+            - name: Inspect latest image digest
+              id: inspect
+              env:
+                  HARBOR_USERNAME: ${{ secrets.HARBOR_USERNAME }}
+                  HARBOR_PASSWORD: ${{ secrets.HARBOR_PASSWORD }}
+              run: |
+                  set -euo pipefail
+                  digest=$(docker manifest inspect "${{ vars.HARBOR_HOST }}/registry/ksbh-ci:latest" | jq -r .digest)
+                  echo "image=${{ vars.HARBOR_HOST }}/registry/ksbh-ci@${digest}" >> "$GITHUB_OUTPUT"
+                  echo "Resolved image: ${{ vars.HARBOR_HOST }}/registry/ksbh-ci@${digest}"
+
+    build-rust:
+        needs:
+            - resolve-image
+        runs-on: cocaine
+        container:
+            image: ${{ needs.resolve-image.outputs.image }}
             credentials:
                 username: ${{ secrets.HARBOR_USERNAME }}
                 password: ${{ secrets.HARBOR_PASSWORD }}
@@ -51,10 +71,9 @@ jobs:
                       /root/.cache/mise
                       /root/.local/share/mise
                       /root/.local/state/mise
-                  key: rust-build-v3-${{ vars.CI_BASE_IMAGE }}-${{ forge.ref_name }}-${{ hashFiles('crates/Cargo.lock') }}
+                  key: rust-build-v3-${{ needs.resolve-image.outputs.image }}-${{ forge.ref_name }}-${{ hashFiles('crates/Cargo.lock') }}
                   restore-keys: |
-                      rust-build-v3-${{ vars.CI_BASE_IMAGE }}-${{ forge.ref_name }}-
-                      rust-build-v3-${{ vars.CI_BASE_IMAGE }}-
+                      rust-build-v3-${{ needs.resolve-image.outputs.image }}-${{ forge.ref_name }}-
                       rust-build-v3-
 
             - name: Verify CI toolchain
@@ -79,7 +98,7 @@ jobs:
                   mise run compile-test-binaries
 
             - name: Upload Rust prebuilt artifact
-              uses: https://data.forgejo.org/actions/upload-artifact@v4
+              uses: https://data.forgejo.org/actions/upload-artifact@v3-node20
               with:
                   name: rust-prebuilt-binary
                   path: |
@@ -94,7 +113,7 @@ jobs:
                   if-no-files-found: error
 
             - name: Upload module prebuilt artifact
-              uses: https://data.forgejo.org/actions/upload-artifact@v4
+              uses: https://data.forgejo.org/actions/upload-artifact@v3-node20
               with:
                   name: rust-prebuilt-modules
                   path: |
@@ -111,7 +130,7 @@ jobs:
                   if-no-files-found: error
 
             - name: Upload Kubernetes prebuilt artifact
-              uses: https://data.forgejo.org/actions/upload-artifact@v4
+              uses: https://data.forgejo.org/actions/upload-artifact@v3-node20
               with:
                   name: rust-prebuilt-k8s
                   path: |
@@ -132,10 +151,11 @@ jobs:
 
     test-binary:
         needs:
+            - resolve-image
             - build-rust
         runs-on: cocaine
         container:
-            image: ${{ vars.CI_BASE_IMAGE }}
+            image: ${{ needs.resolve-image.outputs.image }}
             credentials:
                 username: ${{ secrets.HARBOR_USERNAME }}
                 password: ${{ secrets.HARBOR_PASSWORD }}
@@ -146,7 +166,7 @@ jobs:
               uses: https://data.forgejo.org/actions/checkout@v4
 
             - name: Download Rust prebuilt artifact
-              uses: https://data.forgejo.org/actions/download-artifact@v4
+              uses: https://data.forgejo.org/actions/download-artifact@v3-node20
               with:
                   name: rust-prebuilt-binary
                   path: crates/target/debug
@@ -161,10 +181,11 @@ jobs:
 
     test-modules:
         needs:
+            - resolve-image
             - build-rust
         runs-on: cocaine
         container:
-            image: ${{ vars.CI_BASE_IMAGE }}
+            image: ${{ needs.resolve-image.outputs.image }}
             credentials:
                 username: ${{ secrets.HARBOR_USERNAME }}
                 password: ${{ secrets.HARBOR_PASSWORD }}
@@ -175,7 +196,7 @@ jobs:
               uses: https://data.forgejo.org/actions/checkout@v4
 
             - name: Download Rust prebuilt artifact
-              uses: https://data.forgejo.org/actions/download-artifact@v4
+              uses: https://data.forgejo.org/actions/download-artifact@v3-node20
               with:
                   name: rust-prebuilt-modules
                   path: crates/target/debug
@@ -198,9 +219,11 @@ jobs:
                   bash mise-tasks/p0-unhappy-tests
 
     test-miri:
+        needs:
+            - resolve-image
         runs-on: cocaine
         container:
-            image: ${{ vars.CI_BASE_IMAGE }}
+            image: ${{ needs.resolve-image.outputs.image }}
             credentials:
                 username: ${{ secrets.HARBOR_USERNAME }}
                 password: ${{ secrets.HARBOR_PASSWORD }}
@@ -224,10 +247,9 @@ jobs:
               uses: https://data.forgejo.org/actions/cache@v4
               with:
                   path: .ci-cache/miri
-                  key: miri-v2-${{ vars.CI_BASE_IMAGE }}-${{ forge.ref_name }}-${{ hashFiles('crates/Cargo.lock') }}
+                  key: miri-v2-${{ needs.resolve-image.outputs.image }}-${{ forge.ref_name }}-${{ hashFiles('crates/Cargo.lock') }}
                   restore-keys: |
-                      miri-v2-${{ vars.CI_BASE_IMAGE }}-${{ forge.ref_name }}-
-                      miri-v2-${{ vars.CI_BASE_IMAGE }}-
+                      miri-v2-${{ needs.resolve-image.outputs.image }}-${{ forge.ref_name }}-
                       miri-v2-
 
             - name: Run Miri coverage
@@ -241,10 +263,11 @@ jobs:
 
     test-k8s:
         needs:
+            - resolve-image
             - build-rust
         runs-on: cocaine
         container:
-            image: ${{ vars.CI_BASE_IMAGE }}
+            image: ${{ needs.resolve-image.outputs.image }}
             credentials:
                 username: ${{ secrets.HARBOR_USERNAME }}
                 password: ${{ secrets.HARBOR_PASSWORD }}
@@ -255,7 +278,7 @@ jobs:
               uses: https://data.forgejo.org/actions/checkout@v4
 
             - name: Download Rust prebuilt artifact
-              uses: https://data.forgejo.org/actions/download-artifact@v4
+              uses: https://data.forgejo.org/actions/download-artifact@v3-node20
               with:
                   name: rust-prebuilt-k8s
                   path: crates/target/debug
@@ -287,6 +310,7 @@ jobs:
 
     publish-images:
         needs:
+            - resolve-image
             - test-binary
             - test-modules
             - test-miri
@@ -294,7 +318,7 @@ jobs:
         if: ${{ forge.event_name != 'pull_request' }}
         runs-on: cocaine
         container:
-            image: ${{ vars.CI_BASE_IMAGE }}
+            image: ${{ needs.resolve-image.outputs.image }}
             credentials:
                 username: ${{ secrets.HARBOR_USERNAME }}
                 password: ${{ secrets.HARBOR_PASSWORD }}
@@ -395,9 +419,11 @@ jobs:
                   fi
 
     helm-artifacts:
+        needs:
+            - resolve-image
         runs-on: cocaine
         container:
-            image: ${{ vars.CI_BASE_IMAGE }}
+            image: ${{ needs.resolve-image.outputs.image }}
             credentials:
                 username: ${{ secrets.HARBOR_USERNAME }}
                 password: ${{ secrets.HARBOR_PASSWORD }}
@@ -415,7 +441,7 @@ jobs:
                   bash mise-tasks/package-helm-chart
 
             - name: Upload Helm chart artifact
-              uses: https://data.forgejo.org/actions/upload-artifact@v4
+              uses: https://data.forgejo.org/actions/upload-artifact@v3-node20
               with:
                   name: ksbh-helm-chart-${{ forge.ref_name }}
                   path: dist/helm/*.tar.gz
