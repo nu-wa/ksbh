@@ -7,12 +7,14 @@ on:
             - dev
         paths:
             - docker/build/ci.Dockerfile
+            - docker/build/ci.Dockerfile.dockerignore
             - docs/package.json
             - tests/playwright/package.json
             - tests/playwright/package-lock.json
     pull_request:
         paths:
             - docker/build/ci.Dockerfile
+            - docker/build/ci.Dockerfile.dockerignore
             - docs/package.json
             - tests/playwright/package.json
             - tests/playwright/package-lock.json

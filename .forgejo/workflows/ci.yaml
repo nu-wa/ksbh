@@ -11,8 +11,6 @@ on:
 env:
     LOCAL_SHA: ${{ forge.sha || env.FORGEJO_SHA || env.LOCAL_SHA }}
     LOCAL_REF_NAME: ${{ forge.ref_name || env.FORGEJO_REF_NAME || env.LOCAL_REF_NAME }}
-    CI_BASE_IMAGE_TAG: ${{ vars.CI_BASE_IMAGE_TAG || env.CI_BASE_IMAGE_TAG || 'latest' }}
-    CI_BASE_IMAGE: ${{ vars.CI_BASE_IMAGE || env.CI_BASE_IMAGE || format('{0}/registry/ksbh-ci:{1}', vars.HARBOR_HOST || env.HARBOR_HOST, vars.CI_BASE_IMAGE_TAG || env.CI_BASE_IMAGE_TAG || 'latest') }}
     RUSTC_WRAPPER: /root/.cargo/bin/sccache
     MISE_TASK_OUTPUT: interleave
     MISE_YES: "true"
@@ -22,7 +20,7 @@ jobs:
     build-rust:
         runs-on: cocaine
         container:
-            image: ${{ env.CI_BASE_IMAGE }}
+            image: ${{ vars.CI_BASE_IMAGE }}
         permissions:
             contents: read
         steps:
@@ -36,10 +34,10 @@ jobs:
                       /root/.cargo/registry
                       /root/.cargo/git
                       /root/.cache/sccache
-                  key: rust-build-v3-${{ env.CI_BASE_IMAGE_TAG }}-${{ forge.ref_name || env.FORGEJO_REF_NAME || env.LOCAL_REF_NAME }}-${{ hashFiles('crates/Cargo.lock') }}
+                  key: rust-build-v3-${{ vars.CI_BASE_IMAGE_TAG || env.CI_BASE_IMAGE_TAG || 'latest' }}-${{ forge.ref_name || env.FORGEJO_REF_NAME || env.LOCAL_REF_NAME }}-${{ hashFiles('crates/Cargo.lock') }}
                   restore-keys: |
-                      rust-build-v3-${{ env.CI_BASE_IMAGE_TAG }}-${{ forge.ref_name || env.FORGEJO_REF_NAME || env.LOCAL_REF_NAME }}-
-                      rust-build-v3-${{ env.CI_BASE_IMAGE_TAG }}-
+                      rust-build-v3-${{ vars.CI_BASE_IMAGE_TAG || env.CI_BASE_IMAGE_TAG || 'latest' }}-${{ forge.ref_name || env.FORGEJO_REF_NAME || env.LOCAL_REF_NAME }}-
+                      rust-build-v3-${{ vars.CI_BASE_IMAGE_TAG || env.CI_BASE_IMAGE_TAG || 'latest' }}-
                       rust-build-v3-
 
             - name: Build Rust outputs
@@ -101,7 +99,7 @@ jobs:
             - build-rust
         runs-on: cocaine
         container:
-            image: ${{ env.CI_BASE_IMAGE }}
+            image: ${{ vars.CI_BASE_IMAGE }}
         permissions:
             contents: read
         steps:
@@ -127,7 +125,7 @@ jobs:
             - build-rust
         runs-on: cocaine
         container:
-            image: ${{ env.CI_BASE_IMAGE }}
+            image: ${{ vars.CI_BASE_IMAGE }}
         permissions:
             contents: read
         steps:
@@ -160,7 +158,7 @@ jobs:
     test-miri:
         runs-on: cocaine
         container:
-            image: ${{ env.CI_BASE_IMAGE }}
+            image: ${{ vars.CI_BASE_IMAGE }}
         permissions:
             contents: read
         steps:
@@ -171,10 +169,10 @@ jobs:
               uses: https://data.forgejo.org/actions/cache@v4
               with:
                   path: .ci-cache/miri
-                  key: miri-v2-${{ env.CI_BASE_IMAGE_TAG }}-${{ forge.ref_name || env.FORGEJO_REF_NAME || env.LOCAL_REF_NAME }}-${{ hashFiles('crates/Cargo.lock') }}
+                  key: miri-v2-${{ vars.CI_BASE_IMAGE_TAG || env.CI_BASE_IMAGE_TAG || 'latest' }}-${{ forge.ref_name || env.FORGEJO_REF_NAME || env.LOCAL_REF_NAME }}-${{ hashFiles('crates/Cargo.lock') }}
                   restore-keys: |
-                      miri-v2-${{ env.CI_BASE_IMAGE_TAG }}-${{ forge.ref_name || env.FORGEJO_REF_NAME || env.LOCAL_REF_NAME }}-
-                      miri-v2-${{ env.CI_BASE_IMAGE_TAG }}-
+                      miri-v2-${{ vars.CI_BASE_IMAGE_TAG || env.CI_BASE_IMAGE_TAG || 'latest' }}-${{ forge.ref_name || env.FORGEJO_REF_NAME || env.LOCAL_REF_NAME }}-
+                      miri-v2-${{ vars.CI_BASE_IMAGE_TAG || env.CI_BASE_IMAGE_TAG || 'latest' }}-
                       miri-v2-
 
             - name: Run Miri coverage
@@ -191,7 +189,7 @@ jobs:
             - build-rust
         runs-on: cocaine
         container:
-            image: ${{ env.CI_BASE_IMAGE }}
+            image: ${{ vars.CI_BASE_IMAGE }}
         permissions:
             contents: read
         env:
@@ -239,7 +237,7 @@ jobs:
         if: ${{ forge.event_name != 'pull_request' && (forge.ref_name == 'main' || forge.ref_name == 'dev') }}
         runs-on: cocaine
         container:
-            image: ${{ env.CI_BASE_IMAGE }}
+            image: ${{ vars.CI_BASE_IMAGE }}
         permissions:
             contents: read
         env:
@@ -316,7 +314,7 @@ jobs:
     helm-artifacts:
         runs-on: cocaine
         container:
-            image: ${{ env.CI_BASE_IMAGE }}
+            image: ${{ vars.CI_BASE_IMAGE }}
         permissions:
             contents: read
         steps:

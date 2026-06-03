@@ -1,0 +1,7 @@
+**
+!docs/
+!docs/package.json
+!tests/
+!tests/playwright/
+!tests/playwright/package.json
+!tests/playwright/package-lock.json

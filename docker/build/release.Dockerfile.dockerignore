@@ -1,0 +1,6 @@
+**
+!crates/
+!crates/**
+!docker/
+!docker/build/
+!docker/build/release-entrypoint.sh

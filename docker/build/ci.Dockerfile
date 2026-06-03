@@ -57,25 +57,37 @@ RUN rustup toolchain install 1.92.0 \
   && rustup default 1.92.0 \
   && rustup target add wasm32-unknown-unknown
 
-RUN cargo install sccache --locked
-RUN cargo install wasm-pack --locked
+RUN --mount=type=cache,target=/root/.cargo/registry,sharing=locked \
+  --mount=type=cache,target=/root/.cargo/git,sharing=locked \
+  cargo install sccache --locked
 
-RUN curl -fsSL "https://kind.sigs.k8s.io/dl/v0.31.0/kind-linux-${TARGETARCH}" -o /usr/local/bin/kind \
+RUN --mount=type=cache,target=/root/.cargo/registry,sharing=locked \
+  --mount=type=cache,target=/root/.cargo/git,sharing=locked \
+  cargo install wasm-pack --locked
+
+RUN targetarch="${TARGETARCH:-$(dpkg --print-architecture)}" \
+  && curl -fsSL "https://kind.sigs.k8s.io/dl/v0.31.0/kind-linux-${targetarch}" -o /usr/local/bin/kind \
   && chmod +x /usr/local/bin/kind
 
-RUN curl -fsSL "https://get.helm.sh/helm-v3.18.4-linux-${TARGETARCH}.tar.gz" -o /tmp/helm.tgz \
+RUN targetarch="${TARGETARCH:-$(dpkg --print-architecture)}" \
+  && curl -fsSL "https://get.helm.sh/helm-v3.18.4-linux-${targetarch}.tar.gz" -o /tmp/helm.tgz \
   && tar -C /tmp -xzf /tmp/helm.tgz \
-  && mv "/tmp/linux-${TARGETARCH}/helm" /usr/local/bin/helm \
-  && rm -rf /tmp/helm.tgz "/tmp/linux-${TARGETARCH}"
+  && mv "/tmp/linux-${targetarch}/helm" /usr/local/bin/helm \
+  && rm -rf /tmp/helm.tgz "/tmp/linux-${targetarch}"
 
-RUN curl -fsSL "https://dl.k8s.io/release/v1.33.1/bin/linux/${TARGETARCH}/kubectl" -o /usr/local/bin/kubectl \
+RUN targetarch="${TARGETARCH:-$(dpkg --print-architecture)}" \
+  && curl -fsSL "https://dl.k8s.io/release/v1.33.1/bin/linux/${targetarch}/kubectl" -o /usr/local/bin/kubectl \
   && chmod +x /usr/local/bin/kubectl
 
 RUN curl -fsSL https://deno.land/install.sh | sh -s -- v2.3.7 \
   && ln -sf /root/.deno/bin/deno /usr/local/bin/deno
 
-RUN git clone --depth 1 --branch "${DODECA_VERSION}" https://github.com/bearcove/dodeca /tmp/dodeca \
+RUN --mount=type=cache,target=/root/.cargo/registry,sharing=locked \
+  --mount=type=cache,target=/root/.cargo/git,sharing=locked \
+  --mount=type=cache,target=/tmp/dodeca-target,sharing=locked \
+  git clone --depth 1 --branch "${DODECA_VERSION}" https://github.com/bearcove/dodeca /tmp/dodeca \
   && cd /tmp/dodeca/crates/dodeca-devtools \
+  && export CARGO_TARGET_DIR=/tmp/dodeca-target \
   && wasm-pack build --target web \
   && cd /tmp/dodeca/crates/dodeca-search-wasm \
   && wasm-pack build --target web \
@@ -84,9 +96,11 @@ RUN git clone --depth 1 --branch "${DODECA_VERSION}" https://github.com/bearcove
 
 WORKDIR /opt/ksbh-docs-tools
 COPY docs/package.json /opt/ksbh-docs-tools/package.json
-RUN npm install --no-audit --no-fund
+RUN --mount=type=cache,target=/root/.npm,sharing=locked \
+  npm install --no-audit --no-fund
 
 WORKDIR /opt/ksbh-playwright
 COPY tests/playwright/package.json tests/playwright/package-lock.json /opt/ksbh-playwright/
-RUN npm ci --no-audit --no-fund \
-  && npx playwright install chromium
+RUN --mount=type=cache,target=/root/.npm,sharing=locked \
+  npm ci --no-audit --no-fund \
+  && ./node_modules/.bin/playwright install chromium
