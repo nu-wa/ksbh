@@ -212,24 +212,6 @@ jobs:
 
                   du -sh "${artifact_dir}"/*
 
-            - name: Build and push release Docker image
-              env:
-                  HARBOR_HOST: ${{ vars.HARBOR_HOST }}
-                  HARBOR_USERNAME: ${{ secrets.HARBOR_USERNAME }}
-                  HARBOR_PASSWORD: ${{ secrets.HARBOR_PASSWORD }}
-                  KSBH_RELEASE_IMAGE: ${{ vars.HARBOR_HOST }}/registry/ksbh-release:${{ forge.sha }}
-                  KSBH_RELEASE_IMAGE_REPOSITORY: ${{ vars.HARBOR_HOST }}/registry/ksbh-release
-                  KSBH_RELEASE_IMAGE_TAG: ${{ forge.sha }}
-                  KSBH_RELEASE_IMAGE_PUSH: "true"
-                  KSBH_RELEASE_IMAGE_LOAD: "false"
-                  KSBH_RELEASE_BUILDER_IMAGE: ${{ needs.resolve-images.outputs.rust }}
-              shell: bash
-              run: |
-                  set -euo pipefail
-                  . ./scripts/ci/prepare-docker-auth.sh
-                  export KSBH_RELEASE_IMAGE_CACHE_REPO="${HARBOR_HOST}/registry/ksbh-release-buildcache"
-                  mise run build-release-image
-
             - name: Upload Rust prebuilt artifact
               uses: https://data.forgejo.org/actions/upload-artifact@v3-node20
               with:
@@ -256,6 +238,66 @@ jobs:
                       .ci-artifacts/k8s/ksbh
                       .ci-artifacts/k8s/deps/*
                   if-no-files-found: error
+
+    build-release-image:
+        needs:
+            - resolve-images
+            - build-rust
+        runs-on: cocaine
+        container:
+            image: ${{ needs.resolve-images.outputs.rust }}
+            credentials:
+                username: ${{ secrets.HARBOR_USERNAME }}
+                password: ${{ secrets.HARBOR_PASSWORD }}
+        env:
+            SCCACHE_BUCKET: ${{ secrets.SCCACHE_BUCKET }}
+            SCCACHE_REGION: ${{ secrets.SCCACHE_REGION }}
+            SCCACHE_S3_USE_SSL: ${{ secrets.SCCACHE_S3_USE_SSL }}
+            SCCACHE_ENDPOINT: ${{ secrets.SCCACHE_ENDPOINT }}
+            SCCACHE_S3_ENABLE_VIRTUAL_HOST_STYLE: ${{ secrets.SCCACHE_S3_ENABLE_VIRTUAL_HOST_STYLE }}
+            SCCACHE_S3_KEY_PREFIX: ksbh
+            AWS_REGION: ${{ secrets.SCCACHE_REGION }}
+            AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+            AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        permissions:
+            contents: read
+        steps:
+            - name: Check out repository
+              uses: https://data.forgejo.org/actions/checkout@v4
+
+            - name: Restore Rust build cache
+              uses: https://data.forgejo.org/actions/cache@v4
+              with:
+                  path: |
+                      /root/.cargo/registry
+                      /root/.cargo/git
+                      /root/.cache/sccache
+                      /root/.cache/mise
+                      /root/.local/share/mise
+                      /root/.local/state/mise
+                  key: rust-build-v4-act-rust-${{ forge.ref_name }}-${{ hashFiles('mise.toml', 'crates/Cargo.lock') }}
+                  restore-keys: |
+                      rust-build-v4-act-rust-${{ forge.ref_name }}-
+                      rust-build-v4-act-rust-
+
+            - name: Build and push release Docker image
+              env:
+                  HARBOR_HOST: ${{ vars.HARBOR_HOST }}
+                  HARBOR_USERNAME: ${{ secrets.HARBOR_USERNAME }}
+                  HARBOR_PASSWORD: ${{ secrets.HARBOR_PASSWORD }}
+                  KSBH_RELEASE_IMAGE: ${{ vars.HARBOR_HOST }}/registry/ksbh-release:${{ forge.sha }}
+                  KSBH_RELEASE_IMAGE_REPOSITORY: ${{ vars.HARBOR_HOST }}/registry/ksbh-release
+                  KSBH_RELEASE_IMAGE_TAG: ${{ forge.sha }}
+                  KSBH_RELEASE_IMAGE_PUSH: "true"
+                  KSBH_RELEASE_IMAGE_LOAD: "false"
+                  KSBH_RELEASE_BUILDER_IMAGE: ${{ needs.resolve-images.outputs.rust }}
+                  KSBH_RELEASE_IMAGE_CACHE_WRITE: "false"
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  . ./scripts/ci/prepare-docker-auth.sh
+                  export KSBH_RELEASE_IMAGE_CACHE_REPO="${HARBOR_HOST}/registry/ksbh-release-buildcache"
+                  mise run build-release-image
 
     test-binary:
         needs:
@@ -373,6 +415,7 @@ jobs:
         needs:
             - resolve-images
             - build-rust
+            - build-release-image
         runs-on: cocaine
         container:
             image: ${{ needs.resolve-images.outputs.rust_kind_playwright }}
@@ -538,7 +581,7 @@ jobs:
                   export KSBH_CHARTS_SITE_PUSH="true"
                   export KSBH_CHARTS_SITE_LOAD="false"
 
-                  # Consume the release image built and pushed by build-rust (avoids a duplicate build).
+                  # Consume the release image built before Kubernetes tests.
                   harbor_release_image="${HARBOR_HOST}/registry/ksbh-release:${LOCAL_SHA}"
                   if ! docker pull "${harbor_release_image}"; then
                     echo "failed to pull release image from Harbor: ${harbor_release_image}" >&2

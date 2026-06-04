@@ -32,7 +32,9 @@ fi
 
 if [ -n "${cache_repo}" ]; then
   build_args+=(--cache-from "type=registry,ref=${cache_repo}")
-  build_args+=(--cache-to "type=registry,ref=${cache_repo},mode=max,image-manifest=true,oci-mediatypes=true")
+  if [ "${KSBH_RELEASE_IMAGE_CACHE_WRITE:-true}" = "true" ]; then
+    build_args+=(--cache-to "type=registry,ref=${cache_repo},mode=max,image-manifest=true,oci-mediatypes=true")
+  fi
 fi
 
 if [ "${usage_no_cache:-false}" = "true" ]; then
