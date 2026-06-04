@@ -101,10 +101,10 @@ jobs:
                       /root/.cache/mise
                       /root/.local/share/mise
                       /root/.local/state/mise
-                  key: rust-build-v3-${{ needs.resolve-images.outputs.rust }}-${{ forge.ref_name }}-${{ hashFiles('crates/Cargo.lock') }}
+                  key: rust-build-v4-act-rust-${{ forge.ref_name }}-${{ hashFiles('mise.toml', 'crates/Cargo.lock') }}
                   restore-keys: |
-                      rust-build-v3-${{ needs.resolve-images.outputs.rust }}-${{ forge.ref_name }}-
-                      rust-build-v3-
+                      rust-build-v4-act-rust-${{ forge.ref_name }}-
+                      rust-build-v4-act-rust-
 
             - name: Verify CI toolchain
               shell: bash
@@ -355,10 +355,10 @@ jobs:
               uses: https://data.forgejo.org/actions/cache@v4
               with:
                   path: .ci-cache/miri
-                  key: miri-v2-${{ needs.resolve-images.outputs.rust }}-${{ forge.ref_name }}-${{ hashFiles('crates/Cargo.lock') }}
+                  key: miri-v3-act-rust-${{ forge.ref_name }}-${{ hashFiles('mise.toml', 'crates/Cargo.lock') }}
                   restore-keys: |
-                      miri-v2-${{ needs.resolve-images.outputs.rust }}-${{ forge.ref_name }}-
-                      miri-v2-
+                      miri-v3-act-rust-${{ forge.ref_name }}-
+                      miri-v3-act-rust-
 
             - name: Run Miri coverage
               shell: bash
@@ -442,10 +442,9 @@ jobs:
                   path: |
                       docs/node_modules
                       /root/.npm
-                  key: docs-npm-v1-${{ needs.resolve-images.outputs.rust_wasm_node }}-${{ hashFiles('docs/package.json') }}
+                  key: docs-npm-v2-act-rust-wasm-node-${{ hashFiles('docs/package.json') }}
                   restore-keys: |
-                      docs-npm-v1-${{ needs.resolve-images.outputs.rust_wasm_node }}-
-                      docs-npm-v1-
+                      docs-npm-v2-act-rust-wasm-node-
 
             - name: Restore Dodeca cache
               uses: https://data.forgejo.org/actions/cache@v4
@@ -455,10 +454,9 @@ jobs:
                       .ci-cache/dodeca-target
                       /root/.cargo/registry
                       /root/.cargo/git
-                  key: dodeca-v1-${{ needs.resolve-images.outputs.rust_wasm_node }}-v0.14.2-4c25f36b64b9ec5aab5612a924b1264defa141d6
+                  key: dodeca-v2-act-rust-wasm-node-v0.14.2-4c25f36b64b9ec5aab5612a924b1264defa141d6
                   restore-keys: |
-                      dodeca-v1-${{ needs.resolve-images.outputs.rust_wasm_node }}-
-                      dodeca-v1-
+                      dodeca-v2-act-rust-wasm-node-
 
             - name: Prepare publish tooling
               shell: bash
