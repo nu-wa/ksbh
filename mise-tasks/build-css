@@ -5,7 +5,7 @@ set -euo pipefail
 export PATH="${PWD}/docs/node_modules/.bin:${PATH}"
 
 if ! command -v tailwindcss >/dev/null 2>&1; then
-  echo "tailwindcss is not available; install docs npm dependencies or run inside ksbh-ci" >&2
+  echo "tailwindcss is not available; install docs npm dependencies or run inside act-rust-wasm-node" >&2
   exit 1
 fi
 

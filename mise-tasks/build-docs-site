@@ -5,7 +5,7 @@ set -euo pipefail
 export PATH="${PWD}/docs/node_modules/.bin:${PATH}"
 
 if ! command -v ddc >/dev/null 2>&1; then
-  echo "ddc is not available; run inside ksbh-ci or install dodeca" >&2
+  echo "ddc is not available; run inside act-rust-wasm-node or install dodeca" >&2
   exit 1
 fi
 

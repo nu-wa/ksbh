@@ -1,7 +1,8 @@
 #
 # syntax=docker/dockerfile:1.7
 #
-FROM rust:1.92.0-slim-bookworm AS builder
+ARG RELEASE_BUILDER_IMAGE=rust:1.92.0-slim-bookworm
+FROM ${RELEASE_BUILDER_IMAGE} AS builder
 
 WORKDIR /build
 
@@ -11,12 +12,6 @@ RUN apt-get update -y && apt-get install -y --no-install-recommends \
     build-essential \
     cmake \
   && rm -rf /var/lib/apt/lists/*
-
-# Install sccache as a separate layer so subsequent source changes don't bust
-# the install layer cache.
-RUN --mount=type=cache,target=/usr/local/cargo/registry \
-    --mount=type=cache,target=/usr/local/cargo/git \
-    cargo install sccache --locked
 
 COPY ./crates /build
 

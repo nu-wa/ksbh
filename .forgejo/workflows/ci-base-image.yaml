@@ -1,29 +1,6 @@
 name: ci-base-image
 
 on:
-    push:
-        branches:
-            - main
-            - dev
-        paths:
-            - .forgejo/workflows/ci-base-image.yaml
-            - docker/build/ci.Dockerfile
-            - docker/build/ci.Dockerfile.dockerignore
-            - docs/package.json
-            - mise.toml
-            - scripts/ci/prepare-docker-auth.sh
-            - tests/playwright/package.json
-            - tests/playwright/package-lock.json
-    pull_request:
-        paths:
-            - .forgejo/workflows/ci-base-image.yaml
-            - docker/build/ci.Dockerfile
-            - docker/build/ci.Dockerfile.dockerignore
-            - docs/package.json
-            - mise.toml
-            - scripts/ci/prepare-docker-auth.sh
-            - tests/playwright/package.json
-            - tests/playwright/package-lock.json
     workflow_dispatch:
 
 env:

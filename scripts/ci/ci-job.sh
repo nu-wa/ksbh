@@ -26,7 +26,7 @@ case "${job_name}" in
     command_string='mise run test-miri'
     ;;
   build-docs)
-    command_string='bash mise-tasks/build-docs-site; bash mise-tasks/build-docs-site-image; bash mise-tasks/build-helm-repo; bash mise-tasks/build-charts-site-image'
+    command_string='bash scripts/ci/prepare-publish-tooling.sh; bash mise-tasks/build-docs-site; bash mise-tasks/build-docs-site-image; bash mise-tasks/build-helm-repo; bash mise-tasks/build-charts-site-image'
     ;;
   helm-artifacts)
     command_string='bash mise-tasks/lint-helm-chart; bash mise-tasks/package-helm-chart'
@@ -40,6 +40,28 @@ esac
 repo_root="$(
   cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd -P
 )"
+
+local_env_file="${KSBH_CI_LOCAL_ENV_FILE:-${repo_root}/.env.ci.local}"
+if [ -f "${local_env_file}" ]; then
+  set -a
+  # shellcheck disable=SC1090
+  . "${local_env_file}"
+  set +a
+fi
+
+if [ -z "${CI_BASE_IMAGE:-}" ] && [ -n "${HARBOR_HOST:-}" ]; then
+  case "${job_name}" in
+    test-k8s|helm-artifacts)
+      export CI_BASE_IMAGE="${HARBOR_HOST}/registry/act-rust-kind-playwright:latest"
+      ;;
+    build-docs|publish-images)
+      export CI_BASE_IMAGE="${HARBOR_HOST}/registry/act-rust-wasm-node:latest"
+      ;;
+    *)
+      export CI_BASE_IMAGE="${HARBOR_HOST}/registry/act-rust:latest"
+      ;;
+  esac
+fi
 
 command_string="set -euo pipefail; export RUSTC_WRAPPER=\"\$(command -v sccache)\"; ${command_string}"
 

@@ -26,6 +26,10 @@ build_args=(
   --tag "${image_name}"
 )
 
+if [ -n "${KSBH_RELEASE_BUILDER_IMAGE:-}" ]; then
+  build_args+=(--build-arg "RELEASE_BUILDER_IMAGE=${KSBH_RELEASE_BUILDER_IMAGE}")
+fi
+
 if [ -n "${cache_repo}" ]; then
   build_args+=(--cache-from "type=registry,ref=${cache_repo}")
   build_args+=(--cache-to "type=registry,ref=${cache_repo},mode=max,image-manifest=true,oci-mediatypes=true")

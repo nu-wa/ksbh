@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-#MISE description="Run one CI job locally inside the ksbh-ci image"
+#MISE description="Run one CI job locally inside the configured act image"
 #USAGE arg "<job>" help="One of build-rust, test-binary, test-modules, test-k8s, test-miri, build-docs, helm-artifacts"
 
 set -euo pipefail
