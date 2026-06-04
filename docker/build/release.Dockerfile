@@ -44,11 +44,11 @@ cargo build --release \
   -p oidc
 EOF
 
-FROM debian:bookworm-slim
+FROM ubuntu:24.04
 
 WORKDIR /app
 
-RUN apt-get update -y && apt-get install -y --no-install-recommends ca-certificates libssl3 openssl && rm -rf /var/lib/apt/lists/*
+RUN apt-get update -y && apt-get install -y --no-install-recommends ca-certificates libssl3t64 openssl && rm -rf /var/lib/apt/lists/*
 
 RUN mkdir -p /app/modules /usr/lib/ksbh/modules /app/config
 

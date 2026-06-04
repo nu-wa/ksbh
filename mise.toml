@@ -2,9 +2,9 @@ min_version = "2026.5.15"
 
 [tools]
 rust = "1.92.0"
-"github:orhun/git-cliff" = "latest"
-"github:endevco/aube" = "latest"
-"github:jdx/hk" = "latest"
+"github:orhun/git-cliff" = "2.13.1"
+"github:endevco/aube" = "1.17.1"
+"github:jdx/hk" = "1.46.0"
 
 [env]
 MISE_TASK_OUTPUT = "interleave"

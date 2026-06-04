@@ -263,7 +263,6 @@ jobs:
     build-release-image:
         needs:
             - resolve-images
-            - build-rust
         runs-on: cocaine
         container:
             image: ${{ needs.resolve-images.outputs.rust }}
