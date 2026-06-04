@@ -176,8 +176,10 @@ jobs:
                     local dst_dir="$2"
                     local src
                     src="$(
-                      find "${source_dir}" -maxdepth 1 -type f -name "${prefix}.*" \
+                      find "${source_dir}" "${deps_dir}" -maxdepth 1 -type f \( -name "${prefix}.*" -o -name "${prefix}-*" \) \
                         ! -name '*.d' \
+                        ! -name '*.rlib' \
+                        ! -name '*.rmeta' \
                         | sort \
                         | head -n 1
                     )"
