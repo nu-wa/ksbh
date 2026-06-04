@@ -188,7 +188,17 @@ jobs:
                     cp -a "${src}" "${dst_dir}/"
                   }
 
+                  copy_runtime_module_set() {
+                    local dst_dir="$1"
+                    copy_dynamic_lib libhttp_to_https "${dst_dir}"
+                    copy_dynamic_lib liboidc "${dst_dir}"
+                    copy_dynamic_lib libproof_of_work "${dst_dir}"
+                    copy_dynamic_lib librate_limit "${dst_dir}"
+                    copy_dynamic_lib librobots_txt "${dst_dir}"
+                  }
+
                   copy_file "${source_dir}/ksbh" "${artifact_dir}/binary/ksbh"
+                  copy_runtime_module_set "${artifact_dir}/binary"
                   copy_test_binary binary_baseline_e2e "${artifact_dir}/binary/deps"
                   copy_test_binary binary_static_content_e2e "${artifact_dir}/binary/deps"
                   copy_test_binary binary_upstream_errors_e2e "${artifact_dir}/binary/deps"
@@ -201,6 +211,7 @@ jobs:
                   copy_test_binary ksbh_core "${artifact_dir}/modules/deps"
 
                   copy_file "${source_dir}/ksbh" "${artifact_dir}/k8s/ksbh"
+                  copy_runtime_module_set "${artifact_dir}/k8s"
                   copy_test_binary k8s_baseline_e2e "${artifact_dir}/k8s/deps"
                   copy_test_binary k8s_ingress_lifecycle_e2e "${artifact_dir}/k8s/deps"
                   copy_test_binary k8s_static_content_e2e "${artifact_dir}/k8s/deps"
@@ -218,6 +229,11 @@ jobs:
                   name: rust-prebuilt-binary
                   path: |
                       .ci-artifacts/binary/ksbh
+                      .ci-artifacts/binary/libhttp_to_https.*
+                      .ci-artifacts/binary/liboidc.*
+                      .ci-artifacts/binary/libproof_of_work.*
+                      .ci-artifacts/binary/librate_limit.*
+                      .ci-artifacts/binary/librobots_txt.*
                       .ci-artifacts/binary/deps/*
                   if-no-files-found: error
 
@@ -236,6 +252,11 @@ jobs:
                   name: rust-prebuilt-k8s
                   path: |
                       .ci-artifacts/k8s/ksbh
+                      .ci-artifacts/k8s/libhttp_to_https.*
+                      .ci-artifacts/k8s/liboidc.*
+                      .ci-artifacts/k8s/libproof_of_work.*
+                      .ci-artifacts/k8s/librate_limit.*
+                      .ci-artifacts/k8s/librobots_txt.*
                       .ci-artifacts/k8s/deps/*
                   if-no-files-found: error
 
