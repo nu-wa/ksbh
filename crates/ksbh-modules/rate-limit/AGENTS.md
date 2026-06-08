@@ -12,8 +12,8 @@ Score-based rate limiting module.
 `src/lib.rs` currently:
 
 - reads `score_threshold` from config, defaulting to `100`
-- uses `ctx.metrics_key`
-- calls `ctx.metrics.get_score(metrics_key)`
+- calls `ctx.reputation_score()?`
+- can use `ctx.reputation_good_boy()?` for a boolean reputation check
 - returns HTTP `429` with `Retry-After` and `X-Score` when the threshold is exceeded
 
 ## Notes

@@ -1,0 +1,12 @@
+[scenario]
+id          = "speed_const_50krps"
+duration_s  = 30
+rate        = 50000     # constant-RPS, the headline number
+connections = 100
+tls         = false
+body_bytes  = 200
+
+[vegeta]
+targets = """
+GET http://{{ proxy_host }}:{{ proxy_http_port }}/
+"""

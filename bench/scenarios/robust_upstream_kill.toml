@@ -1,0 +1,13 @@
+[scenario]
+id          = "robust_upstream_kill"
+duration_s  = 30
+rate        = 0
+connections = 100
+tls         = false
+body_bytes  = 200
+
+# Runner POSTs /__ctl/shutdown to the upstream at T=5s and restarts at T=10s.
+[vegeta]
+targets = """
+GET http://{{ proxy_host }}:{{ proxy_http_port }}/
+"""

@@ -32,10 +32,10 @@ impl IngressController {
         }
     }
 
-    pub fn start(
+    pub async fn run(
         self,
         mut shutdown: tokio::sync::watch::Receiver<bool>,
-    ) -> tokio::task::JoinHandle<()> {
+    ) {
         let client = self.client.clone();
         let secrets = self.secret_refs.clone();
 
@@ -62,45 +62,43 @@ impl IngressController {
         let ingress_api =
             kube::Api::<k8s_openapi::api::networking::v1::Ingress>::all(client.clone());
 
-        tokio::spawn(async move {
-            use futures::StreamExt;
+        use futures::StreamExt;
 
-            let stream = kube::runtime::Controller::new(ingress_api, Default::default())
-                .watches(
-                    kube::Api::<k8s_openapi::api::core::v1::Secret>::all(client.clone()),
-                    Default::default(),
-                    secret_watcher,
-                )
-                .watches(
-                    kube::Api::<k8s_openapi::api::core::v1::Service>::all(client.clone()),
-                    Default::default(),
-                    service_watcher,
-                )
-                .graceful_shutdown_on(async move {
-                    let _ = shutdown.changed().await;
-                    tracing::debug!("Stopping ingress controller");
-                })
-                .run(
-                    reconcile_ingress::reconcile_ingress,
-                    error_ingress,
-                    ::std::sync::Arc::new(self),
-                );
+        let stream = kube::runtime::Controller::new(ingress_api, Default::default())
+            .watches(
+                kube::Api::<k8s_openapi::api::core::v1::Secret>::all(client.clone()),
+                Default::default(),
+                secret_watcher,
+            )
+            .watches(
+                kube::Api::<k8s_openapi::api::core::v1::Service>::all(client.clone()),
+                Default::default(),
+                service_watcher,
+            )
+            .graceful_shutdown_on(async move {
+                let _ = shutdown.changed().await;
+                tracing::debug!("Stopping ingress controller");
+            })
+            .run(
+                reconcile_ingress::reconcile_ingress,
+                error_ingress,
+                ::std::sync::Arc::new(self),
+            );
 
-            stream
-                .for_each(|res| {
-                    match res {
-                        Ok((obj, _)) => tracing::debug!("Reconcilied ingress: {}", obj.name),
-                        Err(e) => tracing::error!(
-                            "IngressController stream error: error_type={:?}, error={}",
-                            e,
-                            e
-                        ),
-                    }
-                    futures::future::ready(())
-                })
-                .await;
-            tracing::warn!("Ingress controller task has exited the stream loop");
-        })
+        stream
+            .for_each(|res| {
+                match res {
+                    Ok((obj, _)) => tracing::debug!("Reconcilied ingress: {}", obj.name),
+                    Err(e) => tracing::error!(
+                        "IngressController stream error: error_type={:?}, error={}",
+                        e,
+                        e
+                    ),
+                }
+                futures::future::ready(())
+            })
+            .await;
+        tracing::warn!("Ingress controller task has exited the stream loop");
     }
 }
 

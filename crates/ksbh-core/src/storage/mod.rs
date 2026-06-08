@@ -1,5 +1,6 @@
 pub mod module_session_key;
 pub mod redis_hashmap;
+pub mod reputation;
 
 pub const CONNECTION_RETRIES: u8 = 5;
 
@@ -18,6 +19,7 @@ impl RedisProvider for redis::Client {
 #[derive(Clone)]
 pub struct Storage {
     redis_provider: Option<::std::sync::Arc<dyn RedisProvider>>,
+    redis_async: Option<redis::aio::ConnectionManager>,
 }
 
 #[cfg(feature = "test-util")]
@@ -50,6 +52,7 @@ impl Storage {
     pub fn empty() -> Self {
         Self {
             redis_provider: None,
+            redis_async: None,
         }
     }
 
@@ -92,8 +95,14 @@ impl Storage {
             return Err("Could not connect to redis.".into());
         }
 
+        let connection_manager = redis_client
+            .get_connection_manager()
+            .await
+            .map_err(|e| format!("Failed to create async Redis connection manager: {}", e))?;
+
         Ok(Self {
-            redis_provider: Some(::std::sync::Arc::new(redis_client)),
+            redis_provider: Some(::std::sync::Arc::new(redis_client.clone())),
+            redis_async: Some(connection_manager),
         })
     }
 
@@ -101,6 +110,7 @@ impl Storage {
     pub async fn new_mock(redis_provider: ::std::sync::Arc<MockProvider>) -> Self {
         Self {
             redis_provider: Some(redis_provider),
+            redis_async: None,
         }
     }
 
@@ -111,6 +121,16 @@ impl Storage {
             None => Err(redis::RedisError::from((
                 redis::ErrorKind::Io,
                 "Redis not configured",
+            ))),
+        }
+    }
+
+    pub fn get_redis_async(&self) -> Result<redis::aio::ConnectionManager, redis::RedisError> {
+        match &self.redis_async {
+            Some(manager) => Ok(manager.clone()),
+            None => Err(redis::RedisError::from((
+                redis::ErrorKind::Io,
+                "Redis async not configured",
             ))),
         }
     }

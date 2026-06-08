@@ -1,0 +1,17 @@
+[scenario]
+id          = "speed_large_c50"
+duration_s  = 30
+rate        = 0
+connections = 50
+tls         = false
+body_bytes  = 65536
+
+[vegeta]
+targets = """
+GET http://{{ proxy_host }}:{{ proxy_http_port }}/?bytes=65536
+"""
+
+# 64 KiB response body needs buffer tuning to match nginx defaults.
+[nginx]
+proxy_buffer_size = "16k"
+proxy_buffers     = "8 16k"

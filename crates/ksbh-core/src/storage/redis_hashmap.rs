@@ -67,6 +67,10 @@ where
         }
     }
 
+    pub fn storage(&self) -> Option<&::std::sync::Arc<super::Storage>> {
+        self.redis_connection.as_ref()
+    }
+
     pub async fn get_hot(
         &self,
         key: &K,
@@ -304,6 +308,51 @@ where
             .query::<i32>(&mut *conn)
             .map(|n| n > 0)
             .unwrap_or(false)
+    }
+
+    pub async fn get_redis_async(&self, key: &K) -> Option<V>
+    where
+        V: serde::de::DeserializeOwned,
+    {
+        let storage = self.redis_connection.as_ref()?;
+        let mut conn = storage.get_redis_async().ok()?;
+        let key_bytes = rmp_serde::to_vec(key).ok()?;
+        let raw: Option<Vec<u8>> = redis::cmd("GET")
+            .arg(&key_bytes)
+            .query_async(&mut conn)
+            .await
+            .ok()
+            .flatten();
+        raw.and_then(|bytes| rmp_serde::from_slice(&bytes).ok())
+    }
+
+    pub async fn set_redis_async_with_ttl(&self, key: &K, value: &V, ttl_secs: u64) -> bool
+    where
+        V: serde::Serialize,
+    {
+        let storage = match self.redis_connection.as_ref() {
+            Some(s) => s,
+            None => return false,
+        };
+        let mut conn = match storage.get_redis_async() {
+            Ok(c) => c,
+            Err(_) => return false,
+        };
+        let key_bytes = match rmp_serde::to_vec(key) {
+            Ok(k) => k,
+            Err(_) => return false,
+        };
+        let encoded = match rmp_serde::to_vec(value) {
+            Ok(v) => v,
+            Err(_) => return false,
+        };
+        redis::cmd("SETEX")
+            .arg(&key_bytes)
+            .arg(ttl_secs)
+            .arg(&encoded)
+            .query_async::<()>(&mut conn)
+            .await
+            .is_ok()
     }
 
     fn incr_hash_impl(

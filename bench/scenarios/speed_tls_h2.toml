@@ -1,0 +1,12 @@
+[scenario]
+id          = "speed_tls_h2"
+duration_s  = 30
+rate        = 0
+connections = 50
+tls         = true
+body_bytes  = 200
+
+[vegeta]
+targets = """
+GET https://{{ proxy_host }}:{{ proxy_https_port }}/
+"""

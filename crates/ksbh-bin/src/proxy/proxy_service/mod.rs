@@ -11,10 +11,10 @@ pub fn create_service(
             Vec<u8>,
         >,
     >,
-    modules: ::std::sync::Arc<ksbh_core::modules::abi::module_host::ModuleHost>,
+    modules: ::std::sync::Arc<ksbh_core::modules::runtime::module_host::ModuleHost>,
     cookie_settings: ::std::sync::Arc<ksbh_core::cookies::CookieSettings>,
 ) -> pingora::services::listening::Service<
-    pingora::proxy::HttpProxy<crate::proxy::PingoraWrapper<ksbh_core::proxy::ProxyService>>,
+    pingora::proxy::HttpProxy<ksbh_core::PingoraWrapper>,
 > {
     let pingora_server_conf = ::std::sync::Arc::new(
         config
@@ -23,7 +23,7 @@ pub fn create_service(
             .expect("Invalid server configuration"),
     );
 
-    let proxy_wrapper = crate::proxy::PingoraWrapper::new(ksbh_core::proxy::ProxyService::new(
+    let proxy_wrapper = ksbh_core::PingoraWrapper::new(ksbh_core::proxy::ProxyService::new(
         config.clone(),
         storage,
         hosts,

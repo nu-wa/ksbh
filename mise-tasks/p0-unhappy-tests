@@ -10,24 +10,19 @@ cd "$repo_root"
 deps_dir="$repo_root/crates/target/debug/deps"
 
 if [ "${KSBH_CI_USE_PREBUILT:-false}" = "true" ]; then
-  ffi_miri_bin="$(resolve_test_binary "${deps_dir}" "ffi_miri")"
-  sdk_libtest_bin="$(resolve_test_binary "${deps_dir}" "ksbh_modules_sdk")"
-  host_unhappy_bin="$(resolve_test_binary "${deps_dir}" "host_functions_unhappy")"
   core_libtest_bin="$(resolve_test_binary "${deps_dir}" "ksbh_core")"
 
-  if [ -z "${ffi_miri_bin}" ] || [ -z "${sdk_libtest_bin}" ] || [ -z "${host_unhappy_bin}" ] || [ -z "${core_libtest_bin}" ]; then
-    echo "one or more prebuilt test binaries are missing in ${deps_dir}" >&2
+  if [ -z "${core_libtest_bin}" ]; then
+    echo "prebuilt ksbh_core test binary is missing in ${deps_dir}" >&2
     exit 1
   fi
 
-  chmod +x "${ffi_miri_bin}" "${sdk_libtest_bin}" "${host_unhappy_bin}" "${core_libtest_bin}" || true
-  "${ffi_miri_bin}" --nocapture --test-threads=1
-  "${sdk_libtest_bin}" proptest_parse_ --nocapture --test-threads=1
-  "${host_unhappy_bin}" --nocapture --test-threads=1
-  "${core_libtest_bin}" response_sets_proxy_cookie --nocapture --test-threads=1
+  chmod +x "${core_libtest_bin}" || true
+  "${core_libtest_bin}" reputation --nocapture --test-threads=1
+  "${core_libtest_bin}" runtime_signals --nocapture --test-threads=1
+  "${core_libtest_bin}" signal_callbacks_read_live_runtime_state --nocapture --test-threads=1
 else
-  cargo test --manifest-path crates/Cargo.toml -p ksbh-modules-sdk --test ffi_miri
-  cargo test --manifest-path crates/Cargo.toml -p ksbh-modules-sdk proptest_parse_
-  cargo test --manifest-path crates/Cargo.toml -p ksbh-core --test host_functions_unhappy
-  cargo test --manifest-path crates/Cargo.toml -p ksbh-core response_sets_proxy_cookie
+  cargo test --manifest-path crates/Cargo.toml -p ksbh-core reputation
+  cargo test --manifest-path crates/Cargo.toml -p ksbh-core runtime_signals
+  cargo test --manifest-path crates/Cargo.toml -p ksbh-core signal_callbacks_read_live_runtime_state
 fi

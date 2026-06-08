@@ -7,11 +7,28 @@ repo_root="$(
 )"
 
 DODECA_VERSION="${DODECA_VERSION:-v0.14.2}"
-DODECA_SHA="${DODECA_SHA:-4c25f36b64b9ec5aab5612a924b1264defa141d6}"
+DODECA_INSTALL_DIR="${repo_root}/.ci-cache/dodeca-install/bin"
 
 cd "${repo_root}"
 
-export PATH="${repo_root}/docs/node_modules/.bin:${repo_root}/.ci-cache/dodeca-install/bin:${PATH}"
+export DODECA_CELL_PATH="${DODECA_INSTALL_DIR}"
+export PATH="${repo_root}/docs/node_modules/.bin:${DODECA_INSTALL_DIR}:${PATH}"
+
+install_dodeca_release() {
+  local installer_path
+
+  rm -rf "${DODECA_INSTALL_DIR}"
+  mkdir -p "${DODECA_INSTALL_DIR}" "${repo_root}/.ci-cache"
+  installer_path="${repo_root}/.ci-cache/dodeca-installer.sh"
+
+  curl --proto '=https' --tlsv1.2 -LsSf \
+    "https://github.com/bearcove/dodeca/releases/download/${DODECA_VERSION}/dodeca-installer.sh" \
+    -o "${installer_path}"
+
+  DODECA_VERSION="${DODECA_VERSION}" \
+    DODECA_INSTALL_DIR="${DODECA_INSTALL_DIR}" \
+    sh "${installer_path}"
+}
 
 npm install --prefix docs --no-audit --no-fund
 
@@ -21,21 +38,7 @@ if ! command -v helm >/dev/null 2>&1; then
   ln -sf "${helm_bin}" /usr/local/bin/helm
 fi
 
-if ! command -v ddc >/dev/null 2>&1; then
-  rm -rf .ci-cache/dodeca-src
-  mkdir -p .ci-cache/dodeca-install .ci-cache/dodeca-target
-  git clone --depth 50 --branch "${DODECA_VERSION}" https://github.com/bearcove/dodeca .ci-cache/dodeca-src
-  (
-    cd .ci-cache/dodeca-src
-    git checkout "${DODECA_SHA}"
-    export CARGO_TARGET_DIR="${repo_root}/.ci-cache/dodeca-target"
-    cd crates/dodeca-devtools
-    wasm-pack build --target web
-    cd ../dodeca-search-wasm
-    wasm-pack build --target web
-    cargo install --path ../dodeca --locked --root "${repo_root}/.ci-cache/dodeca-install"
-  )
-fi
+install_dodeca_release
 
 command -v helm
 command -v ddc

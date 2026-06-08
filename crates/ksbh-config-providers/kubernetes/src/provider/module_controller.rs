@@ -16,10 +16,10 @@ impl ModulesController {
         }
     }
 
-    pub fn start(
+    pub async fn run(
         self,
         mut shutdown: tokio::sync::watch::Receiver<bool>,
-    ) -> tokio::task::JoinHandle<()> {
+    ) {
         use futures::StreamExt;
         let client = self.client.clone();
         let modules_api = kube::Api::<ksbh_core::modules::ModuleConfiguration>::all(client.clone());
@@ -34,40 +34,38 @@ impl ModulesController {
             secrets.get_sync(&(ns, name)).map(|e| e.get().clone())
         };
 
-        tokio::spawn(async move {
-            let stream = kube::runtime::Controller::new(modules_api, Default::default())
-                .watches(
-                    kube::Api::<k8s_openapi::api::core::v1::Secret>::all(client),
-                    Default::default(),
-                    modules_secret_watcher,
-                )
-                .graceful_shutdown_on(async move {
-                    let _ = shutdown.changed().await;
-                    tracing::debug!("Stopped modules controller");
-                })
-                .run(
-                    reconcile_modules,
-                    error_modules,
-                    ::std::sync::Arc::new(self),
-                );
+        let stream = kube::runtime::Controller::new(modules_api, Default::default())
+            .watches(
+                kube::Api::<k8s_openapi::api::core::v1::Secret>::all(client),
+                Default::default(),
+                modules_secret_watcher,
+            )
+            .graceful_shutdown_on(async move {
+                let _ = shutdown.changed().await;
+                tracing::debug!("Stopped modules controller");
+            })
+            .run(
+                reconcile_modules,
+                error_modules,
+                ::std::sync::Arc::new(self),
+            );
 
-            stream
-                .for_each(|res| {
-                    match res {
-                        Ok((obj, _)) => tracing::debug!("Reconcilied module: {}", obj.name),
-                        Err(e) => {
-                            tracing::error!(
-                                "Modules controller stream error: error_type={:?}, error={}",
-                                e,
-                                e
-                            );
-                        }
+        stream
+            .for_each(|res| {
+                match res {
+                    Ok((obj, _)) => tracing::debug!("Reconcilied module: {}", obj.name),
+                    Err(e) => {
+                        tracing::error!(
+                            "Modules controller stream error: error_type={:?}, error={}",
+                            e,
+                            e
+                        );
                     }
-                    futures::future::ready(())
-                })
-                .await;
-            tracing::warn!("Modules controller task has exited the stream loop");
-        })
+                }
+                futures::future::ready(())
+            })
+            .await;
+        tracing::warn!("Modules controller task has exited the stream loop");
     }
 }
 

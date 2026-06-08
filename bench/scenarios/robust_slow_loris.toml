@@ -1,0 +1,14 @@
+[scenario]
+id          = "robust_slow_loris"
+duration_s  = 30
+rate        = 0
+connections = 100
+tls         = false
+body_bytes  = 0
+
+# Driven by a slowloris-style client in the runner, not vegeta. Targets file
+# exists so the runner has a path to pass to vegeta for warmup.
+[vegeta]
+targets = """
+GET http://{{ proxy_host }}:{{ proxy_http_port }}/healthz
+"""

@@ -1,5 +1,38 @@
 pub mod error;
 
+mod method_serde {
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    pub fn serialize<S: Serializer>(value: &http::Method, serializer: S) -> Result<S::Ok, S::Error> {
+        value.as_str().serialize(serializer)
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<http::Method, D::Error> {
+        let s = String::deserialize(deserializer)?;
+        http::Method::from_bytes(s.as_bytes()).map_err(serde::de::Error::custom)
+    }
+}
+
+mod scheme_serde {
+    use std::str::FromStr;
+
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    pub fn serialize<S: Serializer>(
+        value: &http::uri::Scheme,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
+        value.as_str().serialize(serializer)
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<http::uri::Scheme, D::Error> {
+        let s = String::deserialize(deserializer)?;
+        http::uri::Scheme::from_str(&s).map_err(serde::de::Error::custom)
+    }
+}
+
 fn header_has_token(
     headers: &http::HeaderMap,
     name: impl http::header::AsHeaderName,
@@ -131,7 +164,7 @@ fn resolve_scheme_and_port(
     downstream_tls: bool,
     trust_forwarded_headers: bool,
     parsed_port: Option<u16>,
-) -> Result<(String, u16, crate::prelude::HttpScheme), error::HttpRequestError> {
+) -> Result<(String, u16, http::uri::Scheme), error::HttpRequestError> {
     let scheme_string = effective_request_scheme(
         req_header,
         downstream_tls || parsed_port.map(|p| p == config.https).unwrap_or(false),
@@ -149,9 +182,9 @@ fn resolve_scheme_and_port(
     };
     let effective_port = parsed_port.unwrap_or(target_config_port);
     let final_scheme = if is_secure_proto {
-        crate::prelude::HttpScheme(http::uri::Scheme::HTTPS)
+        http::uri::Scheme::HTTPS
     } else {
-        crate::prelude::HttpScheme(http::uri::Scheme::HTTP)
+        http::uri::Scheme::HTTP
     };
 
     Ok((scheme_string, effective_port, final_scheme))
@@ -172,8 +205,8 @@ fn build_base_url(scheme: &str, host: &str, effective_port: u16) -> String {
 
 /// A "parsed" HTTP request with owned data for use in plugins/modules.
 ///
-/// Parsed from a [pingora session](https://docs.rs/pingora-proxy/latest/pingora_proxy/struct.Session.html#method.req_header),
-/// which itself has underlying data coming from [`http::request::Parts`](https://docs.rs/http/1.1.0/http/request/struct.Parts.html).
+/// Parsed from a pingora session, which itself has underlying data coming
+/// from [`http::request::Parts`].
 ///
 /// All string data is copied into owned [`KsbhStr`](crate::KsbhStr) for FFI compatibility.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -182,26 +215,12 @@ pub struct HttpRequest {
     pub base_url: crate::KsbhStr,
     pub host: crate::KsbhStr,
     pub port: u16,
-    pub query: crate::prelude::HttpQuery,
-    pub scheme: crate::prelude::HttpScheme,
+    pub query: crate::requests::http_query::HttpQuery,
+    #[serde(with = "scheme_serde")]
+    pub scheme: http::uri::Scheme,
     pub req_uuid: uuid::Uuid,
-    pub method: crate::prelude::HttpMethod,
-}
-
-/// A borrowed view of an HTTP request for non-owning contexts.
-///
-/// Contains borrowed string references (`&'a str`) instead of owned data,
-/// useful for in-process request processing without FFI boundaries.
-#[derive(Debug)]
-pub struct HttpRequestView<'a> {
-    pub uri: String,
-    pub base_url: String,
-    pub host: &'a str,
-    pub port: u16,
-    pub query: crate::requests::http_query::HttpQueryView<'a>,
-    pub req_uuid: uuid::Uuid,
-    pub method: crate::requests::http_method::HttpMethodView<'a>,
-    pub scheme: crate::requests::http_scheme::HttpScheme,
+    #[serde(with = "method_serde")]
+    pub method: http::Method,
 }
 
 impl HttpRequest {
@@ -212,7 +231,7 @@ impl HttpRequest {
         downstream_tls: bool,
         trust_forwarded_headers: bool,
     ) -> Result<Self, error::HttpRequestError> {
-        let query = crate::prelude::HttpQuery::new(req_header)?;
+        let query = crate::requests::http_query::HttpQuery::new(req_header)?;
         let (host, parsed_port) = parse_host_and_port(req_header)?;
         let (scheme_string, effective_port, final_scheme) = resolve_scheme_and_port(
             req_header,
@@ -232,7 +251,7 @@ impl HttpRequest {
             port: effective_port,
             req_uuid,
             base_url: crate::KsbhStr::new(base_url),
-            method: crate::prelude::HttpMethod(req_header.method.to_owned()),
+            method: req_header.method.to_owned(),
         })
     }
 
@@ -245,7 +264,7 @@ impl HttpRequest {
             query: self.query.to_owned(),
             req_uuid: self.req_uuid,
             base_url: self.base_url.clone(),
-            method: self.method.to_owned(),
+            method: self.method.clone(),
         }
     }
 }
@@ -275,39 +294,6 @@ impl HttpRequest {
             false,
         )
         .unwrap()
-    }
-}
-
-impl<'a> HttpRequestView<'a> {
-    pub fn new(
-        req_header: &'a http::request::Parts,
-        req_uuid: uuid::Uuid,
-        config: &crate::Ports,
-        downstream_tls: bool,
-        trust_forwarded_headers: bool,
-    ) -> Result<Self, error::HttpRequestError> {
-        let query = crate::requests::http_query::HttpQueryView::new(req_header)?;
-        let (host, parsed_port) = parse_host_and_port(req_header)?;
-        let (scheme_string, effective_port, final_scheme) = resolve_scheme_and_port(
-            req_header,
-            config,
-            downstream_tls,
-            trust_forwarded_headers,
-            parsed_port,
-        )?;
-        let base_url = build_base_url(&scheme_string, host, effective_port);
-        let full_uri = format!("{base_url}{query}");
-
-        Ok(Self {
-            uri: full_uri,
-            query,
-            host,
-            scheme: final_scheme,
-            port: effective_port,
-            req_uuid,
-            base_url,
-            method: crate::requests::http_method::HttpMethodView(req_header.method.as_str()),
-        })
     }
 }
 
@@ -347,39 +333,13 @@ mod tests {
         .expect("parse owned request")
     }
 
-    fn parse_view<'a>(
-        parts: &'a http::request::Parts,
-    ) -> crate::requests::http_request::HttpRequestView<'a> {
-        parse_view_with_trust(parts, false)
-    }
-
-    fn parse_view_with_trust<'a>(
-        parts: &'a http::request::Parts,
-        trust_forwarded_headers: bool,
-    ) -> crate::requests::http_request::HttpRequestView<'a> {
-        crate::requests::http_request::HttpRequestView::new(
-            parts,
-            uuid::Uuid::nil(),
-            &crate::Ports {
-                http: 80,
-                https: 443,
-            },
-            false,
-            trust_forwarded_headers,
-        )
-        .expect("parse request view")
-    }
-
     #[test]
     fn websocket_requires_connection_upgrade_in_parser() {
         let parts = build_request_parts("/ws", &[("Upgrade", "websocket")]);
         let owned = parse_owned(&parts);
-        let view = parse_view(&parts);
 
         assert_eq!(owned.base_url.as_str(), "http://example.test");
-        assert_eq!(view.base_url, "http://example.test");
-        assert_eq!(owned.scheme.0.as_str(), "http");
-        assert_eq!(view.scheme.0.as_str(), "http");
+        assert_eq!(owned.scheme.as_str(), "http");
     }
 
     #[test]
@@ -392,12 +352,9 @@ mod tests {
             ],
         );
         let owned = parse_owned(&parts);
-        let view = parse_view(&parts);
 
         assert_eq!(owned.base_url.as_str(), "ws://example.test");
-        assert_eq!(view.base_url, "ws://example.test");
-        assert_eq!(owned.scheme.0.as_str(), "http");
-        assert_eq!(view.scheme.0.as_str(), "http");
+        assert_eq!(owned.scheme.as_str(), "http");
     }
 
     #[test]
@@ -411,12 +368,9 @@ mod tests {
             ],
         );
         let owned = parse_owned_with_trust(&parts, true);
-        let view = parse_view_with_trust(&parts, true);
 
         assert_eq!(owned.base_url.as_str(), "wss://example.test");
-        assert_eq!(view.base_url, "wss://example.test");
-        assert_eq!(owned.scheme.0.as_str(), "https");
-        assert_eq!(view.scheme.0.as_str(), "https");
+        assert_eq!(owned.scheme.as_str(), "https");
     }
 
     #[test]
@@ -433,34 +387,18 @@ mod tests {
             false,
         )
         .expect("parse owned direct tls request");
-        let view = crate::requests::http_request::HttpRequestView::new(
-            &parts,
-            uuid::Uuid::nil(),
-            &crate::Ports {
-                http: 80,
-                https: 443,
-            },
-            true,
-            false,
-        )
-        .expect("parse direct tls request view");
 
         assert_eq!(owned.base_url.as_str(), "https://example.test");
-        assert_eq!(view.base_url, "https://example.test");
-        assert_eq!(owned.scheme.0.as_str(), "https");
-        assert_eq!(view.scheme.0.as_str(), "https");
+        assert_eq!(owned.scheme.as_str(), "https");
     }
 
     #[test]
     fn untrusted_forwarded_https_does_not_upgrade_scheme() {
         let parts = build_request_parts("/index.yaml", &[("X-Forwarded-Proto", "https")]);
         let owned = parse_owned(&parts);
-        let view = parse_view(&parts);
 
         assert_eq!(owned.base_url.as_str(), "http://example.test");
-        assert_eq!(view.base_url, "http://example.test");
-        assert_eq!(owned.scheme.0.as_str(), "http");
-        assert_eq!(view.scheme.0.as_str(), "http");
+        assert_eq!(owned.scheme.as_str(), "http");
     }
 
     #[test]
@@ -477,21 +415,8 @@ mod tests {
             true,
         )
         .expect("parse owned trusted forwarded https request");
-        let view = crate::requests::http_request::HttpRequestView::new(
-            &parts,
-            uuid::Uuid::nil(),
-            &crate::Ports {
-                http: 80,
-                https: 443,
-            },
-            false,
-            true,
-        )
-        .expect("parse trusted forwarded https request view");
 
         assert_eq!(owned.base_url.as_str(), "https://example.test");
-        assert_eq!(view.base_url, "https://example.test");
-        assert_eq!(owned.scheme.0.as_str(), "https");
-        assert_eq!(view.scheme.0.as_str(), "https");
+        assert_eq!(owned.scheme.as_str(), "https");
     }
 }

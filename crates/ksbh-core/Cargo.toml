@@ -11,9 +11,15 @@ path = "src/lib.rs"
 name = "generate_crd"
 path = "src/bin/generate_crd.rs"
 
+[[test]]
+name = "dynamic_modules_smoke"
+harness = true
+
 [dependencies]
+pingora = { workspace = true, features = ["proxy"] }
 pingora-core = { workspace = true }
 pingora-http = { workspace = true }
+pingora-proxy = { workspace = true }
 lazy_static = "1.5.0"
 libloading = { workspace = true }
 log = "0.4"
@@ -28,6 +34,7 @@ psl = { workspace = true }
 # KSBH
 ksbh-types = { workspace = true }
 ksbh-ui = { path = "../ksbh-ui" }
+ksbh-modules-abi = { workspace = true }
 
 # Workspace
 async-trait = { workspace = true }
@@ -36,7 +43,7 @@ bytes = { workspace = true }
 hashbrown = { workspace = true }
 http = { workspace = true }
 ipnet = { workspace = true }
-redis = { workspace = true }
+redis = { workspace = true, features = ["connection-manager"] }
 rmp-serde = { workspace = true }
 scc = { workspace = true }
 serde = { workspace = true }
@@ -49,6 +56,7 @@ uuid = { workspace = true }
 urlencoding = { workspace = true }
 anyhow = { workspace = true }
 thiserror = { workspace = true }
+blake3 = { workspace = true }
 
 [dependencies.config]
 workspace = true

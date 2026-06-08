@@ -1,57 +1,59 @@
+use crate::HostModuleCtxHandle;
+use ksbh_modules_abi::{
+    functions::HostFnLog,
+    types::{KSBHBytes, KSBHHostCtxHandle, LogLevel},
+};
+
 /// Logger for emitting messages via the host's logging infrastructure.
 ///
 /// Log messages are tagged with the module name and forwarded to the host's
 /// tracing/logging system.
 pub struct Logger {
-    log_fn: ksbh_core::modules::abi::log::LogFn,
-    mod_name: smol_str::SmolStr,
+    ctx_handle: HostModuleCtxHandle,
+    log_fn: HostFnLog,
 }
 
 impl Logger {
     /// Creates a new Logger from a host-provided logging function.
-    pub fn new(log_fn: ksbh_core::modules::abi::log::LogFn, name: &str) -> Self {
-        Self {
-            log_fn,
-            mod_name: smol_str::SmolStr::from(name),
-        }
+    pub fn new(ctx_handle: crate::HostModuleCtxHandle, log_fn: HostFnLog) -> Self {
+        Self { log_fn, ctx_handle }
     }
 
-    /// Logs a message at ERROR level (0).
     pub fn error(&self, msg: &str) {
-        self.log(0, msg);
+        self.log(LogLevel::Error, msg);
     }
 
-    /// Logs a message at WARN level (1).
     pub fn warn(&self, msg: &str) {
-        self.log(1, msg);
+        self.log(LogLevel::Warn, msg);
     }
 
-    /// Logs a message at INFO level (2).
     pub fn info(&self, msg: &str) {
-        self.log(2, msg);
+        self.log(LogLevel::Info, msg);
     }
 
-    /// Logs a message at DEBUG level (3).
     pub fn debug(&self, msg: &str) {
-        self.log(3, msg);
+        self.log(LogLevel::Debug, msg);
     }
 
     /// Logs a message with formatted arguments.
     ///
     /// This is used by the `log_error!`, `log_warn!`, etc. macros.
-    pub fn log_with_format(&self, level: u8, args: ::std::fmt::Arguments<'_>) {
+    pub fn log_with_format(&self, level: LogLevel, args: ::std::fmt::Arguments<'_>) {
         let msg = ::std::format!("{}", args);
         self.log(level, &msg);
     }
 
-    fn log(&self, level: u8, msg: &str) {
+    fn log(&self, level: LogLevel, msg: &str) {
         unsafe {
             (self.log_fn)(
+                KSBHHostCtxHandle {
+                    inner: self.ctx_handle,
+                },
                 level,
-                self.mod_name.as_ptr(),
-                self.mod_name.len(),
-                msg.as_ptr(),
-                msg.len(),
+                KSBHBytes {
+                    ptr: msg.as_ptr(),
+                    len: msg.len(),
+                },
             );
         }
     }

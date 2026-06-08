@@ -28,7 +28,7 @@ mod tests {
         let mut host_paths = crate::routing::HostPaths::default();
         host_paths.prefix.push((
             ksbh_types::KsbhStr::new("/"),
-            crate::routing::ServiceBackendType::Static,
+            crate::routing::RoutingDestination::Static,
         ));
 
         writer.insert_ingress(
@@ -116,7 +116,7 @@ mod tests {
         let mut host_paths = crate::routing::HostPaths::default();
         host_paths.prefix.push((
             ksbh_types::KsbhStr::new("/"),
-            crate::routing::ServiceBackendType::Static,
+            crate::routing::RoutingDestination::Static,
         ));
 
         writer.insert_ingress(

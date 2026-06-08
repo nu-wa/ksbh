@@ -1,20 +1,20 @@
-/// Backend routing destination type for service requests.
+/// Routing destination — where the proxy forwards a matched request.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub enum ServiceBackendType {
-    /// Direct service backend with name and port
-    ServiceBackend(ServiceBackend),
-    /// Static content backend
+pub enum RoutingDestination {
+    /// Forward to a named upstream
+    Upstream(Upstream),
+    /// Serve static content
     Static,
-    /// Error response with static message
+    /// Return an error response with static message
     Error(&'static str),
-    /// No backend configured
+    /// No destination configured
     None,
 }
 
-/// Backend service endpoint definition.
+/// An upstream endpoint — the name and port of a proxied service.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub struct ServiceBackend {
-    /// Service name identifier
+pub struct Upstream {
+    /// Upstream name identifier
     pub name: ksbh_types::KsbhStr,
     /// Port number
     pub port: u16,

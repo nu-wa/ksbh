@@ -1,20 +1,29 @@
-/// Handle for reporting metrics to the host.
+use crate::HostModuleCtxHandle;
+use ksbh_modules_abi::{
+    functions::{HostFnReputationGetScore, HostFnReputationGoodBoy},
+    types::{KSBHHostCtxHandle, KSBHHostFnReturn},
+};
+
+/// Handle for reporting reputation to the host.
 ///
 /// Used for score-based rate limiting: modules can reward good behavior
-/// (e.g., completing a challenge) with `good_boy()` and query the current
-/// score with `get_score()`.
-pub struct MetricsHandle {
-    good_boy: ksbh_core::modules::abi::MetricsGoodBoyFn,
-    get_score: ksbh_core::modules::abi::MetricsGetScoreFn,
+/// (e.g., completing a challenge) with `reputation_good_boy()` and query the
+/// current score with `reputation_score()`.
+pub struct ReputationHandle {
+    ctx_handle: HostModuleCtxHandle,
+    good_boy: HostFnReputationGoodBoy,
+    get_score: HostFnReputationGetScore,
 }
 
-impl MetricsHandle {
-    /// Creates a MetricsHandle from FFI function pointers.
+impl ReputationHandle {
+    /// Creates a ReputationHandle from FFI function pointers.
     pub fn from_ffi(
-        good_boy: ksbh_core::modules::abi::MetricsGoodBoyFn,
-        get_score: ksbh_core::modules::abi::MetricsGetScoreFn,
+        ctx_handle: HostModuleCtxHandle,
+        good_boy: HostFnReputationGoodBoy,
+        get_score: HostFnReputationGetScore,
     ) -> Self {
         Self {
+            ctx_handle,
             good_boy,
             get_score,
         }
@@ -23,16 +32,49 @@ impl MetricsHandle {
     /// Rewards good behavior by reducing the client's score by 50.
     ///
     /// Used when a client completes a challenge or demonstrates good behavior.
-    /// Returns `true` if the score was updated successfully.
-    pub fn good_boy(&self, metrics_key: &[u8]) -> bool {
-        unsafe { (self.good_boy)(metrics_key.as_ptr(), metrics_key.len()) }
+    /// Returns `Ok(())` if the score was updated successfully.
+    pub fn reputation_good_boy(&self) -> Result<(), crate::ModuleError> {
+        unsafe {
+            match (self.good_boy)(KSBHHostCtxHandle {
+                inner: self.ctx_handle,
+            }) {
+                KSBHHostFnReturn::Success => Ok(()),
+                KSBHHostFnReturn::BadArgument => Err(crate::ModuleError::Host {
+                    message: "reputation good_boy rejected: bad argument".to_string(),
+                }),
+                KSBHHostFnReturn::HostFailure => Err(crate::ModuleError::Host {
+                    message: "reputation good_boy failed".to_string(),
+                }),
+                KSBHHostFnReturn::NotFound => Err(crate::ModuleError::Host {
+                    message: "reputation good_boy failed: host context not found".to_string(),
+                }),
+            }
+        }
     }
 
-    /// Gets the current score for a client identified by the metrics key.
+    /// Gets the current score for a client identified by the reputation key.
     ///
     /// The score is used by the rate-limiting module to make blocking decisions.
     /// Higher scores indicate worse behavior/more requests.
-    pub fn get_score(&self, metrics_key: &[u8]) -> u64 {
-        unsafe { (self.get_score)(metrics_key.as_ptr(), metrics_key.len()) }
+    pub fn reputation_score(&self) -> Result<Option<u64>, crate::ModuleError> {
+        unsafe {
+            let mut result = 0_u64;
+
+            match (self.get_score)(
+                KSBHHostCtxHandle {
+                    inner: self.ctx_handle,
+                },
+                &mut result,
+            ) {
+                KSBHHostFnReturn::Success => Ok(Some(result)),
+                KSBHHostFnReturn::NotFound => Ok(None),
+                KSBHHostFnReturn::BadArgument => Err(crate::ModuleError::Host {
+                    message: "reputation get_score rejected: bad argument".to_string(),
+                }),
+                KSBHHostFnReturn::HostFailure => Err(crate::ModuleError::Host {
+                    message: "reputation get_score failed".to_string(),
+                }),
+            }
+        }
     }
 }

@@ -6,15 +6,15 @@ pub struct CookieSettings {
 }
 
 impl CookieSettings {
-    pub fn from_config(config: &crate::Config) -> Result<Self, crate::config::ConfigError> {
+    pub fn from_config(config: &crate::Config) -> Result<Self, crate::config_error::ConfigError> {
         let cookie_key = config.cookie_key.as_ref().ok_or_else(|| {
-            crate::config::ConfigError::MissingMandatoryValue(
+            crate::config_error::ConfigError::MissingMandatoryValue(
                 "cookie_key must be provided via config or KSBH__COOKIE_KEY".to_string(),
             )
         })?;
 
         let key = crate::cookie::Key::try_from(cookie_key.as_bytes()).map_err(|_| {
-            crate::config::ConfigError::ValidationError("cookie_key must be at least 64 bytes")
+            crate::config_error::ConfigError::ValidationError("cookie_key must be at least 64 bytes")
         })?;
 
         Ok(Self {
@@ -39,29 +39,16 @@ pub fn get_cookie_domain(host: &str) -> String {
     format!(".{}", host)
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum ProxyCookieError {
+    #[error("cookie error: {0}")]
     CookieError(String),
-    EncodeError(rmp_serde::encode::Error),
-    DecodeError(rmp_serde::decode::Error),
+    #[error("encode error: {0}")]
+    EncodeError(#[from] rmp_serde::encode::Error),
+    #[error("decode error: {0}")]
+    DecodeError(#[from] rmp_serde::decode::Error),
+    #[error("no cookie")]
     NoCookie,
-}
-
-impl ::std::error::Error for ProxyCookieError {}
-
-impl ::std::fmt::Display for ProxyCookieError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "ProxyCookieError: '{}'.",
-            match self {
-                Self::NoCookie => "No cookie header".to_string(),
-                Self::CookieError(e) => e.to_string(),
-                Self::DecodeError(e) => e.to_string(),
-                Self::EncodeError(e) => e.to_string(),
-            }
-        )
-    }
 }
 
 impl ProxyCookie {
@@ -157,14 +144,3 @@ impl ProxyCookie {
     }
 }
 
-impl From<rmp_serde::decode::Error> for ProxyCookieError {
-    fn from(value: rmp_serde::decode::Error) -> Self {
-        Self::DecodeError(value)
-    }
-}
-
-impl From<rmp_serde::encode::Error> for ProxyCookieError {
-    fn from(value: rmp_serde::encode::Error) -> Self {
-        Self::EncodeError(value)
-    }
-}

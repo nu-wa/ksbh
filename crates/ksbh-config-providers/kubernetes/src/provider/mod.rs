@@ -18,12 +18,12 @@ impl Default for KubeConfigProvider {
 
 #[async_trait::async_trait]
 impl ksbh_core::config_provider::ConfigProvider for KubeConfigProvider {
-    async fn start(
+    async fn emit(
         &self,
-        router: ksbh_core::routing::RouterWriter,
-        certs: ksbh_core::certs::CertsWriter,
-        mut shutdown: tokio::sync::watch::Receiver<bool>,
-    ) {
+        router: &mut ksbh_core::routing::RouterWriter,
+        certs: &mut ksbh_core::certs::CertsWriter,
+        shutdown: pingora::server::ShutdownWatch,
+    ) -> Result<(), ksbh_core::config_provider::ConfigProviderError> {
         let client = match kube::Client::try_default().await {
             Ok(c) => c,
             Err(e) => {
@@ -31,26 +31,37 @@ impl ksbh_core::config_provider::ConfigProvider for KubeConfigProvider {
                     "Failed to connect to Kubernetes: {}. Kubernetes config provider will not be available.",
                     e
                 );
-                return;
+                return Ok(());
             }
         };
 
-        let modules_controller =
-            module_controller::ModulesController::new(client.clone(), router.clone());
+        let mut shutdown_rx = shutdown.clone();
+        let shutdown_for_modules = shutdown.clone();
+        let shutdown_for_ingress = shutdown.clone();
 
-        let modules_controller_handle =
-            module_controller::ModulesController::start(modules_controller, shutdown.clone());
+        let modules_controller = module_controller::ModulesController::new(
+            client.clone(),
+            router.clone(),
+        );
 
-        let ingress_controller =
-            ingress_controller::IngressController::new(client.clone(), certs, router);
+        let modules_controller_handle = tokio::spawn(async move {
+            let _ = modules_controller.run(shutdown_for_modules).await;
+        });
 
-        let ingress_controller_handle =
-            ingress_controller::IngressController::start(ingress_controller, shutdown.clone());
+        let ingress_controller = ingress_controller::IngressController::new(
+            client.clone(),
+            certs.clone(),
+            router.clone(),
+        );
+
+        let ingress_controller_handle = tokio::spawn(async move {
+            let _ = ingress_controller.run(shutdown_for_ingress).await;
+        });
 
         tracing::debug!("Started kubernetes controllers");
 
         tokio::select! {
-            _ = shutdown.changed() => {
+            _ = shutdown_rx.changed() => {
                 tracing::debug!("Stopping kubernetes background service");
             }
             res = modules_controller_handle => {
@@ -62,6 +73,8 @@ impl ksbh_core::config_provider::ConfigProvider for KubeConfigProvider {
         }
 
         tracing::debug!("Stopped kubernetes background service");
+
+        Ok(())
     }
 }
 

@@ -16,6 +16,8 @@ bytes = { workspace = true }
 http = { workspace = true }
 tracing = { workspace = true }
 urlencoding = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
 
 # KSBH
 ksbh-modules-sdk = { path = "../../ksbh-modules-sdk/" }

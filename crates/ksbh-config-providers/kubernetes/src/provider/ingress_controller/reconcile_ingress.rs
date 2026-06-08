@@ -37,16 +37,34 @@ pub(super) async fn reconcile_ingress(
 
     crate::provider::ensure_finalizer(&api, &*obj).await?;
 
-    super::tls::parse_tls_configs(ctx.as_ref(), &namespace, spec.tls.as_ref()).await?;
-    super::rules::parse_rules(
+    let annotations = super::annotations::Annotations::new(obj.metadata.annotations.as_ref())?;
+
+    let tls = super::tls::collect_tls(ctx.as_ref(), &namespace, spec.tls.as_ref()).await?;
+    let hosts = super::rules::collect_rules(
         ctx.as_ref(),
         &namespace,
-        &name,
         &rules,
-        super::annotations::Annotations::new(obj.metadata.annotations.as_ref())?,
         &obj,
     )
     .await?;
+
+    let ingress_data = ksbh_core::routing::IngressData {
+        name: name.clone(),
+        hosts,
+        tls,
+        attached_modules: annotations.modules.iter().map(|s| s.to_string()).collect(),
+        excluded_modules: annotations.excluded_modules.iter().map(|s| s.to_string()).collect(),
+        peer_options: annotations.peer_options,
+        modules: Vec::new(),
+    };
+
+    let mut router = ctx.hosts.clone();
+    let mut certs = ctx.certs.clone();
+    if let Err(e) =
+        ksbh_core::routing::IngressRecipe::emit(&ingress_data, &mut router, &mut certs).await
+    {
+        tracing::error!("Failed to emit ingress '{}': {e}", ingress_data.name);
+    }
 
     Ok(kube::runtime::controller::Action::requeue(
         tokio::time::Duration::from_secs(250),

@@ -1,0 +1,15 @@
+[scenario]
+id          = "speed_small_c1"
+duration_s  = 30
+rate        = 0          # 0 = saturate
+connections = 1
+tls         = false
+body_bytes  = 200
+
+[vegeta]
+targets = """
+GET http://{{ proxy_host }}:{{ proxy_http_port }}/
+"""
+
+[nginx]
+# Default nginx template covers this scenario; no overrides.

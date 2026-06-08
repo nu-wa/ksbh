@@ -9,16 +9,6 @@
 //! WebSocket upgrades are always passed through to avoid breaking the
 //! HTTP/1.1 upgrade handshake with redirects.
 
-fn is_secure_request(request: &ksbh_modules_sdk::RequestInfo) -> bool {
-    let scheme = request.scheme.as_str();
-    let uri = request.uri.as_str();
-
-    scheme.eq_ignore_ascii_case("https")
-        || request.port == 443
-        || uri.starts_with("https://")
-        || uri.starts_with("wss://")
-}
-
 fn build_redirect_url(uri: &str, host: &str) -> String {
     if uri.starts_with("http://") {
         return uri.replacen("http://", "https://", 1);
@@ -78,17 +68,21 @@ fn is_self_redirect(redirect_url: &str, request_uri: &str) -> bool {
 }
 
 pub fn process(
-    ctx: ksbh_modules_sdk::RequestContext,
-) -> Result<ksbh_modules_sdk::ModuleResult, ksbh_modules_sdk::ModuleError> {
-    if ctx.request.is_websocket_handshake {
+    _stage: ksbh_modules_sdk::RequestStage,
+    ctx: ksbh_modules_sdk::ModuleContext,
+) -> ksbh_modules_sdk::RequestResult {
+    if ctx.request_info.is_websocket_handshake {
         return Ok(ksbh_modules_sdk::ModuleResult::Pass);
     }
 
-    let secure = is_secure_request(&ctx.request);
+    let secure = ctx.request_info.scheme.eq_ignore_ascii_case("https")
+        || ctx.request_info.port == 443
+        || ctx.request_info.uri.starts_with("https://")
+        || ctx.request_info.uri.starts_with("wss://");
 
     if !secure {
-        let redirect_url = build_redirect_url(ctx.request.uri.as_str(), ctx.request.host.as_str());
-        if is_self_redirect(&redirect_url, ctx.request.uri.as_str()) {
+        let redirect_url = build_redirect_url(ctx.request_info.uri, ctx.request_info.host);
+        if is_self_redirect(&redirect_url, ctx.request_info.uri) {
             return Ok(ksbh_modules_sdk::ModuleResult::Pass);
         }
 
@@ -97,115 +91,126 @@ pub fn process(
             .header(http::header::LOCATION, redirect_url)
             .body(bytes::Bytes::new())?;
 
-        return Ok(ksbh_modules_sdk::ModuleResult::Stop(response));
+        return Ok(ksbh_modules_sdk::ModuleResult::Stop(Some(response)));
     }
 
     Ok(ksbh_modules_sdk::ModuleResult::Pass)
 }
 
-ksbh_modules_sdk::register_module!(process, ksbh_modules_sdk::types::ModuleType::HttpToHttps);
-
 #[cfg(test)]
 mod tests {
-    fn test_request(
-        uri: &str,
-        host: &str,
-        scheme: &str,
-        port: u16,
-    ) -> ksbh_modules_sdk::RequestInfo {
-        ksbh_modules_sdk::RequestInfo {
-            uri: uri.into(),
-            host: host.into(),
-            method: "GET".into(),
-            path: "/".into(),
-            query_params: ::std::collections::HashMap::new(),
-            scheme: scheme.into(),
-            port,
-            is_websocket_handshake: false,
-        }
-    }
+    use super::*;
 
+    // build_redirect_url tests
     #[test]
-    fn websocket_upgrade_is_detected_with_connection_upgrade() {
-        let mut headers = http::HeaderMap::new();
-        headers.insert(
-            http::header::UPGRADE,
-            http::HeaderValue::from_static("websocket"),
+    fn redirect_http_to_https() {
+        assert_eq!(
+            build_redirect_url("http://example.com/path", "example.com"),
+            "https://example.com/path"
         );
-        headers.insert(
-            http::header::CONNECTION,
-            http::HeaderValue::from_static("keep-alive, Upgrade"),
+    }
+
+    #[test]
+    fn redirect_ws_to_wss() {
+        assert_eq!(
+            build_redirect_url("ws://example.com/ws", "example.com"),
+            "wss://example.com/ws"
         );
-
-        assert!(ksbh_modules_sdk::is_websocket_upgrade_request(&headers));
     }
 
     #[test]
-    fn websocket_upgrade_is_detected_with_sec_websocket_key() {
-        let mut headers = http::HeaderMap::new();
-        headers.insert(
-            http::header::UPGRADE,
-            http::HeaderValue::from_static("websocket"),
+    fn redirect_absolute_path_with_host() {
+        assert_eq!(
+            build_redirect_url("/path?query=1", "example.com"),
+            "https://example.com/path?query=1"
         );
-        headers.insert(
-            "Sec-WebSocket-Key",
-            http::HeaderValue::from_static("dGhlIHNhbXBsZSBub25jZQ=="),
+    }
+
+    #[test]
+    fn redirect_defaults_to_https_prefix() {
+        assert_eq!(
+            build_redirect_url("example.com", ""),
+            "https://example.com"
         );
+    }
 
-        assert!(ksbh_modules_sdk::is_websocket_upgrade_request(&headers));
+    // normalized_url_for_compare tests
+    #[test]
+    fn normalizes_lowercase_host() {
+        let a = normalized_url_for_compare("https://EXAMPLE.COM/path").unwrap();
+        let b = normalized_url_for_compare("https://example.com/path").unwrap();
+        assert_eq!(a, b);
     }
 
     #[test]
-    fn websocket_upgrade_requires_upgrade_websocket_header() {
-        let mut headers = http::HeaderMap::new();
-        headers.insert(
-            http::header::CONNECTION,
-            http::HeaderValue::from_static("upgrade"),
-        );
-        headers.insert(
-            "Sec-WebSocket-Key",
-            http::HeaderValue::from_static("dGhlIHNhbXBsZSBub25jZQ=="),
-        );
-
-        assert!(!ksbh_modules_sdk::is_websocket_upgrade_request(&headers));
+    fn normalizes_default_http_port() {
+        let a = normalized_url_for_compare("http://example.com:80/path").unwrap();
+        let b = normalized_url_for_compare("http://example.com/path").unwrap();
+        assert_eq!(a, b);
     }
 
     #[test]
-    fn secure_request_detects_https_scheme_from_request_info() {
-        let request = test_request(
-            "https://example.com/ws/client/",
-            "example.com",
-            "https",
-            443,
-        );
-
-        assert!(super::is_secure_request(&request));
+    fn normalizes_default_https_port() {
+        let a = normalized_url_for_compare("https://example.com:443/path").unwrap();
+        let b = normalized_url_for_compare("https://example.com/path").unwrap();
+        assert_eq!(a, b);
     }
 
     #[test]
-    fn secure_request_detects_wss_uri_from_request_info() {
-        let request = test_request("wss://example.com/ws/client/", "example.com", "https", 443);
-
-        assert!(super::is_secure_request(&request));
+    fn preserves_non_default_port() {
+        let result = normalized_url_for_compare("https://example.com:8443/path").unwrap();
+        assert!(result.contains(":8443"));
     }
 
     #[test]
-    fn redirect_url_for_relative_path_uses_host() {
-        let redirect = super::build_redirect_url("/ws/client/", "authentik.yannis.codes");
-        assert_eq!(redirect, "https://authentik.yannis.codes/ws/client/");
+    fn includes_query_string() {
+        let result = normalized_url_for_compare("https://example.com/path?key=value").unwrap();
+        assert!(result.contains("?key=value"));
     }
 
     #[test]
-    fn redirect_url_upgrades_ws_to_wss() {
-        let redirect = super::build_redirect_url("ws://authentik.yannis.codes/ws/client/", "");
-        assert_eq!(redirect, "wss://authentik.yannis.codes/ws/client/");
+    fn invalid_url_returns_none() {
+        assert!(normalized_url_for_compare("not a url").is_none());
+    }
+
+    // is_self_redirect tests
+    #[test]
+    fn detects_identical_urls() {
+        assert!(is_self_redirect(
+            "https://example.com/path",
+            "https://example.com/path"
+        ));
     }
 
     #[test]
-    fn self_redirect_detection_handles_equivalent_https_urls() {
-        assert!(super::is_self_redirect(
-            "https://charts.ksbh.rs/index.yaml",
-            "https://charts.ksbh.rs:443/index.yaml"
+    fn detects_normalized_match() {
+        assert!(is_self_redirect(
+            "https://EXAMPLE.COM/path",
+            "https://example.com/path"
+        ));
+    }
+
+    #[test]
+    fn different_urls_are_not_self_redirect() {
+        assert!(!is_self_redirect(
+            "https://example.com/other",
+            "https://example.com/path"
+        ));
+    }
+
+    #[test]
+    fn http_to_https_is_not_self_redirect() {
+        assert!(!is_self_redirect(
+            "https://example.com/path",
+            "http://example.com/path"
         ));
     }
 }
+
+ksbh_modules_sdk::export_module!(
+    process,
+    ksbh_modules_sdk::module_definition!(
+        ksbh_modules_sdk::abi::prelude::KSBHModuleKind::HttpToHttps,
+        [ksbh_modules_sdk::RequestStage::BeforeRouting, ksbh_modules_sdk::RequestStage::Request]
+    )
+);

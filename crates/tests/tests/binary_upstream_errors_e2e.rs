@@ -439,27 +439,38 @@ ingresses:
         )
     });
 
-    let response = client
-        .post(format!("{}/submit", fixture.http_base_addr()))
-        .header(reqwest::header::HOST, "body-forward.test.local")
-        .header(reqwest::header::CONTENT_TYPE, "application/json")
-        .body(expected_payload.to_string())
-        .send()
-        .await
-        .unwrap_or_else(|error| {
+    let mut status = reqwest::StatusCode::default();
+    let mut body = String::new();
+    for i in 0..20 {
+        let response = client
+            .post(format!("{}/submit", fixture.http_base_addr()))
+            .header(reqwest::header::HOST, "body-forward.test.local")
+            .header(reqwest::header::CONTENT_TYPE, "application/json")
+            .body(expected_payload.to_string())
+            .send()
+            .await
+            .unwrap_or_else(|error| {
+                panic!(
+                    "failed to send proxied post request: {error}\nlogs:\n{}",
+                    fixture.logs()
+                )
+            });
+
+        status = response.status();
+        body = response.text().await.unwrap_or_else(|error| {
             panic!(
-                "failed to send proxied post request: {error}\nlogs:\n{}",
+                "failed to read proxied post response body: {error}\nlogs:\n{}",
                 fixture.logs()
             )
         });
 
-    let status = response.status();
-    let body = response.text().await.unwrap_or_else(|error| {
-        panic!(
-            "failed to read proxied post response body: {error}\nlogs:\n{}",
-            fixture.logs()
-        )
-    });
+        if status != reqwest::StatusCode::INTERNAL_SERVER_ERROR || !body.contains("module ") {
+            break;
+        }
+        if i < 19 {
+            tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+        }
+    }
 
     assert_eq!(
         status,

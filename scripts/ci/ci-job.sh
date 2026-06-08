@@ -4,7 +4,7 @@ set -euo pipefail
 
 job_name="${1:-}"
 if [ -z "${job_name}" ]; then
-  echo "usage: $0 <build-rust|test-binary|test-modules|test-k8s|test-miri|build-docs|helm-artifacts>" >&2
+  echo "usage: $0 <build-rust|test-binary|test-k8s|build-docs|helm-artifacts>" >&2
   exit 1
 fi
 shift
@@ -16,14 +16,8 @@ case "${job_name}" in
   test-binary)
     command_string='export KSBH_CI_USE_PREBUILT=false; mise run test-binary'
     ;;
-  test-modules)
-    command_string='export KSBH_CI_USE_PREBUILT=false; mise run test-modules-smoke && mise run test-unhappy'
-    ;;
   test-k8s)
     command_string='export KSBH_CI_USE_PREBUILT=false; mise run test-k8s'
-    ;;
-  test-miri)
-    command_string='mise run test-miri'
     ;;
   build-docs)
     command_string='bash scripts/ci/prepare-publish-tooling.sh; bash mise-tasks/build-docs-site; bash mise-tasks/build-docs-site-image; bash mise-tasks/build-helm-repo; bash mise-tasks/build-charts-site-image'

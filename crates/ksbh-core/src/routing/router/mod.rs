@@ -8,7 +8,7 @@ pub mod tests;
 pub struct ModuleInnerConfig {
     pub spec: ::std::sync::Arc<crate::modules::ModuleConfigurationSpec>,
     pub config_values: crate::modules::ModuleConfigurationValues,
-    pub config_kv_slice: ::std::sync::Arc<Vec<crate::modules::abi::ModuleKvSlice>>,
+    pub config_kv_slice: ::std::sync::Arc<Vec<crate::modules::runtime::ModuleKvSlice>>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -120,6 +120,7 @@ impl Router {
                 ingress_modules.push(super::request_match::RequestMatchModule {
                     name: ::std::sync::Arc::new(key.clone()),
                     mod_spec: def.spec.clone(),
+                    config_values: def.config_values.clone(),
                     config_kv_slice: def.config_kv_slice.clone(),
                 });
             }
@@ -133,13 +134,15 @@ impl Router {
 
     /// Creates a new RouterReader/RouterWriter pair for concurrent access.
     pub fn create() -> (router_reader::RouterReader, router_writer::RouterWriter) {
-        let _self = ::std::sync::Arc::new(Router::default());
+        let shared_router = ::std::sync::Arc::new(Router::default());
 
         (
             router_reader::RouterReader {
-                router: _self.clone(),
+                router: shared_router.clone(),
             },
-            router_writer::RouterWriter { router: _self },
+            router_writer::RouterWriter {
+                router: shared_router,
+            },
         )
     }
 
@@ -159,7 +162,7 @@ impl Router {
                 for entry in &host.entries {
                     if let Some(backend) = entry.paths.find(path) {
                         return Some(super::RequestMatch {
-                            backend: backend.clone(),
+                            destination: backend.clone(),
                             modules: entry.ingress.merged_modules.clone(),
                             peer_options: entry.ingress.peer_options.clone(),
                         });
@@ -180,7 +183,7 @@ impl Router {
         let key = ksbh_types::KsbhStr::new(name);
         let mut entries = Vec::with_capacity(config.len());
         for (k, v) in config.iter() {
-            entries.push(crate::modules::abi::ModuleKvSlice {
+            entries.push(crate::modules::runtime::ModuleKvSlice {
                 key: bytes::Bytes::copy_from_slice(k.as_bytes()),
                 value: bytes::Bytes::copy_from_slice(v.as_bytes()),
             });
@@ -425,6 +428,7 @@ impl Router {
             result.push(super::request_match::RequestMatchModule {
                 name: ::std::sync::Arc::new(occupied_entry.key().clone()),
                 mod_spec: inner.spec.clone(),
+                config_values: inner.config_values.clone(),
                 config_kv_slice: inner.config_kv_slice.clone(),
             });
 

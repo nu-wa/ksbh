@@ -1,20 +1,19 @@
-/// Error type for module request processing.
-///
-/// Variants:
-/// - `Response`: Return an HTTP error response to the client with the given status and message
-/// - `Critical`: An unexpected error that cannot be represented as an HTTP response
-///   (e.g., I/O errors, connection failures). These are logged but result in HTTP 500.
+#[derive(Debug, thiserror::Error)]
 pub enum ModuleError {
-    /// Return an HTTP error response with the specified status code.
+    #[error("{message}")]
     Response {
-        /// HTTP status code (e.g., 400, 401, 403, 404, 429, 500).
         status: http::StatusCode,
-        /// Error message to include in the response body.
         message: String,
     },
-    /// A critical error that cannot be represented as an HTTP response.
-    /// The error is logged and results in HTTP 500.
-    Critical(Box<dyn ::std::error::Error + Send + Sync>),
+
+    #[error("host interaction failed: {message}")]
+    Host { message: String },
+
+    #[error("invalid ABI data: {message}")]
+    Abi { message: String },
+
+    #[error("critical module error: {0}")]
+    Critical(#[source] anyhow::Error),
 }
 
 impl ModuleError {
@@ -49,63 +48,81 @@ impl ModuleError {
         Self::response(http::StatusCode::TOO_MANY_REQUESTS, msg)
     }
 
-    pub fn critical<E: ::std::error::Error + Send + Sync + 'static>(e: E) -> Self {
-        Self::Critical(Box::new(e))
-    }
-}
-
-impl ::std::fmt::Debug for ModuleError {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-        match self {
-            Self::Response { status, message } => {
-                write!(f, "ModuleError::Response({}, {})", status.as_u16(), message)
-            }
-            Self::Critical(e) => write!(f, "ModuleError::Critical({})", e),
+    pub fn host(message: impl Into<String>) -> Self {
+        Self::Host {
+            message: message.into(),
         }
     }
-}
 
-impl ::std::fmt::Display for ModuleError {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-        match self {
-            Self::Response { message, .. } => write!(f, "{}", message),
-            Self::Critical(e) => write!(f, "Critical: {}", e),
+    pub fn abi(message: impl Into<String>) -> Self {
+        Self::Abi {
+            message: message.into(),
         }
+    }
+
+    pub fn missing_config(key: &str) -> Self {
+        Self::abi(format!("missing required config `{key}`"))
+    }
+
+    pub fn critical<E>(error: E) -> Self
+    where
+        E: Into<anyhow::Error>,
+    {
+        Self::Critical(error.into())
     }
 }
 
-impl ::std::error::Error for ModuleError {}
+impl From<anyhow::Error> for ModuleError {
+    fn from(error: anyhow::Error) -> Self {
+        Self::Critical(error)
+    }
+}
 
-// Implement From for specific error types
-impl From<::std::io::Error> for ModuleError {
-    fn from(e: ::std::io::Error) -> Self {
-        Self::Critical(Box::new(e))
+impl From<std::io::Error> for ModuleError {
+    fn from(error: std::io::Error) -> Self {
+        Self::Critical(error.into())
     }
 }
 
 impl From<http::Error> for ModuleError {
-    fn from(e: http::Error) -> Self {
-        Self::Response {
-            status: http::StatusCode::INTERNAL_SERVER_ERROR,
-            message: e.to_string(),
+    fn from(error: http::Error) -> Self {
+        Self::critical(error)
+    }
+}
+
+impl From<std::str::Utf8Error> for ModuleError {
+    fn from(error: std::str::Utf8Error) -> Self {
+        Self::Abi {
+            message: error.to_string(),
         }
     }
 }
 
-impl From<::std::string::String> for ModuleError {
-    fn from(s: ::std::string::String) -> Self {
-        Self::Response {
-            status: http::StatusCode::INTERNAL_SERVER_ERROR,
-            message: s,
+impl From<std::num::ParseIntError> for ModuleError {
+    fn from(error: std::num::ParseIntError) -> Self {
+        Self::Abi {
+            message: error.to_string(),
         }
+    }
+}
+
+impl From<std::array::TryFromSliceError> for ModuleError {
+    fn from(error: std::array::TryFromSliceError) -> Self {
+        Self::Abi {
+            message: error.to_string(),
+        }
+    }
+}
+
+
+impl From<String> for ModuleError {
+    fn from(message: String) -> Self {
+        Self::critical(anyhow::anyhow!(message))
     }
 }
 
 impl From<&str> for ModuleError {
-    fn from(s: &str) -> Self {
-        Self::Response {
-            status: http::StatusCode::INTERNAL_SERVER_ERROR,
-            message: s.to_string(),
-        }
+    fn from(message: &str) -> Self {
+        Self::critical(anyhow::anyhow!(message.to_string()))
     }
 }

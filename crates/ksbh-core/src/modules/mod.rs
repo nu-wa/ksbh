@@ -1,5 +1,5 @@
-pub mod abi;
-pub mod registry;
+pub mod runtime;
+pub mod chain;
 
 pub type ModuleConfigurationValues =
     ::std::sync::Arc<hashbrown::HashMap<ksbh_types::KsbhStr, ksbh_types::KsbhStr>>;

@@ -1,0 +1,4 @@
+FROM gcr.io/distroless/cc-debian12
+COPY ksbh /ksbh
+EXPOSE 8080 8081 8082 8084
+ENTRYPOINT ["/ksbh"]

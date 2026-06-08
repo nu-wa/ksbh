@@ -1,0 +1,14 @@
+[package]
+name = "ksbh-modules-abi"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "ksbh_modules_abi"
+path = "src/lib.rs"
+
+
+[dependencies]
+log = "0.4"
+
+ksbh-types = { workspace = true }

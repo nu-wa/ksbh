@@ -200,3 +200,35 @@ impl From<&::std::sync::Arc<CertsRegistry>> for CertsWriter {
         }
     }
 }
+
+/// Loads a PEM-encoded cert chain + private key into the certs registry.
+///
+/// `name` is the identifier under which the cert will be registered (typically
+/// the ingress name in the file provider or the secret name in the kubernetes
+/// provider). `cert_pem` and `key_pem` are the raw PEM bytes.
+///
+/// Returns an error if the key or cert chain cannot be parsed, or if the
+/// certificate chain contains no DNS SANs.
+pub async fn load_pem_into_registry(
+    certs_writer: &CertsWriter,
+    name: &str,
+    cert_pem: &[u8],
+    key_pem: &[u8],
+) -> Result<(), Box<dyn ::std::error::Error>> {
+    let private_key = pingora_core::tls::pkey::PKey::private_key_from_pem(key_pem)?;
+
+    let cert_chain = pingora_core::tls::x509::X509::stack_from_pem(cert_pem)?;
+
+    let (domains, wildcards) = extract_domains_from_cert(&cert_chain);
+    if domains.is_empty() && wildcards.is_empty() {
+        return Err("No SAN DNS names".into());
+    }
+
+    certs_writer
+        .add_cert(name, private_key, cert_chain, domains, wildcards)
+        .await?;
+
+    tracing::info!("added cert for {}", name);
+
+    Ok(())
+}

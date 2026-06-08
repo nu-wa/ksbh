@@ -19,6 +19,8 @@ serde = { workspace = true }
 smol_str = { workspace = true }
 uuid = { workspace = true }
 arc-swap = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
 
 [dependencies.pingora-http]
 workspace = true

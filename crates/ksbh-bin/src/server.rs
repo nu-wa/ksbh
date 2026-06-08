@@ -16,11 +16,10 @@ pub fn start_pingora(
     );
 
     let sessions = ::std::sync::Arc::new(sessions);
-    let (metrics_w, _metrics_r) = ksbh_core::metrics::Metrics::create(sessions.clone());
+    let metrics_w = ksbh_core::metrics::Metrics::create();
     let cookie_settings =
         ::std::sync::Arc::new(ksbh_core::cookies::CookieSettings::from_config(&config)?);
-    let modules = ::std::sync::Arc::new(ksbh_core::modules::abi::module_host::ModuleHost::new(
-        cookie_settings.clone(),
+    let modules = ::std::sync::Arc::new(ksbh_core::modules::runtime::module_host::ModuleHost::new(
         sessions.clone(),
     ));
     let (router_r, router_w) = ksbh_core::routing::Router::create();
@@ -77,7 +76,7 @@ pub fn start_pingora(
 
     prom_service.add_tcp(&config.listen_addresses.prometheus.to_string());
 
-    let mut static_internal = crate::apps::static_content::static_http_service(config.clone());
+    let mut static_internal = crate::apps::static_http_service(config.clone());
     static_internal.add_tcp(&config.listen_addresses.internal.to_string());
     static_internal.threads = Some(2);
 

@@ -29,7 +29,7 @@ fn main() -> anyhow::Result<()> {
         .with(
             tracing_subscriber::fmt::layer()
                 .with_writer(non_blocking)
-                .with_target(true) // prints the host crate/module target
+                .with_target(true)
                 .compact(),
         )
         .with(tracing_subscriber::EnvFilter::from_env("DEBUG_LEVEL"))
@@ -62,7 +62,6 @@ fn main() -> anyhow::Result<()> {
     let _ = &*ksbh_core::metrics::prom::HTTP_REQUESTS_TOTAL;
     let _ = &*ksbh_core::metrics::prom::PINGORA_ERRORS_TOTAL;
     let _ = &*ksbh_core::metrics::prom::HTTP_RESPONSE_TIME_SECONDS;
-    let _ = &*ksbh_core::metrics::prom::PLUGIN_EXEC_TIME;
     let _ = &*ksbh_core::metrics::prom::MODULE_EXEC_TIME;
     let _ = &*ksbh_core::metrics::prom::RUNTIME_ACTIVE_INGRESSES;
     let _ = &*ksbh_core::metrics::prom::RUNTIME_ACTIVE_HOSTS;

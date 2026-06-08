@@ -1,223 +1,181 @@
 //! SDK for building FFI modules for the KSBH reverse proxy.
 //!
 //! This crate provides a convenient Rust API for building dynamically-loaded modules
-//! that interface with KSBH via the FFI ABI defined in `ksbh_core::modules::abi`.
+//! that interface with KSBH via the FFI ABI defined in `ksbh_core::modules::runtime`.
 //!
 //! # Core Components
 //!
-//! - [`context::RequestContext`] - Safe wrapper around the raw module context,
-//!   providing access to request data, headers, session storage, and metrics
+//! - [`context::ModuleContext`] - Safe wrapper around the raw module context,
+//!   providing access to request data, headers, session storage, and reputation
 //! - [`result::ModuleResult`] - Return type for module request handlers
 //!   (`Pass` to continue, `Stop(Response)` to return immediately)
 //! - [`error::ModuleError`] - Error type with convenience constructors for
 //!   common HTTP status codes
 //! - [`session::SessionHandle`] - Read/write session data with TTL support
-//! - [`metrics::MetricsHandle`] - Report metrics to the host (score tracking)
+//! - [`ReputationHandle`] - Report reputation to the host (score tracking)
 //! - [`logger::Logger`] - Log messages via the host's logging infrastructure
 //!
 //! # Module Entry Point
 //!
-//! Modules must implement a `process(ctx: RequestContext) -> Result<ModuleResult, ModuleError>`
-//! function and use the [`register_module!`] macro to export the required FFI functions.
+//! Modules must implement a `process(ctx: ModuleContext) -> Result<ModuleResult, ModuleError>`
+//! function and use the [`export_module!`] macro to export the required FFI functions.
 //!
 //! # Example
 //!
 //! ```ignore
 //! fn handle_request(
-//!     mut ctx: ksbh_modules_sdk::RequestContext<'_>,
+//!     mut ctx: ksbh_modules_sdk::ModuleContext<'_>,
 //! ) -> ksbh_modules_sdk::ModuleResult {
 //!     let path = ctx.request().path();
 //!     // ... process request
 //!     ksbh_modules_sdk::ModuleResult::Pass
 //! }
 //!
-//! ksbh_modules_sdk::register_module!(handle_request, ksbh_modules_sdk::types::ModuleType::Oidc);
+//! ksbh_modules_sdk::export_module!(
+//!     handle_request,
+//!     ksbh_modules_sdk::module_definition!(
+//!         ksbh_modules_sdk::abi::prelude::KSBHModuleKind::OIDC,
+//!         [ksbh_modules_sdk::abi::prelude::KSBHModuleStage::Request]
+//!     )
+//! );
 //! ```
 
 pub mod context;
 pub mod error;
-pub mod ffi;
 pub mod logger;
 pub mod metrics;
 pub mod result;
 pub mod session;
-pub mod types;
+pub mod utils;
 
-pub use context::{RequestContext, RequestInfo};
+pub mod owned_module_response;
+pub mod responses;
+
+pub use context::{ModuleContext, RequestInfo};
 pub use error::ModuleError;
-pub use ffi::OwnedResponse;
-pub use metrics::MetricsHandle;
+pub use metrics::ReputationHandle;
 pub use result::ModuleResult;
+pub use responses::{empty_response, plain_text_response, redirect_response, text_response};
 
-fn header_has_token(
-    headers: &http::HeaderMap,
-    name: impl http::header::AsHeaderName,
-    token: &str,
-) -> bool {
-    headers
-        .get(name)
-        .and_then(|value| value.to_str().ok())
-        .map(|value| {
-            value
-                .split(',')
-                .any(|part| part.trim().eq_ignore_ascii_case(token))
-        })
-        .unwrap_or(false)
-}
+pub use ksbh_modules_abi as abi;
+pub type HostSignalKind = abi::functions::KSBHHostSignalKind;
 
-/// Returns whether request headers represent a WebSocket upgrade handshake.
-///
-/// A request is considered a WebSocket upgrade when:
-/// - `Upgrade` includes `websocket`
-/// - and either `Connection` includes `upgrade` or `Sec-WebSocket-Key` is present
-pub fn is_websocket_upgrade_request(headers: &http::HeaderMap) -> bool {
-    if !header_has_token(headers, http::header::UPGRADE, "websocket") {
-        return false;
-    }
+pub type HostModuleCtxHandle = u64;
+pub type RequestStage = abi::types::KSBHModuleStage;
+pub type RequestResult = Result<ModuleResult, ModuleError>;
 
-    header_has_token(headers, http::header::CONNECTION, "upgrade")
-        || headers.contains_key("Sec-WebSocket-Key")
-}
-
-/// Free a response allocated by the module.
-///
-/// This function should be called to free responses returned by `request_filter`
-/// when the response is not null.
-///
-/// # Safety
-///
-/// The pointers must have been obtained from a call to the module's
-/// `request_filter` function. Calling this with null pointers or pointers
-/// from another source results in undefined behavior.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn free_response(
-    headers_ptr: *const ksbh_core::modules::abi::ModuleKvSlice,
-    headers_len: usize,
-    body_ptr: *const u8,
-    body_len: usize,
-) {
-    let _ = crate::ffi::free_owned_response_by_parts(headers_ptr, headers_len, body_ptr, body_len);
-}
-
-/// Exports a module's FFI entry points for the KSBH host.
-///
-/// This macro generates two `#[no_mangle]` functions that the host calls:
-/// - `get_module_type()`: Returns the module type identifier
-/// - `request_filter(ctx)`: The main request processing function
-///
-/// The macro handles:
-/// - Converting the raw FFI `ModuleContext` to the SDK's `RequestContext`
-/// - Catching panics from module code and returning HTTP 500
-/// - Converting `ModuleResult::Pass` to a null response (continue processing)
-/// - Converting `ModuleResult::Stop(Response)` to an FFI response
-///
-/// # Arguments
-///
-/// - `$func`: The module's request handler function path (e.g., `handle_request`)
-/// - `$type`: The module type expression (e.g., `ModuleType::Oidc`)
-///
-/// # Example
-///
-/// ```ignore
-/// fn process(ctx: ksbh_modules_sdk::RequestContext<'_>) -> ksbh_modules_sdk::ModuleResult {
-///     // ... module logic
-///     ksbh_modules_sdk::ModuleResult::Pass
-/// }
-///
-/// ksbh_modules_sdk::register_module!(process, ksbh_modules_sdk::types::ModuleType::Oidc);
-/// ```
 #[macro_export]
-macro_rules! register_module {
-    ($func:path, $type:expr) => {
+macro_rules! export_module {
+    ($func:path, $module_info:expr) => {
         #[unsafe(no_mangle)]
-        pub unsafe extern "C" fn get_module_type() -> ksbh_core::modules::abi::ModuleType {
-            let module_type = $type;
-
-            match module_type {
-                $crate::types::ModuleType::Custom(name) => {
-                    static CUSTOM_NAME: ::std::sync::OnceLock<::std::string::String> =
-                        ::std::sync::OnceLock::new();
-                    let stable_name = CUSTOM_NAME.get_or_init(|| name.to_string());
-
-                    ksbh_core::modules::abi::ModuleType {
-                        code: ksbh_core::modules::abi::ModuleTypeCode::Custom,
-                        custom_ptr: stable_name.as_ptr(),
-                        custom_len: stable_name.len(),
-                    }
-                }
-                _ => module_type.to_ffi(),
+        pub unsafe extern "C" fn module_descriptor()
+        -> $crate::abi::module_descriptor::ModuleDescriptor {
+            $crate::abi::module_descriptor::ModuleDescriptor {
+                magic: $crate::abi::version::KSBH_MAGIC,
+                abi_version: $crate::abi::version::KSBH_ABI_VERSION,
+                info: $module_info,
+                handle_request_fn: handle_request,
+                free_module_response_fn: free_module_response,
             }
         }
 
         #[unsafe(no_mangle)]
-        pub unsafe extern "C" fn request_filter(
-            ctx: *const ksbh_core::modules::abi::ModuleContext<'_>,
-        ) -> *const ksbh_core::modules::abi::ModuleResponse {
+        pub unsafe extern "C" fn handle_request(
+            stage: $crate::abi::prelude::KSBHModuleStage,
+            ctx: *const $crate::abi::prelude::ModuleContext,
+        ) -> *const $crate::abi::prelude::ModuleResponse {
             if ctx.is_null() {
-                return std::ptr::null();
+                return ::std::ptr::null();
             }
 
-            // Catch panics from module code to prevent crashes
-            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                $func($crate::ffi::convert_context(unsafe { &*ctx }))
-            }));
+            let ctx_ref = unsafe { &*ctx };
 
-            match result {
-                Ok(Ok($crate::ModuleResult::Pass)) => std::ptr::null(),
-                Ok(Ok($crate::ModuleResult::Stop(resp))) => $crate::ffi::alloc_response(resp),
-                Ok(Err(e)) => match e {
-                    $crate::ModuleError::Response { status, message } => {
-                        tracing::warn!("Module returned response error: {} {}", status, message);
-                        let resp = match http::Response::builder()
-                            .status(status)
-                            .body(bytes::Bytes::from(message))
-                        {
-                            Ok(resp) => resp,
-                            Err(error) => {
-                                tracing::error!("Failed to build module response error: {}", error);
-                                http::Response::new(bytes::Bytes::new())
-                            }
-                        };
-                        $crate::ffi::alloc_response(resp)
-                    }
-                    $crate::ModuleError::Critical(error) => {
-                        let message = ::std::format!("Critical: {}", error);
-                        tracing::warn!("Module returned critical error: {}", message);
-                        let resp = match http::Response::builder()
-                            .status(http::StatusCode::INTERNAL_SERVER_ERROR)
-                            .body(bytes::Bytes::from(message))
-                        {
-                            Ok(resp) => resp,
-                            Err(build_error) => {
-                                tracing::error!(
-                                    "Failed to build critical error response: {}",
-                                    build_error
-                                );
-                                http::Response::new(bytes::Bytes::new())
-                            }
-                        };
-                        $crate::ffi::alloc_response(resp)
-                    }
-                },
+            let mod_ctx = match $crate::ModuleContext::try_from(ctx_ref) {
+                Ok(mod_ctx) => mod_ctx,
                 Err(_) => {
-                    // Module panicked - return 500
-                    tracing::error!("Module panicked");
-                    let resp = match http::Response::builder()
-                        .status(http::StatusCode::INTERNAL_SERVER_ERROR)
-                        .body(bytes::Bytes::from("Module panic"))
-                    {
-                        Ok(resp) => resp,
-                        Err(error) => {
-                            tracing::error!("Failed to build panic response: {}", error);
-                            http::Response::new(bytes::Bytes::new())
-                        }
-                    };
-                    $crate::ffi::alloc_response(resp)
+                    return $crate::owned_module_response::SdkOwnedModuleResponse::new_empty(Some(
+                        $crate::abi::prelude::KSBHModuleDecision::Error,
+                    ))
+                    .to_abi();
                 }
+            };
+
+            match $func(stage, mod_ctx) {
+                Ok($crate::ModuleResult::Pass) => {
+                    $crate::owned_module_response::SdkOwnedModuleResponse::new_empty(None)
+                }
+                Ok($crate::ModuleResult::Stop(resp)) => {
+                    $crate::owned_module_response::SdkOwnedModuleResponse::from_http_response(
+                        Some($crate::abi::prelude::KSBHModuleDecision::Stop),
+                        resp,
+                    )
+                }
+                Ok($crate::ModuleResult::Error(resp)) => {
+                    $crate::owned_module_response::SdkOwnedModuleResponse::from_http_response(
+                        Some($crate::abi::prelude::KSBHModuleDecision::Error),
+                        resp,
+                    )
+                }
+                Err(_) => $crate::owned_module_response::SdkOwnedModuleResponse::new_empty(Some(
+                    $crate::abi::prelude::KSBHModuleDecision::Error,
+                )),
+            }
+            .to_abi()
+        }
+
+        #[unsafe(no_mangle)]
+        pub unsafe extern "C" fn free_module_response(
+            ctx: *const $crate::abi::prelude::ModuleContext,
+            module_response: *mut $crate::abi::prelude::ModuleResponse,
+        ) {
+            let _ = ctx;
+            unsafe {
+                $crate::owned_module_response::free_module_response_owned(module_response);
             }
         }
     };
 }
+
+#[macro_export]
+macro_rules! module_definition {
+      ($kind:expr, [$($stage:expr),* $(,)?]) => {{
+          static MODULE_STAGES: &[$crate::RequestStage] = &[$($stage),*];
+          static MODULE_NAME: &str = "";
+
+          $crate::abi::prelude::ModuleInfo {
+              kind: $kind,
+              name: $crate::abi::prelude::KSBHString {
+                  inner: $crate::abi::prelude::KSBHBytes {
+                      ptr: MODULE_NAME.as_ptr(),
+                      len: MODULE_NAME.len(),
+                  },
+              },
+              registered_stages: $crate::abi::prelude::KSBHModuleStages {
+                  ptr: MODULE_STAGES.as_ptr(),
+                  len: MODULE_STAGES.len(),
+              },
+          }
+      }};
+
+      ($name:literal, $kind:expr, [$($stage:expr),* $(,)?]) => {{
+          static MODULE_STAGES: &[$crate::RequestStage] = &[$($stage),*];
+          static MODULE_NAME: &str = $name;
+
+          $crate::abi::prelude::ModuleInfo {
+              kind: $kind,
+              name: $crate::abi::prelude::KSBHString {
+                  inner: $crate::abi::prelude::KSBHBytes {
+                      ptr: MODULE_NAME.as_ptr(),
+                      len: MODULE_NAME.len(),
+                  },
+              },
+              registered_stages: $crate::abi::prelude::KSBHModuleStages {
+                  ptr: MODULE_STAGES.as_ptr(),
+                  len: MODULE_STAGES.len(),
+              },
+          }
+      }};
+  }
 
 /// Logs a message at ERROR level via the host's logging infrastructure.
 ///
@@ -229,7 +187,7 @@ macro_rules! register_module {
 #[macro_export]
 macro_rules! log_error {
     ($logger:expr, $($arg:tt)*) => {
-        $logger.log_with_format(0, ::std::format_args!($($arg)*))
+        $logger.log_with_format($crate::abi::types::LogLevel::Error, ::std::format_args!($($arg)*))
     };
 }
 
@@ -237,7 +195,7 @@ macro_rules! log_error {
 #[macro_export]
 macro_rules! log_warn {
     ($logger:expr, $($arg:tt)*) => {
-        $logger.log_with_format(1, ::std::format_args!($($arg)*))
+        $logger.log_with_format($crate::abi::types::LogLevel::Warn, ::std::format_args!($($arg)*))
     };
 }
 
@@ -245,7 +203,7 @@ macro_rules! log_warn {
 #[macro_export]
 macro_rules! log_info {
     ($logger:expr, $($arg:tt)*) => {
-        $logger.log_with_format(2, ::std::format_args!($($arg)*))
+        $logger.log_with_format($crate::abi::types::LogLevel::Info, ::std::format_args!($($arg)*))
     };
 }
 
@@ -253,51 +211,6 @@ macro_rules! log_info {
 #[macro_export]
 macro_rules! log_debug {
     ($logger:expr, $($arg:tt)*) => {
-        $logger.log_with_format(3, ::std::format_args!($($arg)*))
+        $logger.log_with_format($crate::abi::types::LogLevel::Debug, ::std::format_args!($($arg)*))
     };
-}
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn websocket_upgrade_requires_upgrade_websocket_header() {
-        let mut headers = http::HeaderMap::new();
-        headers.insert(
-            http::header::CONNECTION,
-            http::HeaderValue::from_static("upgrade"),
-        );
-        headers.insert(
-            "Sec-WebSocket-Key",
-            http::HeaderValue::from_static("dGhlIHNhbXBsZSBub25jZQ=="),
-        );
-        assert!(!super::is_websocket_upgrade_request(&headers));
-    }
-
-    #[test]
-    fn websocket_upgrade_detected_with_connection_upgrade() {
-        let mut headers = http::HeaderMap::new();
-        headers.insert(
-            http::header::UPGRADE,
-            http::HeaderValue::from_static("websocket"),
-        );
-        headers.insert(
-            http::header::CONNECTION,
-            http::HeaderValue::from_static("keep-alive, Upgrade"),
-        );
-        assert!(super::is_websocket_upgrade_request(&headers));
-    }
-
-    #[test]
-    fn websocket_upgrade_detected_with_sec_websocket_key() {
-        let mut headers = http::HeaderMap::new();
-        headers.insert(
-            http::header::UPGRADE,
-            http::HeaderValue::from_static("websocket"),
-        );
-        headers.insert(
-            "Sec-WebSocket-Key",
-            http::HeaderValue::from_static("dGhlIHNhbXBsZSBub25jZQ=="),
-        );
-        assert!(super::is_websocket_upgrade_request(&headers));
-    }
 }

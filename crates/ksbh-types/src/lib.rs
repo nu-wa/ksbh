@@ -9,10 +9,10 @@ pub use ksbh_str::KsbhStr;
 
 pub mod prelude {
     pub use crate::providers::proxy::{
-        ProxyDecision, ProxyProvider, ProxyProviderError, ProxyProviderResult, ProxyProviderSession,
+        ProxyDecision, ProxyProviderError, ProxyProviderResult, ProxyProviderSession,
     };
     pub use crate::requests::{
-        HttpContext, HttpMethod, HttpQuery, HttpRequest, HttpRequestError, HttpResponse, HttpScheme,
+        HttpContext, HttpQuery, HttpRequest, HttpRequestError, HttpResponse,
     };
 }
 

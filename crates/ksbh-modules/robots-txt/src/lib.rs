@@ -5,27 +5,50 @@
 //! Returns Pass for all other requests.
 
 pub fn process(
-    ctx: ksbh_modules_sdk::RequestContext,
-) -> Result<ksbh_modules_sdk::ModuleResult, ksbh_modules_sdk::ModuleError> {
-    let path = ctx.request.path.as_str();
-    let method = ctx.request.method.as_str();
-
-    if method == "GET" && path == "/robots.txt" {
-        let content = match ctx.config.get("content") {
-            Some(c) => c.to_string(),
-            None => {
-                return Ok(ksbh_modules_sdk::ModuleResult::Pass);
-            }
-        };
-
-        let response = http::Response::builder()
-            .status(http::StatusCode::OK)
-            .header("Content-Type", "text/plain")
-            .body(bytes::Bytes::from(content))?;
-        return Ok(ksbh_modules_sdk::ModuleResult::Stop(response));
+    _stage: ksbh_modules_sdk::RequestStage,
+    ctx: ksbh_modules_sdk::ModuleContext,
+) -> ksbh_modules_sdk::RequestResult {
+    if ctx.request_info.method == "GET"
+        && ctx.request_info.path == "/robots.txt"
+        && let Some(content) = ctx.config.get("content").copied()
+    {
+        return ksbh_modules_sdk::plain_text_response(http::StatusCode::OK, content);
     }
 
     Ok(ksbh_modules_sdk::ModuleResult::Pass)
 }
 
-ksbh_modules_sdk::register_module!(process, ksbh_modules_sdk::types::ModuleType::RobotsTxt);
+#[cfg(test)]
+mod tests {
+    fn should_serve_robots(method: &str, path: &str, has_content: bool) -> bool {
+        method == "GET" && path == "/robots.txt" && has_content
+    }
+
+    #[test]
+    fn serves_robots_txt_for_get_with_content() {
+        assert!(should_serve_robots("GET", "/robots.txt", true));
+    }
+
+    #[test]
+    fn does_not_serve_for_post() {
+        assert!(!should_serve_robots("POST", "/robots.txt", true));
+    }
+
+    #[test]
+    fn does_not_serve_for_wrong_path() {
+        assert!(!should_serve_robots("GET", "/other.txt", true));
+    }
+
+    #[test]
+    fn does_not_serve_when_no_content_configured() {
+        assert!(!should_serve_robots("GET", "/robots.txt", false));
+    }
+}
+
+ksbh_modules_sdk::export_module!(
+    process,
+    ksbh_modules_sdk::module_definition!(
+        ksbh_modules_sdk::abi::prelude::KSBHModuleKind::Robots,
+        [ksbh_modules_sdk::RequestStage::BeforeRouting, ksbh_modules_sdk::RequestStage::Request]
+    )
+);

@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+#MISE description="Run module-specific integration/e2e tests"
+#MISE tools={rust="1.92.0"}
+
+set -euo pipefail
+. "$(dirname "$0")/lib.sh"
+
+repo_root="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$repo_root"
+deps_dir="$repo_root/crates/target/debug/deps"
+export KSBH_E2E_BIN="$repo_root/crates/target/debug/ksbh"
+
+if [ "${KSBH_CI_USE_PREBUILT:-false}" = "true" ]; then
+  for test_name in binary_pow_e2e binary_oidc_e2e; do
+    test_bin="$(resolve_test_binary "${deps_dir}" "${test_name}")"
+    "${test_bin}" --nocapture --test-threads=1
+  done
+else
+  cargo test --manifest-path crates/Cargo.toml -p tests \
+    --test binary_pow_e2e --test binary_oidc_e2e \
+    -- --test-threads=1
+fi

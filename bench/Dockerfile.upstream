@@ -1,0 +1,4 @@
+FROM python:3.12-alpine
+COPY upstream/upstream.py /upstream.py
+EXPOSE 8080
+CMD ["python", "/upstream.py"]

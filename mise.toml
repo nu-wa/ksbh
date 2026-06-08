@@ -5,11 +5,16 @@ rust = "1.92.0"
 "github:orhun/git-cliff" = "2.13.1"
 "github:endevco/aube" = "1.17.1"
 "github:jdx/hk" = "1.46.0"
+"github:tsenart/vegeta" = "v12.12.0"
+python = "3.12.7"
 
 [env]
 MISE_TASK_OUTPUT = "interleave"
 MISE_YES = "true"
 NO_COLOR = "1"
+
+[settings]
+python.github_attestations = false
 
 [tasks."build-rust"]
 description = "Build Rust binaries and support libraries used by CI"
@@ -22,11 +27,9 @@ sources = [
 ]
 outputs = [
   "crates/target/debug/ksbh",
-  "crates/target/debug/libdynamic_ffi_smoke.*",
 ]
 run = """
 cargo build --manifest-path crates/Cargo.toml -p ksbh
-cargo build --manifest-path crates/Cargo.toml -p dynamic-ffi-smoke
 """
 
 [tasks."bump-version"]
@@ -64,24 +67,44 @@ description = "Run direct binary integration tests"
 depends = ["compile-test-binaries"]
 run = "bash mise-tasks/e2e-binary"
 
-[tasks."test-modules-smoke"]
-description = "Run dynamic module smoke coverage"
-depends = ["compile-test-binaries"]
-run = "bash mise-tasks/dynamic-modules-smoke"
-
 [tasks."test-unhappy"]
 description = "Run targeted unhappy path regressions"
 depends = ["compile-test-binaries"]
 run = "bash mise-tasks/p0-unhappy-tests"
 
+[tasks."test-modules-unit"]
+description = "Run all cdylib module and FFI boundary unit tests"
+depends = ["compile-test-binaries"]
+run = """
+cargo test --manifest-path crates/Cargo.toml \
+    -p ksbh-modules-abi \
+    -p ksbh-modules-sdk \
+    -p http_to_https \
+    -p oidc \
+    -p proof-of-work \
+    -p rate-limit \
+    -p robots-txt \
+    -- --test-threads=1
+"""
+
+[tasks."test-modules-e2e"]
+description = "Run module-specific integration/e2e tests"
+depends = ["build-rust", "compile-test-binaries"]
+run = "bash mise-tasks/e2e-modules"
+
+[tasks."test-miri"]
+description = "Run Miri UB/leak detection on FFI boundary crates"
+run = "bash mise-tasks/test-miri"
+
+[tasks."dynamic-modules-smoke"]
+description = "Run FFI dynamic module smoke tests"
+depends = ["compile-test-binaries"]
+run = "bash mise-tasks/dynamic-modules-smoke"
+
 [tasks."test-k8s"]
 description = "Run Kind and browser-backed Kubernetes e2e coverage"
 depends = ["compile-test-binaries"]
 run = "bash mise-tasks/e2e"
-
-[tasks."test-miri"]
-description = "Run the dedicated Miri coverage lane"
-run = "bash mise-tasks/miri-modules-sdk-ffi"
 
 [tasks."build-css"]
 description = "Build shared UI CSS and docs CSS"
@@ -152,3 +175,140 @@ git-cliff --output CHANGELOG.md
 [tasks."package-helm"]
 description = "Package the Helm chart"
 run = "bash mise-tasks/package-helm-chart"
+
+[tasks."bench:install-tools"]
+description = "Install vegeta + docker via mise (ksbh-bench is built locally via build-rust)"
+run = "mise install"
+
+[tasks."bench:upstream:build"]
+description = "Build the bench-upstream Docker image"
+run = "docker build -f bench/Dockerfile.upstream -t bench-upstream bench/"
+
+[tasks."bench:ksbh:build"]
+description = "Build the bench-ksbh Docker image from the prebuilt binary"
+run = """
+mkdir -p target/bench
+cp crates/target/debug/ksbh target/bench/ksbh
+cd target/bench && docker build -f ../../bench/Dockerfile.ksbh -t bench-ksbh .
+"""
+
+[tasks."bench:run-scenario"]
+description = "Run a single scenario against ksbh and nginx"
+usage = 'arg "<scenario>" help="Scenario ID"'
+run = "bash bench/run-scenario.sh \"${usage_scenario?}\""
+
+[tasks."bench:run-all"]
+description = "Run all 9 scenarios (speed + robustness) against ksbh and nginx"
+run = """
+set -euo pipefail
+for SCENARIO in \\
+    speed_small_c1 speed_small_c100 speed_large_c50 speed_tls_h2 speed_const_50krps \\
+    robust_slow_loris robust_upstream_kill robust_h2_streams robust_malformed; do
+  bash bench/run-scenario.sh "$SCENARIO"
+done
+"""
+
+[tasks."bench:aggregate"]
+description = "Aggregate bench/results/*.json → bench/report/bench.md"
+run = "bench/_ksbh-bench.sh aggregate --in bench/results --out bench/report"
+
+[tasks."bench:compare"]
+description = "Diff two bench runs: mise run bench:compare <old_sha> <new_sha>"
+usage = 'arg "<old>" help="Old SHA" arg "<new>" help="New SHA"'
+run = "bench/_ksbh-bench.sh compare --history=bench/history --old=${usage_old?} --new=${usage_new?}"
+
+[tasks."bench:trend"]
+description = "Generate docs/static/bench/index.html from bench/history/"
+run = "bench/_ksbh-bench.sh trend --history=bench/history --out=docs/static/bench/index.html"
+
+[tasks."bench:gate"]
+description = "Regression check vs parent commit (prints verdicts, exits 1 on REGRESSION)"
+run = """
+bench/_ksbh-bench.sh compare \\
+    --history=bench/history \\
+    --old=$(git rev-parse HEAD~1) \\
+    --new=$(git rev-parse HEAD) \\
+    --format=gate
+"""
+
+[tasks."bench:commit"]
+description = "Stage bench history + trend page for the current commit"
+run = """
+SHA=$(git rev-parse HEAD)
+bench/_ksbh-bench.sh aggregate --in bench/results --out bench/history/$SHA.json
+mise run bench:trend
+git add bench/history/$SHA.json docs/static/bench/index.html
+git status
+echo "Review the staged files, then: git commit -m 'bench: record results for $SHA' && git push"
+"""
+
+[tasks."bench:all"]
+description = "Full local bench: install, build upstream, build Rust, run ksbh+nginx, aggregate, trend"
+depends = [
+  "bench:install-tools",
+  "bench:upstream:build",
+  "build-rust",
+  "bench:run-all",
+  "bench:aggregate",
+  "bench:trend",
+]
+
+[tasks."bench:lint"]
+description = "Syntax-check bench shell scripts and the ksbh-bench crate"
+run = '''
+bash -n bench/run-scenario.sh
+cargo build --manifest-path crates/Cargo.toml -p ksbh-bench --bin ksbh-bench
+echo "All bench files passed syntax check"
+'''
+
+[tasks."bench:smoke:upstream"]
+description = "Build the bench-upstream image and exercise its endpoints"
+run = '''
+mise run bench:upstream:build
+docker run --rm -d --name bench-upstream-smoke -p 18080:8080 bench-upstream:latest >/dev/null
+sleep 1
+docker exec bench-upstream-smoke python -c "import urllib.request; print(urllib.request.urlopen('http://127.0.0.1:8080/healthz').read().decode())" | grep -q "^ok$"
+docker exec bench-upstream-smoke python -c "import urllib.request; print(len(urllib.request.urlopen('http://127.0.0.1:8080/?bytes=200').read()))" | grep -q "^200$"
+docker exec bench-upstream-smoke python -c "import urllib.request; print(len(urllib.request.urlopen('http://127.0.0.1:8080/?bytes=65536').read()))" | grep -q "^65536$"
+docker rm -f bench-upstream-smoke >/dev/null
+echo "Upstream smoke test passed"
+'''
+
+[tasks."bench:smoke:render"]
+description = "Render a scenario via ksbh-bench and confirm the three outputs exist"
+run = '''
+SMOKE="$HOME/bench-smoke"
+rm -rf "$SMOKE/render" && mkdir -p "$SMOKE/render"
+bench/_ksbh-bench.sh render bench/scenarios/speed_small_c1.toml --out "$SMOKE/render" \\
+    --upstream-port 18080 --proxy-http-port 18081 --proxy-https-port 18082 \\
+    --proxy-internal-port 18083 --proxy-metrics-port 18084 --nginx-http-port 18085 \\
+    --cert-path /etc/bench/cert.pem --key-path /etc/bench/key.pem \\
+    --host-cert-path /tmp/cert.pem --host-key-path /tmp/key.pem
+for f in ksbh.yaml nginx.conf vegeta.targets; do
+  test -f "$SMOKE/render/$f" || { echo "missing: $f" >&2; exit 1; }
+done
+echo "Render smoke test passed"
+'''
+
+[tasks."bench:smoke:synthetic"]
+description = "Test aggregate/compare/trend on synthetic data via ksbh-bench"
+run = '''
+SMOKE="$HOME/bench-smoke"
+mkdir -p "$SMOKE/results" "$SMOKE/report" "$SMOKE/history"
+cat > "$SMOKE/results/test_ksbh.json" <<'EOF'
+{"schema_version":"1","scenario":"speed_small_c1","proxy":"ksbh","git_sha":"aaaa","machine":{"cpus":4,"model":"x86_64","kernel":"1.0","hostname":"h"},"started_at":"2026-06-04T10:00:00Z","duration_s":30,"concurrency":100,"tls":false,"workload":{"method":"GET","path":"/","host":"bench.local","body_bytes":200},"results":{"rps":12345.6,"p50_ms":0.5,"p99_ms":1.2,"max_ms":12.0,"errors":{"5xx":0,"4xx":0,"connect_failed":0,"read_timeout":0},"bytes_proxied":2469134},"proxy_peak_rss_kb":12345,"proxy_metrics_snapshot":""}
+EOF
+cat > "$SMOKE/results/test_ksbh2.json" <<'EOF'
+{"schema_version":"1","scenario":"speed_small_c1","proxy":"ksbh","git_sha":"bbbb","machine":{"cpus":4,"model":"x86_64","kernel":"1.0","hostname":"h"},"started_at":"2026-06-04T11:00:00Z","duration_s":30,"concurrency":100,"tls":false,"workload":{"method":"GET","path":"/","host":"bench.local","body_bytes":200},"results":{"rps":11000.0,"p50_ms":0.6,"p99_ms":1.5,"max_ms":15.0,"errors":{"5xx":0,"4xx":0,"connect_failed":0,"read_timeout":0},"bytes_proxied":2200000},"proxy_peak_rss_kb":13000,"proxy_metrics_snapshot":""}
+EOF
+cp "$SMOKE/results/test_ksbh.json" "$SMOKE/history/aaaa.json"
+cp "$SMOKE/results/test_ksbh2.json" "$SMOKE/history/bbbb.json"
+bench/_ksbh-bench.sh aggregate --in "$SMOKE/results" --out "$SMOKE/report"
+bench/_ksbh-bench.sh compare --history="$SMOKE/history" --old=aaaa --new=bbbb --format=markdown
+bench/_ksbh-bench.sh trend --history="$SMOKE/history" --out="$SMOKE/index.html"
+echo "Synthetic smoke test passed"
+'''
+
+[tasks."bench:smoke"]
+description = "Full smoke test: lint, upstream, render, synthetic data"
+depends = ["bench:lint", "bench:smoke:upstream", "bench:smoke:render", "bench:smoke:synthetic"]

@@ -1,0 +1,14 @@
+[scenario]
+id          = "robust_h2_streams"
+duration_s  = 30
+rate        = 0
+connections = 1            # 1 h2 client with 1000 multiplexed streams
+tls         = true
+body_bytes  = 200
+
+# One of the 1000 streams hits /__ctl/sleep?ms=2000 to test head-of-line
+# blocking on the upstream connection.
+[vegeta]
+targets = """
+GET https://{{ proxy_host }}:{{ proxy_https_port }}/
+"""

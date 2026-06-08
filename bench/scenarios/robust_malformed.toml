@@ -1,0 +1,14 @@
+[scenario]
+id          = "robust_malformed"
+duration_s  = 30
+rate        = 0
+connections = 100
+tls         = false
+body_bytes  = 0
+
+# Runner drives crafted bad requests (bad Content-Length, illegal chars,
+# oversized headers) through a separate script.
+[vegeta]
+targets = """
+GET http://{{ proxy_host }}:{{ proxy_http_port }}/
+"""

@@ -1,3 +1,5 @@
+use crate::config_types::*;
+
 /// Root configuration for the KSBH proxy server.
 #[derive(Debug, Clone, serde::Deserialize)]
 pub struct Config {
@@ -6,7 +8,7 @@ pub struct Config {
     #[serde(default)]
     pub cookie_key: Option<String>,
     #[serde(default)]
-    pub constants: ConfigConstants,
+    pub constants: ConfigDefaults,
     pub pyroscope_url: Option<String>,
     #[serde(default)]
     pub ports: ConfigPorts,
@@ -24,210 +26,13 @@ pub struct Config {
     pub trusted_proxies: Vec<ipnet::IpNet>,
 }
 
-#[derive(Debug, Clone, serde::Deserialize)]
-pub struct ConfigConstants {
-    #[serde(default = "default_tcp_fastopen_queue_size")]
-    pub tcp_fastopen_queue_size: usize,
-    #[serde(default = "default_cookie_name")]
-    pub cookie_name: String,
-    #[serde(default = "default_cookie_secure")]
-    pub cookie_secure: bool,
-    #[serde(default = "default_proxy_header_name")]
-    pub proxy_header_name: String,
-    #[serde(default = "default_proxy_header_value")]
-    pub proxy_header_value: String,
-}
-
-impl Default for ConfigConstants {
-    fn default() -> Self {
-        Self {
-            tcp_fastopen_queue_size: 12,
-            cookie_name: "ksbh".to_string(),
-            cookie_secure: true,
-            proxy_header_name: "Server".to_string(),
-            proxy_header_value: "ksbh".to_string(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, serde::Deserialize)]
-pub struct ConfigPorts {
-    #[serde(default = "default_ports_app")]
-    pub app: ksbh_types::Ports,
-    #[serde(default = "default_ports_external")]
-    pub external: ksbh_types::Ports,
-}
-
-impl Default for ConfigPorts {
-    fn default() -> Self {
-        Self {
-            app: ksbh_types::Ports {
-                http: 8080,
-                https: 8081,
-            },
-            external: ksbh_types::Ports {
-                http: 80,
-                https: 443,
-            },
-        }
-    }
-}
-
-#[derive(Debug, Clone, serde::Deserialize)]
-pub struct ConfigListenAddresses {
-    #[serde(default = "default_listen_http")]
-    pub http: ::std::net::SocketAddr,
-    #[serde(default = "default_listen_https")]
-    pub https: ::std::net::SocketAddr,
-    #[serde(default = "default_listen_internal")]
-    pub internal: ::std::net::SocketAddr,
-    #[serde(default = "default_listen_profiling")]
-    pub profiling: ::std::net::SocketAddr,
-    #[serde(default = "default_listen_prometheus")]
-    pub prometheus: ::std::net::SocketAddr,
-}
-
-impl Default for ConfigListenAddresses {
-    fn default() -> Self {
-        Self {
-            http: ::std::net::SocketAddr::new(
-                ::std::net::IpAddr::V4(::std::net::Ipv4Addr::new(0, 0, 0, 0)),
-                8080,
-            ),
-            https: ::std::net::SocketAddr::new(
-                ::std::net::IpAddr::V4(::std::net::Ipv4Addr::new(0, 0, 0, 0)),
-                8081,
-            ),
-            internal: ::std::net::SocketAddr::new(
-                ::std::net::IpAddr::V4(::std::net::Ipv4Addr::new(0, 0, 0, 0)),
-                8082,
-            ),
-            profiling: ::std::net::SocketAddr::new(
-                ::std::net::IpAddr::V4(::std::net::Ipv4Addr::new(0, 0, 0, 0)),
-                8083,
-            ),
-            prometheus: ::std::net::SocketAddr::new(
-                ::std::net::IpAddr::V4(::std::net::Ipv4Addr::new(0, 0, 0, 0)),
-                8084,
-            ),
-        }
-    }
-}
-
-impl ConfigListenAddresses {
-    pub fn internal_connect_addr(&self) -> ::std::net::SocketAddr {
-        match self.internal {
-            ::std::net::SocketAddr::V4(addr) => ::std::net::SocketAddr::new(
-                ::std::net::IpAddr::V4(::std::net::Ipv4Addr::LOCALHOST),
-                addr.port(),
-            ),
-            ::std::net::SocketAddr::V6(addr) => ::std::net::SocketAddr::new(
-                ::std::net::IpAddr::V6(::std::net::Ipv6Addr::LOCALHOST),
-                addr.port(),
-            ),
-        }
-    }
-}
-
-#[derive(Debug, Clone, serde::Deserialize)]
-pub struct ConfigFilePaths {
-    #[serde(default = "default_config_path_config")]
-    pub config: ::std::path::PathBuf,
-    #[serde(default = "default_config_path_modules")]
-    pub modules: ::std::path::PathBuf,
-    #[serde(default = "default_config_path_static_content")]
-    pub static_content: ::std::path::PathBuf,
-}
-
-impl Default for ConfigFilePaths {
-    fn default() -> Self {
-        Self {
-            config: "/app/config/config.yaml".into(),
-            static_content: "/app/data/static".into(),
-            modules: "/app/modules".into(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, serde::Deserialize)]
-pub struct ConfigURLPaths {
-    #[serde(default = "default_url_path_modules")]
-    pub modules: String,
-}
-
-impl Default for ConfigURLPaths {
-    fn default() -> Self {
-        Self {
-            modules: "/_ksbh_internal/".to_string(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, serde::Deserialize)]
-pub struct ConfigPerformance {
-    #[serde(default)]
-    pub tcp_fastopen: Option<usize>,
-    #[serde(default)]
-    pub so_reuseport: Option<bool>,
-    #[serde(default)]
-    pub tcp_keepalive: Option<bool>,
-}
-
-impl Default for ConfigPerformance {
-    fn default() -> Self {
-        Self {
-            tcp_fastopen: Some(12),
-            so_reuseport: None,
-            tcp_keepalive: None,
-        }
-    }
-}
-
-/// Errors that can occur during configuration loading and validation.
-#[derive(Debug)]
-pub enum ConfigError {
-    ValidationError(&'static str),
-    MissingMandatoryValue(String),
-    ConfError(config::ConfigError),
-    ParsingError(String),
-}
-
-impl ::std::fmt::Display for ConfigError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "ConfigError: {}",
-            match self {
-                ConfigError::ConfError(e) => e.to_string(),
-                ConfigError::MissingMandatoryValue(e) => e.to_string(),
-                ConfigError::ParsingError(e) => e.to_string(),
-                ConfigError::ValidationError(e) => e.to_string(),
-            }
-        )
-    }
-}
-
-impl ::std::error::Error for ConfigError {}
-
-impl From<config::ConfigError> for ConfigError {
-    fn from(value: config::ConfigError) -> Self {
-        Self::ConfError(value)
-    }
-}
-
-impl From<Box<dyn ::std::error::Error + 'static>> for ConfigError {
-    fn from(value: Box<dyn ::std::error::Error + 'static>) -> Self {
-        Self::ParsingError(value.to_string())
-    }
-}
-
 impl Config {
     /// Loads configuration from YAML file and environment variables.
     ///
     /// Precedence (highest to lowest): environment variables (prefix `KSBH__`),
     /// YAML file at path specified by `KSBH__CONFIG_PATHS__CONFIG` or default
     /// `/app/config/config.yaml`.
-    pub fn load() -> Result<Self, ConfigError> {
+    pub fn load() -> Result<Self, crate::config_error::ConfigError> {
         let config_file_path = crate::utils::get_env_prefer_file("KSBH__CONFIG_PATHS__CONFIG")
             .unwrap_or("/app/config/config.yaml".to_string());
 
@@ -247,41 +52,40 @@ impl Config {
         Ok(cfg)
     }
 
-    fn validate(&self) -> Result<(), ConfigError> {
-        // TODO: implement checks for file paths, if they're valid (openable/readable).
+    fn validate(&self) -> Result<(), crate::config_error::ConfigError> {
         if let Some(url) = &self.redis_url
             && url.trim().is_empty()
         {
-            return Err(ConfigError::ValidationError("redis_url cannot be empty"));
+            return Err(crate::config_error::ConfigError::ValidationError("redis_url cannot be empty"));
         }
 
         let cookie_key = self.cookie_key.as_ref().ok_or_else(|| {
-            ConfigError::MissingMandatoryValue(
+            crate::config_error::ConfigError::MissingMandatoryValue(
                 "cookie_key must be provided via config or KSBH__COOKIE_KEY".to_string(),
             )
         })?;
 
         if cookie_key.trim().is_empty() {
-            return Err(ConfigError::ValidationError("cookie_key cannot be empty"));
+            return Err(crate::config_error::ConfigError::ValidationError("cookie_key cannot be empty"));
         }
 
         if crate::cookie::Key::try_from(cookie_key.as_bytes()).is_err() {
-            return Err(ConfigError::ValidationError(
+            return Err(crate::config_error::ConfigError::ValidationError(
                 "cookie_key must be at least 64 bytes",
             ));
         }
 
         if self.constants.cookie_name.trim().is_empty() {
-            return Err(ConfigError::ValidationError(
+            return Err(crate::config_error::ConfigError::ValidationError(
                 "constants.cookie_name cannot be empty",
             ));
         }
 
         http::header::HeaderName::from_bytes(self.constants.proxy_header_name.as_bytes())
-            .map_err(|_| ConfigError::ValidationError("constants.proxy_header_name is invalid"))?;
+            .map_err(|_| crate::config_error::ConfigError::ValidationError("constants.proxy_header_name is invalid"))?;
 
         http::HeaderValue::from_str(&self.constants.proxy_header_value)
-            .map_err(|_| ConfigError::ValidationError("constants.proxy_header_value is invalid"))?;
+            .map_err(|_| crate::config_error::ConfigError::ValidationError("constants.proxy_header_value is invalid"))?;
 
         Ok(())
     }
@@ -342,70 +146,6 @@ fn default_threads() -> usize {
     8
 }
 
-fn default_tcp_fastopen_queue_size() -> usize {
-    12
-}
-
-fn default_cookie_name() -> String {
-    "ksbh".to_string()
-}
-
-fn default_cookie_secure() -> bool {
-    true
-}
-
-fn default_proxy_header_name() -> String {
-    "Server".to_string()
-}
-
-fn default_proxy_header_value() -> String {
-    "ksbh".to_string()
-}
-
-fn default_ports_app() -> ksbh_types::Ports {
-    ConfigPorts::default().app
-}
-
-fn default_ports_external() -> ksbh_types::Ports {
-    ConfigPorts::default().external
-}
-
-fn default_listen_http() -> ::std::net::SocketAddr {
-    ConfigListenAddresses::default().http
-}
-
-fn default_listen_https() -> ::std::net::SocketAddr {
-    ConfigListenAddresses::default().https
-}
-
-fn default_listen_internal() -> ::std::net::SocketAddr {
-    ConfigListenAddresses::default().internal
-}
-
-fn default_listen_profiling() -> ::std::net::SocketAddr {
-    ConfigListenAddresses::default().profiling
-}
-
-fn default_listen_prometheus() -> ::std::net::SocketAddr {
-    ConfigListenAddresses::default().prometheus
-}
-
-fn default_config_path_config() -> ::std::path::PathBuf {
-    ConfigFilePaths::default().config
-}
-
-fn default_config_path_modules() -> ::std::path::PathBuf {
-    ConfigFilePaths::default().modules
-}
-
-fn default_config_path_static_content() -> ::std::path::PathBuf {
-    ConfigFilePaths::default().static_content
-}
-
-fn default_url_path_modules() -> String {
-    ConfigURLPaths::default().modules
-}
-
 #[cfg(test)]
 mod tests {
     #[test]
@@ -456,14 +196,14 @@ trusted_proxies:
             cookie_key: Some(
                 "0123456789012345678901234567890101234567890123456789012345678901".to_string(),
             ),
-            constants: super::ConfigConstants::default(),
+            constants: crate::config_types::ConfigDefaults::default(),
             pyroscope_url: None,
-            ports: super::ConfigPorts::default(),
-            listen_addresses: super::ConfigListenAddresses::default(),
-            config_paths: super::ConfigFilePaths::default(),
-            url_paths: super::ConfigURLPaths::default(),
+            ports: crate::config_types::ConfigPorts::default(),
+            listen_addresses: crate::config_types::ConfigListenAddresses::default(),
+            config_paths: crate::config_types::ConfigFilePaths::default(),
+            url_paths: crate::config_types::ConfigURLPaths::default(),
             threads: 8,
-            performance: super::ConfigPerformance::default(),
+            performance: crate::config_types::ConfigPerformance::default(),
             trusted_proxies: vec!["10.0.0.0/8".parse().expect("parse trusted proxy network")],
         };
 

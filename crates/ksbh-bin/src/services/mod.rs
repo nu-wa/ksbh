@@ -9,12 +9,12 @@ pub struct BackgroundService {
             Vec<u8>,
         >,
     >,
-    modules_libraries: ::std::sync::Arc<ksbh_core::modules::abi::module_host::ModuleHost>,
+    modules_libraries: ::std::sync::Arc<ksbh_core::modules::runtime::module_host::ModuleHost>,
 }
 
 impl BackgroundService {
     pub fn new(
-        modules_libraries: ::std::sync::Arc<ksbh_core::modules::abi::module_host::ModuleHost>,
+        modules_libraries: ::std::sync::Arc<ksbh_core::modules::runtime::module_host::ModuleHost>,
         config: ::std::sync::Arc<ksbh_core::config::Config>,
         sessions: ::std::sync::Arc<
             ksbh_core::storage::redis_hashmap::RedisHashMap<
@@ -92,7 +92,64 @@ impl pingora::services::background::BackgroundService for BackgroundService {
                         }
                     }
                 },
-                async |_entry: ksbh_core::notify::Event| {},
+                move |event: ksbh_core::notify::Event| {
+                    let modules_library = modules_library.clone();
+
+                    async move {
+                        for path in &event.paths {
+                            let extension = path
+                                .extension()
+                                .and_then(|ext| ext.to_str())
+                                .unwrap_or("");
+                            let is_shared_lib =
+                                extension == "so" || extension == "dylib";
+                            if !is_shared_lib {
+                                continue;
+                            }
+
+                            match &event.kind {
+                                ksbh_core::notify::event::EventKind::Create(_)
+                                | ksbh_core::notify::event::EventKind::Modify(
+                                    ksbh_core::notify::event::ModifyKind::Data(_),
+                                ) => {
+                                    tracing::info!(
+                                        "Module created/modified: {:?}",
+                                        path
+                                    );
+                                    if let Err(e) =
+                                        modules_library.load_module(path)
+                                    {
+                                        tracing::error!(
+                                            "Failed to load module {:?}: {}",
+                                            path,
+                                            e
+                                        );
+                                    }
+                                }
+
+                                ksbh_core::notify::event::EventKind::Remove(_) => {
+                                    tracing::info!(
+                                        "Module removed: {:?}",
+                                        path
+                                    );
+                                    if let Some(mod_type) =
+                                        modules_library.module_type_for_path(path)
+                                    {
+                                        modules_library
+                                            .unload_module(&mod_type);
+                                    } else {
+                                        tracing::warn!(
+                                            "Remove event for unknown module path: {:?}",
+                                            path
+                                        );
+                                    }
+                                }
+
+                                _ => {}
+                            }
+                        }
+                    }
+                },
                 Some(plugins_shutdown_signal),
             )
             .await

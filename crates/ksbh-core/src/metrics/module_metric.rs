@@ -33,6 +33,16 @@ impl ModuleMetric {
     pub fn new_request(name: &str, exec_time: f64, global: bool, module_replied: bool) -> Self {
         Self::new(name, exec_time, global, module_replied)
     }
+
+    /// Whether the module in this metric terminated the chain with a response.
+    pub fn module_replied(&self) -> bool {
+        self.module_replied
+    }
+
+    /// Whether this metric corresponds to a global module.
+    pub fn global(&self) -> bool {
+        self.global
+    }
 }
 
 impl ::std::fmt::Debug for ModuleMetric {

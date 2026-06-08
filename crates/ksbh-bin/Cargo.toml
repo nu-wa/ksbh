@@ -54,8 +54,8 @@ uuid = { workspace = true }
 
 mimalloc = { workspace = true }
 
-[dependencies.anyhow]
-version = "1.0.97"
+anyhow = { workspace = true }
+thiserror = { workspace = true }
 
 # Internal
 [dependencies.askama]

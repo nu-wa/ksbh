@@ -4,8 +4,8 @@ members = [
   "ksbh-bin",
   "ksbh-core",
   "ksbh-ui",
+  "ksbh-modules-abi",
   "ksbh-modules-sdk",
-  "ksbh-modules/test-modules/dynamic-ffi-smoke",
   "ksbh-modules/http_to_https",
   "ksbh-modules/oidc",
   "ksbh-modules/proof-of-work",
@@ -14,6 +14,7 @@ members = [
   "ksbh-types",
   "ksbh-config-providers/kubernetes",
   "ksbh-config-providers/file",
+  "ksbh-bench",
   "tests",
 ]
 
@@ -25,6 +26,7 @@ hex = "0.4.3"
 httpmock = "0.8"
 httptest = "0.15"
 ksbh-types = { path = "./ksbh-types/" }
+ksbh-modules-abi = { path = "./ksbh-modules-abi/" }
 libloading = "0.9.0"
 notify = "8.0.0"
 scc = "3.4.10"
@@ -101,6 +103,9 @@ features = ["cache", "lb", "openssl", "time"]
 version = "0.8.0"
 
 [workspace.dependencies.pingora-http]
+version = "0.8.0"
+
+[workspace.dependencies.pingora-proxy]
 version = "0.8.0"
 
 [workspace.dependencies.pingora-runtime]

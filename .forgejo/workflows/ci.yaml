@@ -204,12 +204,12 @@ jobs:
                   copy_test_binary binary_baseline_e2e "${artifact_dir}/binary/deps"
                   copy_test_binary binary_static_content_e2e "${artifact_dir}/binary/deps"
                   copy_test_binary binary_upstream_errors_e2e "${artifact_dir}/binary/deps"
+                  copy_test_binary binary_pow_e2e "${artifact_dir}/binary/deps"
+                  copy_test_binary binary_oidc_e2e "${artifact_dir}/binary/deps"
 
-                  copy_dynamic_lib libdynamic_ffi_smoke "${artifact_dir}/modules"
-                  copy_test_binary module_host_dynamic "${artifact_dir}/modules/deps"
-                  copy_test_binary ffi_miri "${artifact_dir}/modules/deps"
+                  copy_test_binary ksbh_modules_abi "${artifact_dir}/modules/deps"
                   copy_test_binary ksbh_modules_sdk "${artifact_dir}/modules/deps"
-                  copy_test_binary host_functions_unhappy "${artifact_dir}/modules/deps"
+                  copy_test_binary dynamic_modules_smoke "${artifact_dir}/modules/deps"
                   copy_test_binary ksbh_core "${artifact_dir}/modules/deps"
 
                   copy_file "${source_dir}/ksbh" "${artifact_dir}/k8s/ksbh"
@@ -373,7 +373,7 @@ jobs:
                   name: rust-prebuilt-modules
                   path: crates/target/debug
 
-            - name: Run module smoke coverage
+            - name: Run dynamic module smoke tests
               shell: bash
               env:
                   KSBH_CI_USE_PREBUILT: "true"
@@ -381,6 +381,14 @@ jobs:
               run: |
                   set -euo pipefail
                   bash mise-tasks/dynamic-modules-smoke
+
+            - name: Run module unit tests
+              shell: bash
+              env:
+                  KSBH_CI_USE_PREBUILT: "true"
+              run: |
+                  set -euo pipefail
+                  mise run test-modules-unit
 
             - name: Run unhappy-path coverage
               shell: bash
@@ -432,6 +440,36 @@ jobs:
                   export KSBH_MIRI_CARGO_HOME="${PWD}/.ci-cache/miri/cargo"
                   export KSBH_MIRI_TARGET_DIR="${PWD}/.ci-cache/miri/target"
                   mise run test-miri
+
+    test-modules-e2e:
+        needs:
+            - resolve-images
+            - build-rust
+        runs-on: cocaine
+        container:
+            image: ${{ needs.resolve-images.outputs.rust }}
+            credentials:
+                username: ${{ secrets.HARBOR_USERNAME }}
+                password: ${{ secrets.HARBOR_PASSWORD }}
+        permissions:
+            contents: read
+        steps:
+            - name: Check out repository
+              uses: https://data.forgejo.org/actions/checkout@v4
+
+            - name: Download Rust prebuilt artifact (binary)
+              uses: https://data.forgejo.org/actions/download-artifact@v3-node20
+              with:
+                  name: rust-prebuilt-binary
+                  path: crates/target/debug
+
+            - name: Run module e2e tests
+              shell: bash
+              env:
+                  KSBH_CI_USE_PREBUILT: "true"
+              run: |
+                  set -euo pipefail
+                  mise run test-modules-e2e
 
     test-k8s:
         needs:
@@ -486,6 +524,7 @@ jobs:
             - resolve-images
             - test-binary
             - test-modules
+            - test-modules-e2e
             - test-miri
             - test-k8s
         if: ${{ forge.event_name != 'pull_request' }}
@@ -511,23 +550,10 @@ jobs:
                   restore-keys: |
                       docs-npm-v2-act-rust-wasm-node-
 
-            - name: Restore Dodeca cache
-              uses: https://data.forgejo.org/actions/cache@v4
-              with:
-                  path: |
-                      .ci-cache/dodeca-install
-                      .ci-cache/dodeca-target
-                      /root/.cargo/registry
-                      /root/.cargo/git
-                  key: dodeca-v2-act-rust-wasm-node-v0.14.2-4c25f36b64b9ec5aab5612a924b1264defa141d6
-                  restore-keys: |
-                      dodeca-v2-act-rust-wasm-node-
-
             - name: Prepare publish tooling
               shell: bash
               env:
                   DODECA_VERSION: v0.14.2
-                  DODECA_SHA: 4c25f36b64b9ec5aab5612a924b1264defa141d6
               run: |
                   set -euo pipefail
                   bash scripts/ci/prepare-publish-tooling.sh

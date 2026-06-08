@@ -1,0 +1,12 @@
+[scenario]
+id          = "speed_small_c100"
+duration_s  = 30
+rate        = 0
+connections = 100
+tls         = false
+body_bytes  = 200
+
+[vegeta]
+targets = """
+GET http://{{ proxy_host }}:{{ proxy_http_port }}/
+"""

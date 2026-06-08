@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+#MISE description="Run Miri UB/leak detection on FFI boundary crates"
+set -euo pipefail
+
+cargo +nightly miri test --manifest-path crates/Cargo.toml -p ksbh-modules-abi
+cargo +nightly miri test --manifest-path crates/Cargo.toml -p ksbh-modules-sdk
+cargo +nightly miri test --manifest-path crates/Cargo.toml -p ksbh-core --test dynamic_modules_smoke

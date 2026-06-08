@@ -1,6 +1,8 @@
 pub mod certs;
 pub mod config;
+pub mod config_error;
 pub mod config_provider;
+pub mod config_types;
 pub mod constants;
 pub mod cookies;
 pub mod metrics;
@@ -17,3 +19,5 @@ pub use walkdir;
 pub use cookie;
 
 pub use storage::{RedisProvider, Storage, redis_hashmap::RedisHashMap};
+
+pub use proxy::{PingoraWrapper, ProxyService};

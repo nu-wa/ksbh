@@ -8,6 +8,9 @@ bytes = { workspace = true }
 http = { workspace = true }
 smol_str = { workspace = true }
 ksbh-core = { path = "../ksbh-core/" }
+ksbh-modules-abi = { path = "../ksbh-modules-abi/" }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
 
 [dev-dependencies]
 tracing = { workspace = true }

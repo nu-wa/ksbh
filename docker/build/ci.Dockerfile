@@ -5,7 +5,6 @@ FROM ghcr.io/catthehacker/ubuntu:act-latest
 
 ARG TARGETARCH
 ARG DODECA_VERSION=v0.14.2
-ARG DODECA_SHA=4c25f36b64b9ec5aab5612a924b1264defa141d6
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PATH="/opt/ksbh-docs-tools/node_modules/.bin:/opt/ksbh-playwright/node_modules/.bin:/root/.deno/bin:/root/.local/bin:/root/.cargo/bin:${PATH}"
@@ -90,19 +89,14 @@ RUN --mount=type=cache,target=/root/.cache/mise,sharing=locked \
   mise trust /opt/ksbh-mise/mise.toml \
   && mise install
 
-RUN --mount=type=cache,target=/root/.cargo/registry,sharing=locked \
-  --mount=type=cache,target=/root/.cargo/git,sharing=locked \
-  --mount=type=cache,target=/tmp/dodeca-target,sharing=locked \
-  git clone --depth 50 --branch "${DODECA_VERSION}" https://github.com/bearcove/dodeca /tmp/dodeca && \
-  cd /tmp/dodeca && \
-  git checkout "${DODECA_SHA}" && \
-  cd /tmp/dodeca/crates/dodeca-devtools \
-  && export CARGO_TARGET_DIR=/tmp/dodeca-target \
-  && wasm-pack build --target web \
-  && cd /tmp/dodeca/crates/dodeca-search-wasm \
-  && wasm-pack build --target web \
-  && cargo install --path /tmp/dodeca/crates/dodeca --locked \
-  && rm -rf /tmp/dodeca
+RUN bash -euo pipefail -c ' \
+    curl --proto "=https" --tlsv1.2 -LsSf \
+      "https://github.com/bearcove/dodeca/releases/download/${DODECA_VERSION}/dodeca-installer.sh" \
+      -o /tmp/dodeca-installer.sh; \
+    DODECA_VERSION="${DODECA_VERSION}" DODECA_INSTALL_DIR=/root/.cargo/bin sh /tmp/dodeca-installer.sh; \
+    test -x /root/.cargo/bin/ddc; \
+    rm -f /tmp/dodeca-installer.sh \
+  '
 
 WORKDIR /opt/ksbh-docs-tools
 COPY docs/package.json /opt/ksbh-docs-tools/package.json

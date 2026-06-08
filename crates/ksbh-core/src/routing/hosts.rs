@@ -1,4 +1,4 @@
-use super::ServiceBackendType;
+use super::RoutingDestination;
 
 /// Registry of all configured hosts and their configurations.
 #[derive(Debug, Default, Clone)]
@@ -27,19 +27,19 @@ pub struct HostConfiguration {
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct HostPaths {
     /// Exact path matches
-    pub exact: hashbrown::HashMap<ksbh_types::KsbhStr, ServiceBackendType>,
+    pub exact: hashbrown::HashMap<ksbh_types::KsbhStr, RoutingDestination>,
     /// Prefix-based path matches
-    pub prefix: Vec<(ksbh_types::KsbhStr, ServiceBackendType)>,
+    pub prefix: Vec<(ksbh_types::KsbhStr, RoutingDestination)>,
     /// Implementation-specific path matches
-    pub implementation_specific: Vec<(ksbh_types::KsbhStr, ServiceBackendType)>,
+    pub implementation_specific: Vec<(ksbh_types::KsbhStr, RoutingDestination)>,
 }
 
 impl HostRegistry {}
 
 impl HostPaths {
-    /// Finds the backend service for a given request path.
+    /// Finds the routing destination for a given request path.
     /// Checks exact matches first, then prefix matches, then implementation-specific matches.
-    pub fn find(&self, request_path: &str) -> Option<&ServiceBackendType> {
+    pub fn find(&self, request_path: &str) -> Option<&RoutingDestination> {
         if let Some(backend) = self.exact.get(request_path) {
             return Some(backend);
         }
@@ -56,15 +56,15 @@ impl HostPaths {
             path.starts_with(prefix) && path.as_bytes().get(prefix.len()) == Some(&b'/')
         }
 
-        for (path, service_backend) in &self.prefix {
+        for (path, dest) in &self.prefix {
             if path_prefix_match(path.as_str(), request_path) {
-                return Some(service_backend);
+                return Some(dest);
             }
         }
 
-        for (path, service_backend) in &self.implementation_specific {
-            if request_path.starts_with(path.as_str()) {
-                return Some(service_backend);
+        for (path, dest) in &self.implementation_specific {
+            if path_prefix_match(path.as_str(), request_path) {
+                return Some(dest);
             }
         }
 
