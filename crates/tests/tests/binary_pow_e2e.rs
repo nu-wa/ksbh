@@ -151,6 +151,13 @@ fn find_action_url(html: &str) -> String {
 
 // ── Retry helper for module loading race ─────────────────────────────
 
+fn is_transient_module_loading_failure(status: reqwest::StatusCode, body: &str) -> bool {
+    matches!(
+        status,
+        reqwest::StatusCode::INTERNAL_SERVER_ERROR | reqwest::StatusCode::BAD_GATEWAY
+    ) && (body.contains("module ") || body.contains("Bad Gateway"))
+}
+
 async fn wait_for_non_500(
     client: &reqwest::Client,
     url: &str,
@@ -167,9 +174,7 @@ async fn wait_for_non_500(
             .expect("request");
         last_status = response.status();
         last_body = response.text().await.unwrap_or_default();
-        if last_status != reqwest::StatusCode::INTERNAL_SERVER_ERROR
-            || !last_body.contains("module ")
-        {
+        if !is_transient_module_loading_failure(last_status, &last_body) {
             return (last_status, last_body);
         }
         tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
@@ -196,9 +201,7 @@ async fn post_wait_for_non_500(
             .expect("request");
         last_status = response.status();
         last_body = response.text().await.unwrap_or_default();
-        if last_status != reqwest::StatusCode::INTERNAL_SERVER_ERROR
-            || !last_body.contains("module ")
-        {
+        if !is_transient_module_loading_failure(last_status, &last_body) {
             return (last_status, last_body);
         }
         tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
@@ -480,30 +483,20 @@ ingresses:
     // Step 3: Solve the challenge
     let nonce = solve_challenge(&challenge, parsed_difficulty);
 
-    // Step 4: POST solution
-    let solution_body = format!(
-        "challenge={}&nonce={}",
+    // Step 4: Submit solution as a GET with challenge+nonce query params
+    // (the PoW module reads from query_params, not from a POST body).
+    let submit_url = format!(
+        "{}/_ksbh_internal/pow?challenge={}&nonce={}",
+        fixture.http_base_addr(),
         urlencoding::encode(&challenge),
-        nonce
+        nonce,
     );
-    let post_response = client
-        .post(format!(
-            "{}/_ksbh_internal/pow",
-            fixture.http_base_addr()
-        ))
-        .header(reqwest::header::HOST, "pow-valid.test.local")
-        .header(
-            reqwest::header::CONTENT_TYPE,
-            "application/x-www-form-urlencoded",
-        )
-        .header(reqwest::header::CONTENT_LENGTH, solution_body.len())
-        .body(solution_body)
-        .send()
-        .await
-        .expect("post pow solution");
-
-    let post_status = post_response.status();
-    let post_body = post_response.text().await.unwrap_or_default();
+    let (post_status, post_body) = wait_for_non_500(
+        &client,
+        &submit_url,
+        "pow-valid.test.local",
+    )
+    .await;
     // Should get a redirect (302) or success response
     assert!(
         post_status.is_redirection() || post_status.is_success(),

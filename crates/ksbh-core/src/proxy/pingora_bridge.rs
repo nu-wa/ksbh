@@ -120,16 +120,8 @@ fn to_pingora_err(e: ProxyProviderError) -> Box<Error> {
     )
 }
 
-pub struct PingoraWrapper {
-    provider: ProxyService,
-}
-
-impl PingoraWrapper {
-    pub fn new(provider: ProxyService) -> Self {
-        Self { provider }
-    }
-
-    fn header_has_token(
+impl ProxyService {
+    pub fn header_has_token(
         headers: &http::HeaderMap,
         name: impl http::header::AsHeaderName,
         token: &str,
@@ -197,11 +189,11 @@ impl PingoraWrapper {
 }
 
 #[async_trait::async_trait]
-impl ProxyHttp for PingoraWrapper {
+impl ProxyHttp for ProxyService {
     type CTX = ProxyContext;
 
     fn new_ctx(&self) -> Self::CTX {
-        self.provider.new_context()
+        self.new_context()
     }
 
     async fn early_request_filter(
@@ -213,7 +205,6 @@ impl ProxyHttp for PingoraWrapper {
 
         let mut session = PingoraSessionWrapper::new(pingora_session);
         let decision = self
-            .provider
             .early_request_filter(&mut session, ctx)
             .await
             .map_err(to_pingora_err)?;
@@ -258,7 +249,6 @@ impl ProxyHttp for PingoraWrapper {
         pingora_session.as_mut().enable_retry_buffering();
         let mut session = PingoraSessionWrapper::new(pingora_session);
         let decision = self
-            .provider
             .request_filter(&mut session, ctx)
             .await
             .map_err(to_pingora_err)?;
@@ -276,9 +266,7 @@ impl ProxyHttp for PingoraWrapper {
         let error = pingora_error
             .map(|e| ProxyProviderError::InternalErrorDetailed(e.to_string()));
 
-        self.provider
-            .logging(&mut session, error.as_ref(), ctx)
-            .await;
+        self.logging(&mut session, error.as_ref(), ctx).await;
     }
 
     async fn upstream_peer(
@@ -288,7 +276,7 @@ impl ProxyHttp for PingoraWrapper {
     ) -> Result<Box<HttpPeer>> {
         let mut session = PingoraSessionWrapper::new(pingora_session);
 
-        match self.provider.upstream_peer(&mut session, ctx).await {
+        match self.upstream_peer(&mut session, ctx).await {
             Ok(upstream) => {
                 tracing::debug!("got upstream: {:?}", upstream);
                 let mut https = false;
@@ -331,7 +319,6 @@ impl ProxyHttp for PingoraWrapper {
         let mut session = PingoraSessionWrapper::new(pingora_session);
 
         match self
-            .provider
             .upstream_request_filter(&mut session, upstream_request, ctx)
             .await
         {
@@ -353,7 +340,6 @@ impl ProxyHttp for PingoraWrapper {
         let mut response_parts = pingora_response.as_owned_parts();
 
         match self
-            .provider
             .response_filter(&mut session, &mut response_parts, ctx)
             .await
         {
@@ -403,8 +389,7 @@ impl ProxyHttp for PingoraWrapper {
         end_of_stream: bool,
         ctx: &mut Self::CTX,
     ) -> Result<Option<std::time::Duration>> {
-        self.provider
-            .response_body_filter(body, end_of_stream, ctx)
+        self.response_body_filter(body, end_of_stream, ctx)
             .map_err(to_pingora_err)?;
 
         Ok(None)
@@ -434,7 +419,6 @@ impl ProxyHttp for PingoraWrapper {
 
         let mut session = PingoraSessionWrapper::new(pingora_session);
         let handled_by_provider = match self
-            .provider
             .fail_to_proxy(&mut session, error_code, ctx)
             .await
         {

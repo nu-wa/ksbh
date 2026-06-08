@@ -20,4 +20,4 @@ pub use cookie;
 
 pub use storage::{RedisProvider, Storage, redis_hashmap::RedisHashMap};
 
-pub use proxy::{PingoraWrapper, ProxyService};
+pub use proxy::ProxyService;

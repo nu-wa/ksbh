@@ -85,7 +85,7 @@ impl ProxyService {
     /// When the incoming connection is from an **untrusted source**, the
     /// existing header value is discarded entirely (to prevent IP spoofing)
     /// and only this proxy's value is returned.
-    fn compose_forwarded_header_value(
+    pub fn compose_forwarded_header_value(
         existing_value: Option<&http::header::HeaderValue>,
         appended_value: &str,
         trust_forwarded_headers: bool,
@@ -129,7 +129,7 @@ impl ProxyService {
         escaped
     }
 
-    fn forwarded_header_entry(
+    pub fn forwarded_header_entry(
         client_ip: Option<::std::net::IpAddr>,
         proto: &str,
         host: &str,
@@ -147,7 +147,7 @@ impl ProxyService {
         parts.join(";")
     }
 
-    fn normalize_cookie_header_for_upstream(
+    pub fn normalize_cookie_header_for_upstream(
         upstream_request: &mut pingora_http::RequestHeader,
     ) -> Result<(), ksbh_types::prelude::ProxyProviderError> {
         let merged_cookie = upstream_request

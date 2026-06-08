@@ -76,17 +76,14 @@ impl StaticApp {
             let decoded = match urlencoding::decode(file_param) {
                 Ok(value) => value,
                 Err(_) => {
-                    return crate::apps::error_pages::ErrorPagesApp::new()
-                        .ok()
-                        .and_then(|app| None.or_else(|| Some(app)))
-                        .and_then(|_| None);
+                    return write_404(session, head_only).await;
                 }
             };
 
             match get_clean_file_path(&self.config.config_paths.static_content, &decoded) {
                 Some(path) => path,
                 None => {
-                    return None;
+                    return write_404(session, head_only).await;
                 }
             }
         } else {
@@ -97,14 +94,14 @@ impl StaticApp {
             ) {
                 Some(path) => path,
                 None => {
-                    return None;
+                    return write_404(session, head_only).await;
                 }
             }
         };
 
         let file_meta = match self.file_cache.get(&file_path).await {
             Some(meta) => meta,
-            None => return None,
+            None => return write_404(session, head_only).await,
         };
 
         if let Some(if_none) = session.get_header("if-none-match")
@@ -392,4 +389,53 @@ mod tests {
 
         ::std::fs::remove_dir_all(&root).expect("cleanup");
     }
+}
+
+/// Write a 404 response on `session` and return `None` to the caller.
+///
+/// The static app signals "I could not serve this path" by writing a 404
+/// response on the session and returning `None`. Returning `None` from
+/// `HttpServerApp::process_new_http` without writing a response is treated by
+/// pingora as "I did not handle this" and the request falls through to the
+/// upstream proxy, which 502s for backends that are not listening. Always
+/// writing a response keeps the seam at the static app's interface honest.
+async fn write_404(
+    mut session: pingora::protocols::http::ServerSession,
+    head_only: bool,
+) -> Option<pingora::apps::ReusedHttpStream> {
+    let page = match ksbh_ui::error_pages::render_error_page_html("404") {
+        Some(html) => html,
+        None => return None,
+    };
+    let body = bytes::Bytes::copy_from_slice(page.as_bytes());
+    let mut response_header =
+        match pingora::http::ResponseHeader::build(http::StatusCode::NOT_FOUND, None) {
+            Ok(h) => h,
+            Err(_) => return None,
+        };
+    if response_header
+        .insert_header(http::header::CONTENT_LENGTH, body.len())
+        .is_err()
+    {
+        return None;
+    }
+    if response_header
+        .insert_header(http::header::CONTENT_TYPE, "text/html")
+        .is_err()
+    {
+        return None;
+    }
+    if session
+        .write_response_header(Box::new(response_header))
+        .await
+        .is_err()
+    {
+        return None;
+    }
+    if head_only {
+        let _ = session.write_response_body(bytes::Bytes::new(), true).await;
+        return None;
+    }
+    let _ = session.write_response_body(body, true).await;
+    None
 }

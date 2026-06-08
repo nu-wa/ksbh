@@ -2,7 +2,6 @@ use blake3::Hasher as Blake3Hasher;
 
 pub mod pingora_bridge;
 pub mod service;
-pub use pingora_bridge::PingoraWrapper;
 pub use service::ProxyService;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -170,7 +169,7 @@ impl PartialClientInformation {
 }
 
 impl ClientInformation {
-    fn stable_filtered_header_hash(headers: &http::HeaderMap) -> [u8; 32] {
+    pub fn stable_filtered_header_hash(headers: &http::HeaderMap) -> [u8; 32] {
         let mut normalized_headers = headers
             .iter()
             .filter_map(|(name, value)| {

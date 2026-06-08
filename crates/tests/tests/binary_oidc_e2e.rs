@@ -121,14 +121,19 @@ async fn get_with_retry(
             .expect("request");
         last_status = response.status();
         last_body = response.text().await.unwrap_or_default();
-        if last_status != reqwest::StatusCode::INTERNAL_SERVER_ERROR
-            || !last_body.contains("module ")
-        {
+        if !is_transient_module_loading_failure(last_status, &last_body) {
             return (last_status, last_body);
         }
         tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
     }
     (last_status, last_body)
+}
+
+fn is_transient_module_loading_failure(status: reqwest::StatusCode, body: &str) -> bool {
+    matches!(
+        status,
+        reqwest::StatusCode::INTERNAL_SERVER_ERROR | reqwest::StatusCode::BAD_GATEWAY
+    ) && (body.contains("module ") || body.contains("Bad Gateway"))
 }
 
 #[tokio::test]

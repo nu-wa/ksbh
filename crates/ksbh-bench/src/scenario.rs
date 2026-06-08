@@ -14,6 +14,8 @@ pub struct Scenario {
     pub vegeta: VegetaSpec,
     #[serde(default)]
     pub nginx: NginxOverrides,
+    #[serde(default)]
+    pub module: Option<ModuleBenchSpec>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -31,6 +33,16 @@ pub struct ScenarioMeta {
 pub struct VegetaSpec {
     /// Multiline string with `{{ var }}` placeholders.
     pub targets: String,
+}
+
+/// Optional module bench spec — only used in `KsbhModule` mode.
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
+pub struct ModuleBenchSpec {
+    /// Module type string, e.g. `"oidc"` or `"proof-of-work"`.
+    pub module_type: String,
+    /// Optional inline config fragment for the module instance.
+    #[serde(default)]
+    pub config: Option<String>,
 }
 
 /// Optional nginx directives that override the default template.

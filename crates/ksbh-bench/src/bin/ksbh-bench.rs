@@ -1,4 +1,4 @@
-//! ksbh-bench CLI: render, analyze, compare, trend.
+//! ksbh-bench CLI: render, analyze, compare, trend, run-scenario.
 
 use std::path::PathBuf;
 
@@ -9,6 +9,7 @@ use ksbh_bench::aggregate;
 use ksbh_bench::analyze::{self, AnalyzeArgs};
 use ksbh_bench::compare::{self, CompareArgs, Format};
 use ksbh_bench::render::{self, RenderCtx};
+use ksbh_bench::runner::{self, Mode, RunConfig};
 use ksbh_bench::scenario::Scenario;
 use ksbh_bench::trend;
 
@@ -77,6 +78,31 @@ enum Cmd {
         #[arg(long)] history: PathBuf,
         #[arg(long)] out: PathBuf,
     },
+    /// Run a full benchmark scenario end-to-end (containers, vegeta, analysis).
+    RunScenario {
+        /// Scenario name, e.g. `speed_small_c1` (looked up under bench/scenarios/).
+        scenario: String,
+
+        /// Proxy mode. Defaults to ksbh-vs-nginx.
+        #[arg(long, value_enum, default_value_t = CliMode::KsbhVsNginx)]
+        mode: CliMode,
+
+        /// Results output directory. Defaults to bench/results.
+        #[arg(long, default_value = "bench/results")]
+        out: PathBuf,
+
+        /// Override ksbh binary path (auto-discovered if not set).
+        #[arg(long)]
+        ksbh_bin: Option<PathBuf>,
+
+        /// Override vegeta binary path (defaults to `vegeta` on PATH).
+        #[arg(long)]
+        vegeta_bin: Option<PathBuf>,
+
+        /// Path to module cdylib (required for ksbh-module mode).
+        #[arg(long)]
+        module_lib: Option<PathBuf>,
+    },
 }
 
 #[derive(Copy, Clone, ValueEnum)]
@@ -84,6 +110,23 @@ enum OutputFmt {
     Markdown,
     Json,
     Gate,
+}
+
+#[derive(Copy, Clone, ValueEnum)]
+enum CliMode {
+    KsbhOnly,
+    KsbhVsNginx,
+    KsbhModule,
+}
+
+impl From<CliMode> for Mode {
+    fn from(v: CliMode) -> Self {
+        match v {
+            CliMode::KsbhOnly => Mode::KsbhOnly,
+            CliMode::KsbhVsNginx => Mode::KsbhVsNginx,
+            CliMode::KsbhModule => Mode::KsbhModule,
+        }
+    }
 }
 
 impl From<OutputFmt> for Format {
@@ -207,6 +250,35 @@ fn main() -> Result<()> {
             let out = out.to_string_lossy().to_string();
             trend::run(&history, &out)?;
             Ok(())
+        }
+        Cmd::RunScenario {
+            scenario,
+            mode,
+            out,
+            ksbh_bin,
+            vegeta_bin,
+            module_lib,
+        } => {
+            let rt = tokio::runtime::Runtime::new()?;
+            rt.block_on(async {
+                let config = RunConfig {
+                    mode: mode.into(),
+                    out_dir: out,
+                    ksbh_bin,
+                    vegeta_bin,
+                    module_lib,
+                };
+                let output = runner::run(&scenario, config).await?;
+                for r in &output.results {
+                    eprintln!(
+                        "  {}/{} → {}",
+                        output.scenario_id,
+                        r.proxy,
+                        r.result_path.display()
+                    );
+                }
+                Ok(())
+            })
         }
     }
 }

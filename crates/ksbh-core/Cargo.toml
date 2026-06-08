@@ -11,6 +11,10 @@ path = "src/lib.rs"
 name = "generate_crd"
 path = "src/bin/generate_crd.rs"
 
+[[bench]]
+name = "hot_path"
+harness = false
+
 [[test]]
 name = "dynamic_modules_smoke"
 harness = true

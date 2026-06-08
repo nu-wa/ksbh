@@ -13,9 +13,7 @@ pub fn create_service(
     >,
     modules: ::std::sync::Arc<ksbh_core::modules::runtime::module_host::ModuleHost>,
     cookie_settings: ::std::sync::Arc<ksbh_core::cookies::CookieSettings>,
-) -> pingora::services::listening::Service<
-    pingora::proxy::HttpProxy<ksbh_core::PingoraWrapper>,
-> {
+) -> pingora::services::listening::Service<pingora::proxy::HttpProxy<ksbh_core::ProxyService>> {
     let pingora_server_conf = ::std::sync::Arc::new(
         config
             .to_server_conf()
@@ -23,7 +21,7 @@ pub fn create_service(
             .expect("Invalid server configuration"),
     );
 
-    let proxy_wrapper = ksbh_core::PingoraWrapper::new(ksbh_core::proxy::ProxyService::new(
+    let proxy_service = ksbh_core::proxy::ProxyService::new(
         config.clone(),
         storage,
         hosts,
@@ -31,9 +29,9 @@ pub fn create_service(
         sessions,
         modules,
         cookie_settings,
-    ));
+    );
 
-    let proxy_inner = pingora::proxy::http_proxy(&pingora_server_conf, proxy_wrapper);
+    let proxy_inner = pingora::proxy::http_proxy(&pingora_server_conf, proxy_service);
 
     let mut proxy =
         pingora::services::listening::Service::new("HttpProxy".to_string(), proxy_inner);

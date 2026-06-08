@@ -13,3 +13,8 @@ serde_json = { workspace = true }
 toml = "0.8"
 clap = { version = "4", features = ["derive"] }
 anyhow = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "sync", "macros", "process", "signal"] }
+reqwest = { workspace = true }
+testcontainers = { workspace = true }
+ctrlc = "3.4"
+rcgen = "0.13"

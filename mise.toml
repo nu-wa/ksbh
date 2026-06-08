@@ -261,6 +261,10 @@ cargo build --manifest-path crates/Cargo.toml -p ksbh-bench --bin ksbh-bench
 echo "All bench files passed syntax check"
 '''
 
+[tasks."bench:micro"]
+description = "Run criterion microbenchmarks for ksbh-core hot-path functions"
+run = "cargo bench --manifest-path crates/Cargo.toml -p ksbh-core --bench hot_path"
+
 [tasks."bench:smoke:upstream"]
 description = "Build the bench-upstream image and exercise its endpoints"
 run = '''
